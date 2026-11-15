@@ -226,6 +226,27 @@ test('many wrong guesses sent all at once still count towards the limit', async 
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from)).status, 429);
 });
 
+test('normally, the room password is needed (and the join screen shows its box)', async () => {
+  const s = await start();
+  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: false });
+  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 401, 'no room password: refused');
+});
+
+test('"public": true in config.json: no room password (not even set), but nicknames still have their own', async () => {
+  const s = await start({ config: { public: true, password: '' } });
+  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: true }, 'the join screen hides the room password box');
+  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 204, 'in, with no room password');
+  assert.equal((await join(s, { password: 'anything', name: 'Bob', own: 'secret2' })).status, 204);
+  assert.equal((await join(s, { name: 'alice', own: 'guess' })).status, 401, 'Alice\'s nickname still needs her password');
+  assert.match(fs.readFileSync(s.logFile, 'utf8'), /"public" is on: there's no room password/, 'the log says so');
+});
+
+test('"public" only turns on with exactly true ("yes" doesn\'t open the room by mistake)', async () => {
+  const s = await start({ config: { public: 'yes' } });
+  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: false });
+  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 401);
+});
+
 test('20 wrong passwords (room or own): that address is locked out, other visitors aren\'t', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });

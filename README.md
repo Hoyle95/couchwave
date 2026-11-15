@@ -43,8 +43,14 @@ Admin commands (log everyone out, delete an account, reset a password) and chat 
 Everything Couchwave saves is in `data/`: the queue, chat and history, the accounts (passwords scrambled,
 never stored as typed), the downloaded songs and the logs. **To back up, copy `data/`.**
 
-Settings are in `config.json`: the room password, the port, and `votePercent`, how many of the people
-online have to vote to skip a song or remove someone else's (60 by default, so 2 of 3 or 3 of 5).
+Settings are in `config.json`: the room password, the port, `votePercent` (how many of the people online
+have to vote to skip a song or remove someone else's: 60 by default, so 2 of 3 or 3 of 5), and `public`.
+
+> [!WARNING]
+> **Keep `public` set to `false`.** With `"public": true` there's no room password: anyone who finds your
+> address can join, chat, and add songs that **your computer then downloads**. Nicknames still have their
+> own passwords, but strangers can simply make up new ones. We strongly recommend never turning it on,
+> especially if Couchwave can be reached from the internet.
 
 ## Troubleshooting
 

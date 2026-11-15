@@ -523,7 +523,7 @@
     </fieldset>
     </form>
     <form id="roomForm" onsubmit="join(event)"><!-- Enter in the room password joins too -->
-    <fieldset class="joinGroup">
+    <fieldset class="joinGroup" id="roomGroup"><!-- hidden when the room is public (config.json "public") -->
       <legend>Room password</legend>
       <div class="pwWrap">
         <!-- marked for password managers to leave alone (it's the same for everyone, not your login) -->
@@ -741,6 +741,9 @@ const savePick = () => { try { localStorage.setItem('myPick', JSON.stringify(myP
 (async () => {
   setCookie('pw', '', 0); // older versions kept the password itself in a cookie: tidy it away
   if ((await fetch('/state').catch(() => null))?.ok) return enter(); // still logged in
+  // A public room (config.json "public": true) has no room password: hide that box.
+  const room = await fetch('/room').then(r => r.json()).catch(() => ({}));
+  if (room.public) { $('roomGroup').style.display = 'none'; $('pw').required = false; }
   $('name').value = getCookie('name');
   $('joinAvWrap').appendChild($('colorPop')); // the picture picker opens under the big picture until you've joined
   previewMe();

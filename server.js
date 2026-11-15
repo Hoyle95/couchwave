@@ -153,13 +153,13 @@ process.on('uncaughtException', err => {
 });
 
 // ---------- Settings ----------
-// config.json holds the room password, the port, and votePercent (see below). It's not in git. The first
-// run makes one with a random password, port 3000 and votePercent 60; change them there. Saving the file
-// restarts the server by itself when it's run with `node --watch` (start.cmd does).
+// config.json holds the room password, the port, votePercent and public (see below). It's not in git. The
+// first run makes one with a random password, port 3000, votePercent 60 and public false; change them there.
+// Saving the file restarts the server by itself when it's run with `node --watch` (start.cmd does).
 const CONFIG = path.join(__dirname, 'config.json');
 const DEFAULT_PORT = 3000, DEFAULT_VOTE_PERCENT = 60;
 if (!fs.existsSync(CONFIG)) {
-  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT };
+  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT, public: false };
   fs.writeFileSync(CONFIG, JSON.stringify(fresh, null, 2) + '\n');
   console.log(`No config.json yet: made one with the password "${fresh.password}" and port ${fresh.port}. Change them in config.json.`);
 }
@@ -169,7 +169,11 @@ let config;
 try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' + err.message); }
 const PORT = process.env.PORT || config.port || DEFAULT_PORT;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
-if (!PASSWORD) fatal('No password set: put one in config.json');
+// public: true = no room password: anyone who has the address can join (with a nickname and its own password,
+// so names are still protected). Not recommended: see the README. Only the exact value true turns it on.
+const PUBLIC = config.public === true;
+if (!PASSWORD && !PUBLIC) fatal('No password set: put one in config.json');
+if (PUBLIC) console.log('config.json: "public" is on: there\'s no room password, so anyone who has the address can join');
 // votePercent: how many of the people online (as a percentage, rounded up) have to vote to skip the song
 // playing, or to remove someone else's song from the queue. The DJ isn't a person, so it never counts.
 const VOTE_PERCENT = (() => {
@@ -966,6 +970,9 @@ http.createServer((req, res) => {
     return fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
   }
 
+  // For the join screen: whether the room is public (then it hides the room password box).
+  if (route === 'GET /room') return sendJson(res, { public: PUBLIC });
+
   // "Add to Home screen" / install as an app: the app description and its icons. Phones fetch these
   // without the password cookie, and there's nothing private in them.
   if (route === 'GET /manifest.json') {
@@ -1003,7 +1010,7 @@ http.createServer((req, res) => {
       let counted = true;
       const right = () => { if (counted) { counted = false; g.n = Math.max(0, g.n - 1); } }; // at most once
       try {
-        if (!same(password, PASSWORD)) return say(401, 'Wrong room password');
+        if (!PUBLIC && !same(password, PASSWORD)) return say(401, 'Wrong room password');
         name = cleanName(name);
         if (!name || RESERVED.has(nameKey(name))) { right(); return say(400, 'Pick a different nickname'); }
         if (mixedAlphabets(name)) { right(); return say(400, 'Use letters from one alphabet in your nickname'); }

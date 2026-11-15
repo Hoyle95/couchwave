@@ -19,6 +19,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   go once enough of the people online vote. The vote count shows on the button.
 - **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"). Whoever added the song can skip it straight
   away.
+- **`public` in config.json (not recommended)**: `"public": true` removes the room password, so anyone with
+  the address can join (nicknames still have their own passwords). Off by default; see the warning in the
+  README.
 - **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
   someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
 - **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
