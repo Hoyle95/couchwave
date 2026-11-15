@@ -1,5 +1,5 @@
 // The DJ (dj.js): off until "!dj on"; keeps up to 10 songs of its own queued, always after people's; anyone
-// can skip or delete them; "!dj off" takes them out. YouTube's Mix comes from the stand-in yt-dlp: for a
+// can delete them from the queue; skipping the one playing is a vote; "!dj off" leaves them queued. YouTube's Mix comes from the stand-in yt-dlp: for a
 // song, one by the same artist, two by other artists, and a full album and a jingle it should skip.
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -81,7 +81,7 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok(q.slice(firstDj).every(x => x.by === 'DJ'), 'then the DJ\'s');
   });
 
-  test('anyone can delete the DJ\'s songs, or skip one straight away; !dj off leaves the rest queued', async () => {
+  test('anyone can delete the DJ\'s queued songs; skipping the one playing is a vote; !dj off leaves the rest queued', async () => {
     const s = await start();
     await aliceSong(s, 'shrt_000004'); // 3 seconds: a DJ song plays next
     await say(s, 'Bob', '!dj on');
@@ -89,9 +89,13 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await s.post('/remove', { id: first.id }, { as: 'Cara' })).status, 204, 'Cara deletes it');
     assert.equal((await s.post('/undo', { id: first.id }, { as: 'Dan' })).status, 403, 'only Cara can undo that');
     const playing = await waitFor(async () => { const st = await s.state('Dan'); await s.state('Cara'); await s.state('Bob'); return st.current?.by === 'DJ' && st.current; }, 15000, 'a DJ song to play');
-    await s.post('/skip', { id: playing.id }, { as: 'Dan' }); // 3 people online, no vote needed
-    assert.notEqual((await s.state()).current?.id, playing.id, 'skipped');
-    assert.ok((await s.log()).some(l => l.startsWith(`Dan: skipped the DJ's song`)));
+    await s.post('/skip', { id: playing.id }, { as: 'Dan' });
+    const st = await s.state('Dan');
+    assert.equal(st.current?.id, playing.id, 'one vote isn\'t enough, even for the DJ\'s song');
+    assert.deepEqual(st.skip.voters, ['Dan']);
+    for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who }); // a majority of the people online
+    assert.notEqual((await s.state()).current?.id, playing.id, 'skipped by the vote');
+    assert.ok((await s.log()).some(l => /: skipped ".+" \(\d of \d voted\)$/.test(l)), 'logged as a vote');
     const before = (await djSongs(s)).length;
     assert.ok(before > 0, 'it has songs queued');
     await say(s, 'Bob', '!dj off');

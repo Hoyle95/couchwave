@@ -222,7 +222,7 @@ const wasDeleted = name => { const list = accounts(), key = nameKey(name); retur
 // Not allowed as nicknames: the activity log's own entries, the DJ's name, and names that would confuse object lookups.
 const RESERVED = new Set(['server', 'someone', 'dj', '__proto__', 'constructor', 'prototype']);
 let dj = null; // the DJ (dj.js), started further down (see "The DJ")
-const DJ_NAME = 'DJ'; // its songs go in under this name (reserved above): anyone can skip or delete them
+const DJ_NAME = 'DJ'; // its songs go in under this name (reserved above): anyone can delete them from the queue
 const isDjSong = item => !!item && item.by === DJ_NAME;
 // Scrambling a password takes a moment (that's the point: it makes guessing slow), so it runs in the
 // background rather than holding up everyone's video and chat.
@@ -725,7 +725,7 @@ setInterval(() => {
 // ---------- The DJ ----------
 // dj.js: plays something like what people have been asking for when the queue runs out, if someone has
 // typed "!dj on" in the chat. This is everything it can use. Its songs are queued as "DJ" (the name can't
-// be taken as a nickname), and anyone can skip or delete them straight away.
+// be taken as a nickname), and anyone can delete them from the queue (skipping the one playing is a vote).
 dj = require('./dj')({
   dataDir: DATA,
   writeAtomic,
@@ -1038,8 +1038,8 @@ http.createServer((req, res) => {
         arrived(who);
         if (current && id === undefined) { id = current.id; vote = !skipVotes.has(who); } // a page from before votes said which song
         if (current && id === current.id) { // a vote for a song that has already ended does nothing
-          if (vote !== false && (current.by === who || isDjSong(current))) { // your own song, or the DJ's: skipped straight away, no vote
-            addLog(who, `skipped ${isDjSong(current) ? 'the DJ\'s' : 'their'} song "${current.title}"`);
+          if (vote !== false && current.by === who) { // your own song: skipped straight away, no vote (the DJ's: a vote, like any other)
+            addLog(who, `skipped their song "${current.title}"`);
             advance();
           } else {
             if (vote === false) skipVotes.delete(who); else skipVotes.add(who);

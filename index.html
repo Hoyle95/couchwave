@@ -711,7 +711,7 @@ function rgbToHsv(r, g, b) {
 // Each nickname gets a colour: the exact one they picked (hex), or a stable one made from their name.
 // (Older picks were stored as a hue number; those still work.)
 let colors = {}, myName = '';
-const DJ_NAME = 'DJ'; // the DJ's songs (server.js / dj.js): anyone can skip or delete them
+const DJ_NAME = 'DJ'; // the DJ's songs (server.js / dj.js): anyone can delete them from the queue
 function autoHue(name) {
   if (typeof colors[name] === 'number') return colors[name];
   let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
@@ -1295,9 +1295,8 @@ function drawSkip(s) {
   const b = $('skipBtn');
   $('skipText').textContent = voters.length ? `${voters.length} out of ${people} voted to skip` : 'Skip';
   b.setAttribute('aria-pressed', votedSkip);
-  const mySong = s.current && s.current.by === myName, djSong = s.current && s.current.by === DJ_NAME;
+  const mySong = s.current && s.current.by === myName;
   b.title = mySong ? 'Your song: skip it straight away (no vote needed)'
-    : djSong ? 'The DJ\'s song: skip it straight away (no vote needed)'
     : votedSkip ? 'You voted to skip. Click to take your vote back'
     : people > 1 ? `Vote to skip this song (skips at ${s.skip.need} out of ${people})` : 'Skip this song';
   if (voters.length) b.title += '\nVoted: ' + voters.join(', ');

@@ -6,7 +6,8 @@
 //
 // Off until someone types "!dj on" in the chat; "!dj off" stops it adding songs (what it queued stays);
 // "!dj" says whether it's on. Its songs go in as "DJ", always after everyone else's (server.js), and anyone
-// can skip or delete them straight away. It remembers whether it's on in data/dj.json.
+// can delete them from the queue (skipping the one playing is a vote, as for anyone's). It remembers whether
+// it's on in data/dj.json.
 //
 // It only uses what server.js hands it (`app`, see "The DJ" there), so it can be changed or swapped out
 // without touching the rest.
@@ -54,7 +55,7 @@ module.exports = function startDj(app) {
         save();
         app.log(who, `turned the DJ ${want}`);
         if (on) {
-          app.say(NAME, `${FACE} DJ on! I'll keep up to ${KEEP_QUEUED} songs queued, like what you've been asking for, always after yours. Anyone can skip or delete mine. Type !dj off to stop me.`);
+          app.say(NAME, `${FACE} DJ on! I'll keep up to ${KEEP_QUEUED} songs queued, like what you've been asking for, always after yours. Anyone can delete mine from the queue. Type !dj off to stop me.`);
           tick();
         } else {
           // What it already queued stays, until someone deletes it.

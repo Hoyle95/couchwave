@@ -28,7 +28,7 @@ but Node.js, yt-dlp and ffmpeg. No sign-up emails, no database, no npm packages.
 - **Chat, reactions and who's online**, with emoji profile pictures and colours. Messages, votes and
   songs changing show up for everyone instantly.
 - **A DJ** to keep the music going: type `!dj on` in the chat and it keeps up to 10 songs queued, like
-  what people have been asking for, always after everyone else's (anyone can skip or delete them).
+  what people have been asking for, always after everyone else's (anyone can delete them from the queue).
   `!dj off` stops it. It's off until someone turns it on.
 - **History**: the last 100 songs played, with who asked for them and when, and their links to copy.
 - **Your own nickname**, with its own password, so nobody else can join as you.
