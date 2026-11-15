@@ -233,6 +233,7 @@
   .copy.done { color: var(--ok); border-color: var(--ok); }
   #queue .copy { width: 28px; height: 28px; }
   #queue .copy svg { width: 14px; height: 14px; }
+  #queue .copygap { width: 28px; flex: none; } /* where the copy button goes once a searched-for song is found */
   .retry { width: 28px; height: 28px; padding: 0; border-radius: 50%; flex: none; color: var(--accent); }
   .retry svg { width: 15px; height: 15px; }
   .retry:hover { border-color: var(--accent); }
@@ -288,6 +289,7 @@
   .badge.ready { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
   .badge.downloading { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); animation: pulse 1.4s ease-in-out infinite; }
   .badge.waiting { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
+  .badge.searching { color: var(--soft); background: var(--surface); border: 1px solid var(--border); animation: pulse 1.4s ease-in-out infinite; }
   .badge.failed { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
   @keyframes pulse { 50% { opacity: .45; } }
   .empty { color: var(--muted); padding: 10px; text-align: center; }
@@ -1444,7 +1446,7 @@ function drawChat() {
   chatDrawn = true;
   if (atBottom) c.scrollTop = c.scrollHeight; // follow new messages unless you scrolled up to read
 }
-const QUEUE_BADGE = { ready: 'Ready', downloading: 'Downloading', waiting: 'Waiting', failed: 'Failed' };
+const QUEUE_BADGE = { ready: 'Ready', downloading: 'Downloading', waiting: 'Waiting', failed: 'Failed', searching: 'Searching' };
 
 let pollSeq = 0, appliedSeq = 0;
 async function poll() {
@@ -1497,7 +1499,8 @@ async function poll() {
     <li data-id="${q.id}">
       <span class="grip" title="Drag to reorder">${icon('grip')}</span>
       <span class="num">${i + 1}</span>
-      <button class="ghost copy" data-url="${esc(q.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button>
+      ${q.url ? `<button class="ghost copy" data-url="${esc(q.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button>`
+        : '<span class="copygap" aria-hidden="true"></span>'}<!-- still searching: no link yet -->
       <span class="qtitle">${esc(q.title)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>` : ''}</span>
       <span class="by">${avatar(q.by)} ${esc(q.by)}</span>
       ${q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'

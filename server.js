@@ -435,10 +435,12 @@ function addSong(url, title, who) {
 // search results ("ytsearch3:daft punk"). Calls back with [{ id, duration, title, playlist }], playable ones only.
 function listSongs(target, max, cb) {
   const p = run('yt-dlp', [
+    '--encoding', 'utf-8', // (see download())
     '--flat-playlist', '--yes-playlist', '--playlist-end', String(max),
     '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', '--', target, // tab-separated: titles can contain anything else
   ]);
   let stdout = '', finished = false;
+  p.stdout.setEncoding('utf8'); // (a character split between two chunks still comes out whole)
   p.stdout.on('data', d => (stdout += d));
   p.stderr.on('data', d => logOut(d));
   const finish = () => {
@@ -472,16 +474,48 @@ function addPlaylist(link, who) {
 
 // A song name instead of a link: queue YouTube's top result. Looks at the top 3 and skips livestreams
 // (no length), which can't be played.
+// A "Searching for …" stand-in goes into the queue straight away, in its fair place, so songs stay in the
+// order they were asked for however long each search takes (and people see their request went in). It
+// turns into the song when the search is done, or goes if nothing was found. It can be dragged and deleted
+// like any song meanwhile; a search cut short by a restart starts again (see the startup code).
 function addSearch(query, who) {
-  addLog(who, `is searching for "${query}"…`);
-  const entry = log[log.length - 1];
-  listSongs(`ytsearch3:${query}`, 3, songs => {
-    const s = songs.find(s => s.duration > 0);
+  const item = addSong(null, `Searching for "${query}"…`, who);
+  Object.assign(item, { status: 'searching', query });
+  addLog(who, `is searching for "${query}"…`, item.id);
+  search(item);
+}
+
+// Which search result to queue. Livestreams (no length) can't be played. Of the rest, the one whose title has
+// the most of the words typed: YouTube's order varies from one search to the next, and its top result isn't
+// always the song asked for ("a-ha Take On Me" once came back with another a-ha song first). A tie goes to
+// YouTube's order.
+const words = text => new Set(String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) || []);
+function bestMatch(query, songs) {
+  const wanted = [...words(query)];
+  let best = null, bestScore = -1;
+  for (const s of songs) {
+    if (!(s.duration > 0)) continue;
+    const title = words(s.title), score = wanted.filter(w => title.has(w)).length;
+    if (score > bestScore) { best = s; bestScore = score; }
+  }
+  return best;
+}
+
+function search(item) {
+  listSongs(`ytsearch3:${item.query}`, 3, songs => {
+    const s = bestMatch(item.query, songs);
+    const entry = log.find(e => e.id === item.id && /^is searching/.test(e.text));
     if (s) {
-      const item = addSong(`https://www.youtube.com/watch?v=${s.id}`, s.title, who);
-      entry.text = `added "${s.title}"`;
-      entry.id = item.id;
-    } else entry.text = `couldn't find anything for "${query}"`;
+      Object.assign(item, { url: `https://www.youtube.com/watch?v=${s.id}`, title: s.title, status: 'waiting' });
+      if (entry) entry.text = `added "${s.title}"`;
+    } else {
+      // Nothing playable: the stand-in goes (from the queue, or from the deleted songs if it was deleted meanwhile).
+      const i = queue.indexOf(item);
+      if (i >= 0) queue.splice(i, 1);
+      trash.delete(item.id);
+      if (entry) entry.text = `couldn't find anything for "${item.query}"`;
+    }
+    delete item.query;
     logRev++;
     dirty = true;
     pump();
@@ -537,6 +571,9 @@ function download(item) {
   item.status = 'downloading';
   dirty = true;
   const p = run('yt-dlp', [
+    // Titles in UTF-8: on Windows yt-dlp otherwise prints in the old system code page, and anything outside
+    // it (a "–", accents, emoji, other alphabets) arrives as "�".
+    '--encoding', 'utf-8',
     '--no-playlist', '--playlist-items', '1', // a playlist link: just its first video
     '--no-progress', '--match-filter', '!is_live', // a livestream would download forever
     '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
@@ -544,6 +581,7 @@ function download(item) {
   ]);
   running.set(item.id, p);
   let stdout = '', stderr = '', done = false;
+  p.stdout.setEncoding('utf8'); // (a character split between two chunks still comes out whole)
   p.stdout.on('data', d => (stdout += d));
   p.stderr.on('data', d => { logOut(d); stderr = (stderr + d).slice(-4000); });
   // 'error' (yt-dlp missing) and 'close' can both fire: handle whichever comes first, once.
@@ -659,6 +697,8 @@ setInterval(() => {
 
 // After a restart: downloads that were cut off start again.
 for (const q of queue) if (q.status === 'downloading' || q.status === 'waiting') q.status = 'waiting';
+// ...and searches for a song name start again.
+for (const q of queue) if (q.status === 'searching' && q.query) search(q);
 pump();
 cleanup();
 setInterval(() => {
@@ -1029,7 +1069,8 @@ http.createServer((req, res) => {
           trash.delete(id);
           item.removed = false;
           // Downloaded: ready again straight away. Stopped mid-download: starts again. Failed: stays failed (retry button).
-          if (item.status !== 'failed' && !(item.status === 'ready' && item.file && fs.existsSync(item.file))) {
+          // (Still searching: stays searching, the search fills it in.)
+          if (item.status !== 'failed' && item.status !== 'searching' && !(item.status === 'ready' && item.file && fs.existsSync(item.file))) {
             Object.assign(item, { status: 'waiting', out: null, file: null, audio: null });
           }
           queue.splice(Math.min(index, queue.length), 0, item); // back where it was

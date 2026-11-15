@@ -32,14 +32,65 @@ test('not a YouTube link, or nothing at all: refused', async () => {
   assert.equal((await s.state()).queue.length, 0);
 });
 
-test('a song name: queues the top result that isn\'t a livestream', async () => {
+// (a found song's video id, from the stand-in yt-dlp: "1" + the words + 0s, see fakes/yt-dlp.js)
+const found = (q, words) => q && q.url && q.url.endsWith(('1' + words.replace(/\W/g, '') + '0000000000').slice(0, 11));
+
+test('a song name: queues the top result that isn\'t a livestream; nothing found: says so', async () => {
   const s = await start();
   await s.post('/add', { url: 'daft punk' });
-  const q = await waitFor(() => inQueue(s, () => true), 5000, 'the search');
-  assert.equal(q.title, 'daft punk - top result');
-  assert.ok((await s.log()).includes('Alice: added "daft punk - top result"'));
+  await waitFor(() => inQueue(s, q => found(q, 'daft punk')), 5000, 'the search');
+  assert.ok((await s.log()).some(l => /^Alice: added "(daft punk - top result|Song 1daftpunk00)"$/.test(l)));
   await s.post('/add', { url: 'nothing' });
   await waitFor(async () => (await s.log()).includes('Alice: couldn\'t find anything for "nothing"'), 5000, 'the empty search');
+  assert.equal((await s.state()).queue.length, 1, 'its "Searching" stand-in is gone');
+});
+
+test('a song name shows "Searching" in the queue straight away, and keeps its place (the order asked)', async () => {
+  const s = await start();
+  await s.post('/add', { url: 'slow one' }); // takes 1.5s to search
+  await s.post('/add', { url: 'fast two' }); // finds straight away
+  let q = (await s.state()).queue;
+  assert.equal(q[0].title, 'Searching for "slow one"…');
+  assert.equal(q[0].status, 'searching');
+  assert.equal(q[0].url, null, 'no link yet');
+  await waitFor(async () => (await s.state()).queue.every(x => x.status !== 'searching'), 5000, 'both searches');
+  q = (await s.state()).queue;
+  assert.ok(found(q[0], 'slow one') && found(q[1], 'fast two'), 'in the order asked, though "fast two" was found first: ' + q.map(x => x.url).join(', '));
+});
+
+test('a song name: the result whose title matches best, not just YouTube\'s first', async () => {
+  const s = await start();
+  await s.post('/add', { url: 'a-ha Take On Me' }); // YouTube puts another a-ha song first
+  const q = await waitFor(() => inQueue(s, x => x.status !== 'searching'), 5000, 'the search');
+  assert.ok(q.url.endsWith('aha_take001'), 'Take On Me, not The Sun Always Shines on T.V.: ' + q.url);
+});
+
+test('a "Searching" stand-in can be deleted (and undone) like any song', async () => {
+  const s = await start();
+  await s.post('/add', { url: 'slow gone' });
+  const q = await inQueue(s, () => true);
+  await s.post('/remove', { id: q.id });
+  await new Promise(r => setTimeout(r, 2500)); // the search finishes meanwhile
+  assert.equal((await s.state()).queue.length, 0, 'it doesn\'t come back by itself');
+  await s.post('/undo', { id: q.id });
+  await waitFor(() => inQueue(s, x => x.id === q.id && found(x, 'slow gone')), 5000, 'undo: back, as the song found');
+});
+
+test('a search cut short by a restart starts again', async () => {
+  const s = await start();
+  await s.post('/add', { url: 'slow restart' });
+  await new Promise(r => setTimeout(r, 300)); // saved
+  await s.restart();
+  const q = (await s.state()).queue[0];
+  assert.equal(q.status, 'searching');
+  await waitFor(() => inQueue(s, x => found(x, 'slow restart')), 6000, 'the search to finish after the restart');
+});
+
+test('titles with characters from outside English come through right (UTF-8)', async () => {
+  const s = await start();
+  await s.post('/add', { url: yt('uni_0000001') });
+  const q = await waitFor(() => inQueue(s, x => x.status === 'ready'), 5000, 'the download');
+  assert.equal(q.title, 'Café – Déjà Vu 🎵');
 });
 
 test('a playlist: every playable song (private ones skipped), or just the one if asked', async () => {

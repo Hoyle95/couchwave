@@ -41,6 +41,14 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 
 ### Changed
 
+- **Song names keep their place**: typing a song name puts "Searching for …" in the queue straight away, in
+  its turn, and it becomes the song once found. Before, several names added in a row went in whenever each
+  search finished, so they could end up out of order. A search cut short by a restart starts again.
+- **Better search matches**: of YouTube's top 3 results, the one whose title has the most of the words you
+  typed is queued, not just the first (YouTube's order varies, and "a-ha Take On Me" once gave a different
+  a-ha song).
+- **Titles with accents, dashes, emoji or other alphabets** now come through right on Windows, instead of
+  turning into "�".
 - **Only whoever added a song can delete it** from the queue (and undo deleting it). Other people's songs
   have no delete button, and the server refuses it too.
 - **Chat and page loads no longer stall while video plays**: songs are now sent to each viewer at a steady
