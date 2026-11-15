@@ -121,6 +121,75 @@ test('--forget-name: frees a nickname (a forgotten password); its old logins sto
   assert.match(r.stdout, /No nickname "nobody". Taken nicknames: .*Bob/);
 });
 
+test('the page is told who you are by the server, not by the name cookie', async () => {
+  const s = await start();
+  const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
+  const st = (await s.get('/state', { cookie: asCookie(alice, 'Bob') })).json;
+  assert.equal(st.me, 'Alice');
+});
+
+test('look-alike nicknames: invisible characters, other widths and mixed alphabets don\'t make a second "Alice"', async () => {
+  const s = await start();
+  await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
+  for (const name of ['Alice​', '​Alice', 'Ａｌｉｃｅ', 'Al­ice']) { // zero-width space, full-width letters, soft hyphen
+    const r = await join(s, { password: PASSWORD, name, own: 'other-pw' });
+    assert.equal(r.status, 401, JSON.stringify(name) + ' is Alice, so it needs her password');
+  }
+  assert.equal((await join(s, { password: PASSWORD, name: 'Ａｌｉｃｅ', own: 'secret1' })).status, 204, '...and with it, it\'s her');
+  const r = await join(s, { password: PASSWORD, name: 'Аlice', own: 'other-pw' }); // Cyrillic А
+  assert.equal(r.status, 400, 'a Cyrillic letter among Latin ones');
+  assert.equal((await join(s, { password: PASSWORD, name: 'Алиса', own: 'other-pw' })).status, 204, 'one alphabet is fine');
+});
+
+test('two people claiming the same new nickname at once: only one gets it', async () => {
+  const s = await start();
+  const [a, b] = await Promise.all([
+    join(s, { password: PASSWORD, name: 'Zed', own: 'first-pw' }, { 'CF-Connecting-IP': '1.1.1.1' }),
+    join(s, { password: PASSWORD, name: 'zed', own: 'second-pw' }, { 'CF-Connecting-IP': '2.2.2.2' }),
+  ]);
+  assert.deepEqual([a.status, b.status].sort(), [204, 401], `${a.status} ${a.text} / ${b.status} ${b.text}`);
+  const winner = a.status === 204 ? 'first-pw' : 'second-pw';
+  assert.equal((await join(s, { password: PASSWORD, name: 'Zed', own: winner })).status, 204, 'the winner\'s password works');
+  assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'accounts.json'), 'utf8'))).filter(k => k === 'zed').length, 1);
+});
+
+test('a broken or locked accounts file pauses logins, instead of letting anyone take any nickname', async () => {
+  const s = await start();
+  const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
+  const file = path.join(s.dir, 'data', 'accounts.json');
+  const good = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, good.slice(0, 20)); // e.g. a bad hand edit
+  assert.equal((await s.get('/state', { cookie: asCookie(alice) })).status, 200, 'logged-in people carry on (the last good copy)');
+  let r = await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' });
+  assert.equal(r.status, 503, 'no new nicknames meanwhile');
+  assert.match(r.text, /accounts file/);
+  assert.equal(fs.readFileSync(file, 'utf8'), good.slice(0, 20), 'the file is left alone (nothing wiped)');
+  // Started with it broken: nobody gets in, nobody can claim anything
+  await s.restart();
+  assert.equal((await s.get('/state', { cookie: asCookie(alice) })).status, 401);
+  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'new-pw' })).status, 503, 'Alice can\'t be claimed by someone else');
+  fs.writeFileSync(file, good); // fixed
+  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).status, 204, 'fixed: back to normal');
+  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' })).status, 204);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['alice', 'bob'], 'Alice\'s account survived');
+  assert.match(fs.readFileSync(path.join(s.dir, 'data', 'server.log'), 'utf8'), /Can't read .*accounts\.json/, 'the problem is in the server log');
+});
+
+test('--forget-name tidies up the name the same way joining does', async () => {
+  const s = await start();
+  await join(s, { password: PASSWORD, name: 'Big   Al', own: 'secret1' });
+  const out = execFileSync(process.execPath, ['server.js', '--forget-name', '  big al  '], { cwd: s.dir, encoding: 'utf8' });
+  assert.match(out, /"Big Al" is free/);
+});
+
+test('many wrong guesses sent all at once still count towards the limit', async () => {
+  const s = await start();
+  await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
+  const from = { 'CF-Connecting-IP': '9.9.9.9' };
+  await Promise.all(Array.from({ length: 25 }, (_, i) => join(s, { password: PASSWORD, name: 'Alice', own: 'guess' + i }, from)));
+  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from)).status, 429);
+});
+
 test('20 wrong passwords (room or own): that address is locked out, other visitors aren\'t', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });

@@ -37,14 +37,40 @@ if (process.argv.includes('--logout-everyone')) {
 // `node server.js --forget-name <name>`: frees a nickname, e.g. for a forgotten password. Whoever joins with
 // it next sets its new password; anyone logged in with it is logged out. Works while the server is running.
 const ACCOUNTS = path.join(DATA, 'accounts.json');
-const readAccounts = () => { try { return JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8')); } catch { return {}; } };
-function writeAccounts(list) {
-  fs.writeFileSync(ACCOUNTS + '.tmp', JSON.stringify(list, null, 1));
-  fs.renameSync(ACCOUNTS + '.tmp', ACCOUNTS); // rename so a crash mid-write can't corrupt it
+
+// Write a file safely: to a temporary file, then renamed over the real one, so a crash mid-write can't leave
+// it half-written. The temporary name is unique, so two writers (the server, --forget-name) can't clash.
+// Throws if it fails (e.g. antivirus locking the file for a moment on Windows).
+function writeAtomic(file, text) {
+  const tmp = `${file}.${process.pid}-${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try { fs.writeFileSync(tmp, text); fs.renameSync(tmp, file); }
+  catch (err) { fs.rm(tmp, { force: true }, () => {}); throw err; }
 }
+
+// The accounts. No file yet = no accounts yet. A file that can't be read (locked for a moment, or broken by
+// editing it by hand) throws instead of looking empty: otherwise every nickname would look free to claim,
+// and saving the next one would wipe out everyone else's.
+function readAccounts() {
+  let text;
+  try { text = fs.readFileSync(ACCOUNTS, 'utf8'); } catch (err) { if (err.code === 'ENOENT') return {}; throw err; }
+  const list = JSON.parse(text);
+  if (!list || typeof list !== 'object' || Array.isArray(list)) throw new Error('accounts.json should be a list of accounts');
+  return list;
+}
+const writeAccounts = list => writeAtomic(ACCOUNTS, JSON.stringify(list, null, 1));
+
+// Nicknames: spaces tidied up, look-alike characters made the same (NFKC: e.g. full-width letters) and
+// invisible ones removed (zero-width spaces...), so nobody can make a second "Alice" that looks the same.
+const cleanName = name => String(name || '').normalize('NFKC').replace(/[\p{Cf}\p{Cc}]/gu, '').trim().replace(/\s+/g, ' ').slice(0, 30);
+const nameKey = name => String(name).toLowerCase(); // nicknames ignore capitals: "matt" is "Matt"
+// Letters from more than one alphabet (a Cyrillic "А" in "Alice") would also make a look-alike.
+const mixedAlphabets = name => [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u].filter(r => r.test(name)).length > 1;
+
 if (process.argv.includes('--forget-name')) {
-  const name = String(process.argv[process.argv.indexOf('--forget-name') + 1] || '').trim();
-  const list = readAccounts(), key = name.toLowerCase();
+  const name = cleanName(process.argv[process.argv.indexOf('--forget-name') + 1]);
+  let list;
+  try { list = readAccounts(); } catch (err) { console.log(`Can't read ${ACCOUNTS}: ${err.message}`); process.exit(1); }
+  const key = nameKey(name);
   if (!name || !Object.hasOwn(list, key)) {
     console.log(`No nickname "${name}". Taken nicknames: ${Object.values(list).map(a => a.name).join(', ') || 'none yet'}`);
     process.exit(1);
@@ -139,18 +165,40 @@ const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
 const NAME_COOKIE = 'name=%s; Path=/; Max-Age=31536000; SameSite=Lax';
 
 // accounts.json: { "<nickname in lower case>": { name: as typed when it was claimed, salt, hash, created } }
-let accCache = { mtime: -2, list: {} };
+// Kept in memory, and re-read when the file changes (--forget-name). If it can't be read, the last good copy
+// is kept and `broken` says why: nobody can claim a nickname until it reads again (see readAccounts()).
+let accCache = { mtime: -2, list: {}, broken: null };
 function accounts() {
   let mtime = -1;
   try { mtime = fs.statSync(ACCOUNTS).mtimeMs; } catch {}
-  if (mtime !== accCache.mtime) accCache = { mtime, list: readAccounts() }; // re-read when it changes (--forget-name)
+  if (mtime !== accCache.mtime) {
+    try { accCache = { mtime, list: readAccounts(), broken: null }; }
+    catch (err) { // keep the last good copy; mtime unchanged, so it tries again next time
+      if (accCache.broken !== err.message) console.error(`Can't read ${ACCOUNTS}: ${err.message}`);
+      accCache.broken = err.message;
+    }
+  }
   return accCache.list;
 }
-const nameKey = name => String(name).toLowerCase();
-const account = name => (Object.hasOwn(accounts(), nameKey(name)) ? accounts()[nameKey(name)] : null);
+// Saves the accounts with one added, re-reading the file first so nothing written meanwhile is lost
+// (e.g. --forget-name). Returns false if someone claimed that nickname in the meantime. Throws if it can't save.
+function addAccount(acc) {
+  const list = readAccounts(), key = nameKey(acc.name);
+  if (Object.hasOwn(list, key)) return false;
+  list[key] = acc;
+  writeAccounts(list);
+  let mtime = -1;
+  try { mtime = fs.statSync(ACCOUNTS).mtimeMs; } catch {}
+  accCache = { mtime, list, broken: null }; // what was just written (not left to the mtime, which can be coarse)
+  return true;
+}
+const account = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) ? list[key] : null; };
 // Not allowed as nicknames: the activity log's own entries, and names that would confuse object lookups.
 const RESERVED = new Set(['server', 'someone', '__proto__', 'constructor', 'prototype']);
-const scramble = (password, salt) => crypto.scryptSync(String(password), salt, 32).toString('hex');
+// Scrambling a password takes a moment (that's the point: it makes guessing slow), so it runs in the
+// background rather than holding up everyone's video and chat.
+const scramble = (password, salt) => new Promise((ok, fail) =>
+  crypto.scrypt(String(password), salt, 32, (err, key) => (err ? fail(err) : ok(key.toString('hex')))));
 const MIN_OWN_PASSWORD = 4;
 
 // Login cookie: "<nickname, base64url>.<signature>". The signature covers the room password, the nickname
@@ -238,8 +286,7 @@ function save() {
     // can tell a quick restart from the server having been off). skip: the votes on the current song.
     const herePlus = Object.fromEntries([...here].map(n => [n, seen[n] || 0]));
     const skip = current ? { song: current.id, voters: [...skipVotes] } : null;
-    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: herePlus, skip }));
-    fs.renameSync(STATE + '.tmp', STATE); // rename so a crash mid-write can't corrupt state.json
+    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: herePlus, skip }));
   } catch (err) {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
     console.error('save failed:', err.message);
@@ -790,34 +837,49 @@ http.createServer((req, res) => {
     if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
     else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
     // { password: the room password, name: nickname, own: that nickname's own password }
-    return readJson(req, 2000, ({ password, name, own }) => {
-      const wrong = msg => { // counts towards the wrong-password limit
-        const g = fails.get(ip) || { n: 0, since: Date.now() }; g.n++; fails.set(ip, g);
-        res.writeHead(401); res.end(msg);
-      };
-      if (!same(password, PASSWORD)) return wrong('Wrong room password');
-      name = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
-      if (!name || RESERVED.has(nameKey(name))) { res.writeHead(400); return res.end('Pick a different nickname'); }
-      own = String(own || '');
-      let acc = account(name);
-      if (acc) {
-        if (!same(scramble(own, acc.salt), acc.hash)) return wrong(`"${acc.name}" is taken. If it's yours, that's not its password`);
-      } else {
-        if (own.length < MIN_OWN_PASSWORD) { res.writeHead(400); return res.end(`Choose a password for your nickname (at least ${MIN_OWN_PASSWORD} characters)`); }
-        // Someone from before accounts (or from the queue, chat...) with this name in other capitals: keep their
-        // spelling, so "lvj" claiming the name keeps LVJ's picture, songs and votes.
-        const known = [...Object.keys(colors), ...Object.keys(faces), ...here, ...queue.map(q => q.by), current && current.by]
-          .find(n => n && nameKey(n) === nameKey(name));
-        if (known) name = known;
-        const salt = crypto.randomBytes(16).toString('hex');
-        acc = { name, salt, hash: scramble(own, salt), created: Date.now() };
-        writeAccounts({ ...accounts(), [nameKey(name)]: acc });
+    return readJson(req, 2000, async ({ password, name, own }) => {
+      const say = (status, msg) => { res.writeHead(status); res.end(msg); };
+      // Every try counts towards the wrong-password limit straight away (so many at once can't slip past it
+      // while their passwords are being checked); a right one is taken off again.
+      const g = fails.get(ip) || { n: 0, since: Date.now() };
+      g.n++; fails.set(ip, g);
+      let counted = true;
+      const right = () => { if (counted) { counted = false; g.n = Math.max(0, g.n - 1); } }; // at most once
+      try {
+        if (!same(password, PASSWORD)) return say(401, 'Wrong room password');
+        name = cleanName(name);
+        if (!name || RESERVED.has(nameKey(name))) { right(); return say(400, 'Pick a different nickname'); }
+        if (mixedAlphabets(name)) { right(); return say(400, 'Use letters from one alphabet in your nickname'); }
+        own = String(own || '');
+        let acc = account(name);
+        if (accCache.broken) { right(); return say(503, 'Logins are paused: the server can\'t read its accounts file. Try again in a moment'); }
+        if (acc) {
+          if (!same(await scramble(own, acc.salt), acc.hash)) return say(401, `"${acc.name}" is taken. If it's yours, that's not its password`);
+        } else {
+          right();
+          if (own.length < MIN_OWN_PASSWORD) return say(400, `Choose a password for your nickname (at least ${MIN_OWN_PASSWORD} characters)`);
+          // Someone from before accounts (or from the queue, chat...) with this name in other capitals: keep their
+          // spelling, so "lvj" claiming the name keeps LVJ's picture, songs and votes.
+          const known = [...Object.keys(colors), ...Object.keys(faces), ...here, ...queue.map(q => q.by), current && current.by]
+            .find(n => n && nameKey(n) === nameKey(name));
+          if (known) name = known;
+          const salt = crypto.randomBytes(16).toString('hex');
+          acc = { name, salt, hash: await scramble(own, salt), created: Date.now() };
+          let added;
+          try { added = addAccount(acc); }
+          catch (err) { console.error('saving accounts failed:', err.message); return say(503, 'Couldn\'t save your nickname. Try again in a moment'); }
+          if (!added) return say(401, `"${name}" was just taken by someone else`); // claimed while this one was being set up
+        }
+        right();
+        res.writeHead(204, { 'Set-Cookie': [
+          AUTH_COOKIE.replace('%s', userToken(acc)).replace('%d', 31536000), // a year
+          NAME_COOKIE.replace('%s', encodeURIComponent(acc.name)), // as it was claimed: "matt" logs in as "Matt"
+        ] });
+        res.end();
+      } catch (err) {
+        console.error('login failed:', err.message);
+        if (!res.headersSent) say(500, 'Something went wrong. Try again');
       }
-      res.writeHead(204, { 'Set-Cookie': [
-        AUTH_COOKIE.replace('%s', userToken(acc)).replace('%d', 31536000), // a year
-        NAME_COOKIE.replace('%s', encodeURIComponent(acc.name)), // as it was claimed: "matt" logs in as "Matt"
-      ] });
-      res.end();
     });
   }
   if (route === 'POST /logout') {
@@ -836,7 +898,7 @@ http.createServer((req, res) => {
     case 'GET /state':
       seen[who] = Date.now();
       arrived(who);
-      return sendJson(res, state(url.searchParams));
+      return sendJson(res, { ...state(url.searchParams), me: who }); // me: who you're logged in as (the page goes by this)
 
     case 'GET /events': // instant updates (see nudge())
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });

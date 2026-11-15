@@ -1422,6 +1422,15 @@ async function poll() {
   if (seq < appliedSeq || asked < actionAt) return;
   appliedSeq = seq;
 
+  // Who I am, according to the server (it goes by the login cookie; the name cookie is only a first guess).
+  if (s.me && s.me !== myName) {
+    myName = s.me;
+    $('me').textContent = myName;
+    paintMe();
+    lastQueue = ''; // redraw what depends on it: delete buttons on my songs, Undo on my deletes
+    if (logList.length) drawLog();
+  }
+
   showReactions(s.reactions);
 
   // Profile pictures (keep my own unsaved preview while I'm dragging the slider)
