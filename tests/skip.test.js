@@ -33,7 +33,7 @@ describe('vote to skip', { concurrency: true }, () => {
     await vote(s, 'Bob', 1);
     assert.equal(await title(s), 'Song B', '2 of 3 skips');
     assert.deepEqual((await s.state()).skip.voters, [], 'the new song starts with no votes');
-    assert.ok((await s.log()).includes('Bob: skipped "Song A" (2 of 3 voted)'));
+    assert.ok((await s.log()).includes(': "Song A" was skipped (2 of 3 voted)'), 'logged with nobody\'s name (it was a group effort), not as Bob\'s, the deciding vote');
   });
 
   test('voting twice counts once, a vote can be taken back, and votes for an old song do nothing', async () => {

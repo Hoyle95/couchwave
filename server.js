@@ -685,10 +685,9 @@ function checkSkip() {
   if (!current) return;
   const people = online(), voters = people.filter(n => skipVotes.has(n));
   if (!voters.length || voters.length < votesNeeded(people.length)) return;
-  const last = [...skipVotes].filter(n => voters.includes(n)).pop(); // the vote that tipped it
-  addLog(last, people.length === 1
-    ? `skipped "${current.title}"`
-    : `skipped "${current.title}" (${voters.length} of ${people.length} voted)`);
+  // On your own, you skipped it; otherwise it was a group effort, so nobody's name goes on it.
+  if (people.length === 1) addLog(voters[0], `skipped "${current.title}"`);
+  else addLog('', `"${current.title}" was skipped (${voters.length} of ${people.length} voted)`);
   advance();
 }
 

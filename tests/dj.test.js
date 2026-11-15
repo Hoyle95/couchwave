@@ -126,7 +126,7 @@ describe('the DJ', { concurrency: true }, () => {
     assert.deepEqual(st.skip.voters, ['Dan']);
     for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who }); // a majority of the people online
     assert.notEqual((await s.state()).current?.id, playing.id, 'skipped by the vote');
-    assert.ok((await s.log()).some(l => /: skipped ".+" \(\d of \d voted\)$/.test(l)), 'logged as a vote');
+    assert.ok((await s.log()).some(l => /^: ".+" was skipped \(\d of \d voted\)$/.test(l)), 'logged as a vote');
     // (Counted after turning it off: while on, it may add another at any moment.)
     await say(s, 'Bob', '!dj off');
     const kept = (await djSongs(s)).length;

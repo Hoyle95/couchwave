@@ -1515,7 +1515,7 @@ function drawHistory() {
 
 function drawLog() {
   $('log').innerHTML = logList.slice().reverse().map(e =>
-    `<li><span class="time">${hhmm(e.t)}</span><span><b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
+    `<li><span class="time">${hhmm(e.t)}</span><span>${e.by ? `<b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ` : ''}${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
   ).join('') || '<li class="empty">Nothing yet</li>';
 }
 function drawChat() {
