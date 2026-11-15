@@ -120,10 +120,12 @@ let faces = {};        // nickname -> the emoji they picked for their profile pi
 const seen = {};       // nickname -> last time their page checked in
 
 // "joined" / "left" in the activity log. Someone has left once their page hasn't checked in for a minute
-// (so a reload or a phone briefly dropping out isn't logged), or straight away when they log out. Pages
-// already open when the server starts aren't announced as joining again.
+// (so a phone briefly dropping out isn't logged), about 10 seconds after they close the page (a reload
+// comes back sooner, so isn't logged), or straight away when they log out. Who's here is saved with the
+// rest of the state, so a restart neither forgets people (and misses their "left") nor re-announces them.
 const here = new Set();
-const LEAVE_AFTER = 60000, QUIET_UNTIL = Date.now() + 15000;
+const LEAVE_AFTER = 60000, CLOSED_AFTER = 10000;
+let QUIET_UNTIL = Date.now() + 15000; // state saved before "here" was: don't announce pages already open
 function arrived(who) {
   if (here.has(who)) return;
   here.add(who);
@@ -131,6 +133,7 @@ function arrived(who) {
 }
 function departed(who) { if (here.delete(who)) { addLog(who, 'left'); dirty = true; } }
 setInterval(() => { for (const who of here) if (Date.now() - (seen[who] || 0) > LEAVE_AFTER) departed(who); }, 5000);
+let wasHere = null;    // who was here when the server last stopped (loaded below)
 let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n = clicks in the bundle, cid = sending page
 let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
 // Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
@@ -142,9 +145,15 @@ const trash = new Map();   // id -> { item, index }  (index = where it was in th
 const UNDO_MS = 10 * 60 * 1000;
 
 try {
-  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {} } =
+  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {}, here: wasHere = null } =
     JSON.parse(fs.readFileSync(STATE, 'utf8')));
 } catch {}
+// People here before the restart: shown as offline until their page checks in again, and "left" if it
+// doesn't within the minute.
+if (Array.isArray(wasHere)) {
+  QUIET_UNTIL = 0;
+  for (const who of wasHere) if (typeof who === 'string') { here.add(who); seen[who] = Date.now() - 10000; }
+}
 for (const e of log) delete e.undo; // the trash does not survive a restart
 // Song files are found by name in data/downloads, wherever the data folder has been copied/moved to.
 for (const item of [current, ...queue]) {
@@ -158,7 +167,7 @@ let dirty = false;
 function save() {
   dirty = false;
   try {
-    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces }));
+    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: [...here] }));
     fs.renameSync(STATE + '.tmp', STATE); // rename so a crash mid-write can't corrupt state.json
   } catch (err) {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
@@ -417,6 +426,24 @@ function download(item) {
   p.on('close', finish);
 }
 
+// ---------- Vote to skip ----------
+// Skip is a vote: the song is skipped once more than half of the people online have voted (so on your
+// own, one click skips). Clicking again takes your vote back. Votes are for the current song only, and
+// only count while the voter is online, so someone leaving can tip the vote over.
+const skipVotes = new Set(); // nicknames, in the order they voted
+const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < 10000); };
+const skipNeeded = people => Math.floor(people / 2) + 1;
+function checkSkip() {
+  if (!current) return;
+  const people = online(), voters = people.filter(n => skipVotes.has(n));
+  if (!voters.length || voters.length < skipNeeded(people.length)) return;
+  const last = [...skipVotes].filter(n => voters.includes(n)).pop(); // the vote that tipped it
+  addLog(last, people.length === 1
+    ? `skipped "${current.title}"`
+    : `skipped "${current.title}" (${voters.length} of ${people.length} voted)`);
+  advance();
+}
+
 // ---------- Playback ----------
 const nextUp = () => queue.find(q => q.status === 'ready'); // the song that will play next
 
@@ -425,6 +452,7 @@ function advance(headStart = 0) {
   if (current) { fs.rm(current.file, () => {}); if (current.audio) fs.rm(current.audio, () => {}); }
   current = null;
   paused = false;
+  skipVotes.clear(); // a new song starts with no votes
   const idx = queue.findIndex(q => q.status === 'ready');
   if (idx >= 0) {
     current = queue.splice(idx, 1)[0];
@@ -439,6 +467,7 @@ function advance(headStart = 0) {
 // in the background, but allow carrying straight on), so by the time we advance here, the next song
 // has been playing for about the grace period already: start its clock from there, so nobody jumps back.
 setInterval(() => {
+  checkSkip(); // a voter may have come back, or someone who hadn't voted left
   if (!current) { if (nextUp()) advance(); }
   else if (!paused && elapsed() > current.duration + GRACE) advance(Math.min(elapsed() - current.duration, GRACE + 1));
   // Failed songs stay in the queue (with a retry button) until someone retries or deletes them;
@@ -494,6 +523,7 @@ const pub = i => i && { id: i.id, url: i.url, title: i.title, by: i.by, duration
 function state(q) {
   const now = Date.now();
   for (const n in seen) if (now - seen[n] > 3600000) delete seen[n]; // forget people gone for an hour
+  const users = online().sort((a, b) => a.localeCompare(b));
   const s = {
     current: pub(current),
     elapsed: current ? elapsed() : 0,
@@ -502,7 +532,8 @@ function state(q) {
     queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt })),
     colors, faces,
     reactions: reactions.filter(r => now - r.t < 6000),
-    users: Object.keys(seen).filter(n => now - seen[n] < 10000).sort((a, b) => a.localeCompare(b)),
+    users,
+    skip: { voters: users.filter(n => skipVotes.has(n)), need: skipNeeded(users.length) }, // vote to skip
     logRev, chatRev,
   };
   // `undo` (a song id) shows an Undo button on a "removed" entry, while that song can still be brought back.
@@ -512,14 +543,46 @@ function state(q) {
 }
 
 // ---------- HTTP helpers ----------
-function sendFile(req, res, file, type) {
+// Songs are sent at a steady pace rather than as fast as the connection allows. Browsers grab video as
+// fast as they can, and a few of them doing that fills the host's upload: then everything else (chat,
+// the page, the 2-second updates) gets stuck behind it, and through a Cloudflare Tunnel a reply can stall
+// for 10+ seconds. So each download gets its first PACE_BURST seconds of the song at full speed (songs and
+// seeks start straight away), then PACE_SPEEDUP times the song's own bitrate (the browser's buffer still
+// grows the whole time), and never less than PACE_MIN bytes a second.
+const PACE_BURST = 20, PACE_SPEEDUP = 3, PACE_MIN = 256 * 1024; // 256 KB/s = 2 Mbit/s
+
+// Pipe a file stream to the response: `burst` bytes straight away, then `rate` bytes a second.
+async function paced(stream, res, rate, burst) {
+  const t0 = Date.now();
+  let sent = 0;
+  res.on('close', () => stream.destroy()); // the viewer went away (closed, seeked, next song): stop reading
+  try {
+    for await (const chunk of stream) {
+      if (res.destroyed) break;
+      if (!res.write(chunk)) await new Promise(r => { res.once('drain', r); res.once('close', r); });
+      sent += chunk.length;
+      const wait = (sent - burst) / rate * 1000 - (Date.now() - t0);
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    }
+    res.end();
+  } catch { res.destroy(); }
+}
+
+// duration (seconds): pace the download to the song's bitrate (see above). Without it, send at full speed.
+function sendFile(req, res, file, type, duration) {
   fs.stat(file, (err, st) => {
     if (err) { res.writeHead(404); return res.end(); }
     const size = st.size;
+    const bitrate = duration > 0 ? size / duration : 0; // bytes per second of song
+    const send = (opts) => {
+      const stream = fs.createReadStream(file, opts);
+      if (!bitrate) return stream.on('error', () => res.destroy()).pipe(res);
+      paced(stream, res, Math.max(PACE_MIN, bitrate * PACE_SPEEDUP), bitrate * PACE_BURST);
+    };
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
     if (!m || (!m[1] && !m[2])) {
       res.writeHead(200, { 'Content-Type': type, 'Content-Length': size, 'Accept-Ranges': 'bytes' });
-      return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+      return send();
     }
     let start, end;
     if (!m[1]) { start = Math.max(0, size - +m[2]); end = size - 1; } // "bytes=-500" = the last 500 bytes
@@ -529,7 +592,7 @@ function sendFile(req, res, file, type) {
       'Content-Type': type, 'Accept-Ranges': 'bytes',
       'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1,
     });
-    fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+    send({ start, end });
   });
 }
 
@@ -642,6 +705,10 @@ http.createServer((req, res) => {
       arrived(who);
       return sendJson(res, state(url.searchParams));
 
+    case 'POST /bye': // the page was closed (or is reloading): offline now, "left" soon unless it checks in again
+      if (seen[who]) seen[who] = Math.min(seen[who], Date.now() - LEAVE_AFTER + CLOSED_AFTER);
+      res.writeHead(204); return res.end();
+
     case 'POST /add': // { url: a YouTube link or a song name to search for, playlist: true = queue the whole playlist }
       return readJson(req, 2000, ({ url: link, playlist }) => {
         link = String(link || '').trim();
@@ -657,9 +724,12 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /skip':
-      if (current) addLog(who, `skipped "${current.title}"`);
-      advance();
+    case 'POST /skip': // vote to skip the current song, or take the vote back (see checkSkip)
+      seen[who] = Date.now(); // counts as online, e.g. the lock-screen "next" button on a phone whose page has gone quiet
+      if (current) {
+        if (skipVotes.has(who)) skipVotes.delete(who); else skipVotes.add(who);
+        checkSkip();
+      }
       return done(res);
 
     case 'POST /pause':
@@ -786,8 +856,8 @@ http.createServer((req, res) => {
     const item = current && current.id === id ? current : queue.find(q => q.id === id && q.status === 'ready');
     if (!item) { res.writeHead(404); return res.end(); }
     // Audio: the audio-only copy (for playing with the screen off), or the mp4 itself if there isn't one.
-    if (media[1] === 'audio' && item.audio && fs.existsSync(item.audio)) return sendFile(req, res, item.audio, 'audio/mp4');
-    return sendFile(req, res, item.file, 'video/mp4');
+    if (media[1] === 'audio' && item.audio && fs.existsSync(item.audio)) return sendFile(req, res, item.audio, 'audio/mp4', item.duration);
+    return sendFile(req, res, item.file, 'video/mp4', item.duration);
   }
 
   res.writeHead(404); res.end();

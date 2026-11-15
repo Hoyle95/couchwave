@@ -15,10 +15,22 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 - **Joined / left in the activity log**: shows when someone opens the site and when they leave (after a
   minute without their page checking in, or straight away when they log out). Reloading the page or a
   short drop-out isn't logged, and people already there aren't re-announced when the server restarts.
+- **Vote to skip**: Skip is now a vote. Once someone clicks it, the button shows e.g. "1 out of 3 voted
+  to skip" for everyone, and the song is skipped when more than half of the people online have voted (on
+  your own, one click still skips). Click it again to take your vote back; hover over it to see who voted.
+  Votes start over with each song, and only count while the voter is online. The lock-screen "next"
+  button votes too.
 - **Log everyone out**: `node server.js --logout-everyone` makes everyone enter the password again,
   without changing it. Works while Couchwave is running.
 
 ### Changed
 
+- **Chat and page loads no longer stall while video plays**: songs are now sent to each viewer at a steady
+  pace (the first 20 seconds at full speed, so songs and seeks still start straight away, then 3× what the
+  video needs) instead of as fast as the connection allows. Several browsers grabbing video at full speed
+  filled the host's upload, and through a Cloudflare Tunnel that made chat messages and page loads hang for
+  10+ seconds.
+- **"Left" in the activity log** now shows about 10 seconds after someone closes the page (it was a
+  minute), and is no longer lost when the server restarts: who's here is now saved with everything else.
 - **Safer logins**: the join screen now sends the password once, and the server answers with a login
   cookie, so browsers no longer keep the password itself. Everyone has to log in once more after updating.

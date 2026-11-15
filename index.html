@@ -252,6 +252,7 @@
   .iconbtn { background: none; color: var(--soft); padding: 6px; border-radius: 8px; }
   .iconbtn:hover { filter: none; color: var(--fg); background: var(--surface2); }
   .controls .ghost { padding: 9px 14px; }
+  #skipBtn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); } /* you've voted to skip */
 
   /* Custom sliders: --p is the filled percentage, set from JS */
   input[type=range] {
@@ -528,7 +529,7 @@
           <button id="pp" onclick="togglePause()" title="Pause / play for everyone"></button>
           <span id="time">0:00 / 0:00</span>
           <input id="seek" type="range" min="0" max="0" step="0.1" value="0" title="Seek (for everyone)">
-          <button class="ghost" onclick="skip()" title="Skip for everyone"><svg><use href="#i-skip"/></svg> Skip</button>
+          <button id="skipBtn" class="ghost" onclick="skip()" aria-pressed="false" title="Vote to skip this song"><svg><use href="#i-skip"/></svg> <span id="skipText">Skip</span></button>
           <div class="vol" title="Your volume only">
             <button id="muteBtn" class="iconbtn" onclick="toggleMute()" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
             <input id="vol" type="range" min="0" max="1" step="0.01">
@@ -903,6 +904,9 @@ $('swatches').onclick = e => {
   if (b) apply(rgbToHsv(...hexToRgb(b.dataset.c)), { hex: b.dataset.c, save: true });
 };
 
+// Closing the page (or the tab): tell the server, so you're shown as offline and "left" in ~10 seconds
+// instead of a minute. A reload checks in again straight away, so it isn't logged.
+addEventListener('pagehide', () => { if (joined) navigator.sendBeacon('/bye'); });
 async function logout() { await fetch('/logout', { method: 'POST' }).catch(() => {}); location.reload(); }
 
 // Theme: follows the OS until you click the toggle, then remembers your choice.
@@ -1109,7 +1113,7 @@ drawAudioOnly();
 
 // ---- Lock screen / notification controls (Media Session) ----
 // Play/pause there only affect YOU (so unplugging headphones or a stray tap doesn't pause the whole room).
-// "Next" skips for everyone, same as the Skip button.
+// "Next" votes to skip, same as the Skip button (but never takes your vote back).
 function ytThumb(url) { const m = /(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/.exec(url || ''); return m ? `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg` : ''; }
 function setMediaSession(cur) {
   if (!('mediaSession' in navigator)) return;
@@ -1126,11 +1130,24 @@ if ('mediaSession' in navigator) {
   const handlers = {
     play: () => { heldLocally = false; if (!serverPaused) tryPlay(); },
     pause: () => { heldLocally = true; pauseBoth(); },
-    nexttrack: () => skip(),
+    nexttrack: () => { if (!votedSkip) skip(); },
   };
   for (const [action, fn] of Object.entries(handlers)) { try { ms.setActionHandler(action, fn); } catch {} }
 }
+// Skip is a vote: the song is skipped once more than half of the people online have voted.
+// Clicking again takes your vote back. The server sends who has voted with each update (drawSkip).
+let votedSkip = false;
 function skip() { post('/skip').then(poll); }
+function drawSkip(s) {
+  const voters = s.current ? s.skip.voters : [], people = s.users.length;
+  votedSkip = voters.includes(myName);
+  const b = $('skipBtn');
+  $('skipText').textContent = voters.length ? `${voters.length} out of ${people} voted to skip` : 'Skip';
+  b.setAttribute('aria-pressed', votedSkip);
+  b.title = votedSkip ? 'You voted to skip. Click to take your vote back'
+    : people > 1 ? `Vote to skip this song (skips at ${s.skip.need} out of ${people})` : 'Skip this song';
+  if (voters.length) b.title += '\nVoted: ' + voters.join(', ');
+}
 updatePP();
 
 // Pop-up for links that contain a playlist. Resolves to 'all', 'one', or null (cancelled).
@@ -1416,6 +1433,7 @@ async function poll() {
   $('userCount').textContent = s.users.length;
   const usersHtml = s.users.map(u => `<li>${avatar(u)} <span class="nm" style="color:${nameColor(u)}">${esc(u)}</span></li>`).join('');
   if (usersHtml !== lastUsers) { $('users').innerHTML = usersHtml; lastUsers = usersHtml; }
+  drawSkip(s);
 
   // Chat (same idea as the log). Ding for new messages from other people, not on first load or for my own.
   if (s.chat) {
