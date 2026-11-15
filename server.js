@@ -1,0 +1,735 @@
+// Couchwave: watch YouTube together with friends, on your own server. No npm packages needed.
+// Run: node server.js   then open http://localhost:3000   (the password is in config.json, see README.md)
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+
+// Everything the server saves goes in data/: the queue/chat/log (state.json), downloaded songs, log files.
+// Back it up by copying the folder. It's not in git.
+const DATA = path.join(__dirname, 'data');
+const DL = path.join(DATA, 'downloads');
+const STATE = path.join(DATA, 'state.json');
+const MAX_DOWNLOADS = 3; // at the same time; the rest wait their turn (in queue order)
+const PREFETCH = 20;     // the top this-many songs of the queue get downloaded ahead (so a big playlist doesn't
+                         // fill the disk). A song dragged into the top 20 is downloaded whatever is ready below.
+const PLAYLIST_MAX = 100; // songs taken from one playlist
+const GRACE = 2;         // seconds after a song ends before the server moves on (see the timer below)
+fs.mkdirSync(DL, { recursive: true });
+
+// ---------- Log file ----------
+// Everything the server prints goes to server.log, with timestamps. Once it passes LOG_MAX it's trimmed to
+// the newest LOG_KEEP (oldest lines dropped), so it never grows forever. Run by hand in a terminal, it also
+// prints there.
+const LOGFILE = path.join(DATA, 'server.log');
+const LOG_MAX = 5 * 1024 * 1024, LOG_KEEP = 2 * 1024 * 1024;
+let logStream = fs.createWriteStream(LOGFILE, { flags: 'a' });
+const stamp = () => new Date().toLocaleString('en-GB', { hour12: false }).replace(',', '');
+function logOut(text) {
+  text = String(text).replace(/\r/g, '');
+  const lines = text.split('\n').filter(l => l.trim()).map(l => `${stamp()}  ${l}\n`).join('');
+  if (!lines) return;
+  logStream.write(lines);
+  if (process.stdout.isTTY) process.stdout.write(lines);
+}
+console.log = (...a) => logOut(a.join(' '));
+console.error = (...a) => logOut(a.join(' '));
+function trimLog() {
+  try {
+    if (!fs.existsSync(LOGFILE)) return; // brand new: not even created yet
+    const size = fs.statSync(LOGFILE).size;
+    if (size <= LOG_MAX) return;
+    const buf = Buffer.alloc(LOG_KEEP), fd = fs.openSync(LOGFILE, 'r');
+    fs.readSync(fd, buf, 0, LOG_KEEP, size - LOG_KEEP);
+    fs.closeSync(fd);
+    const text = buf.toString('utf8');
+    const old = logStream, held = [];
+    logStream = { write: l => held.push(l) }; // lines printed mid-trim wait here, then go in after
+    old.end(() => {
+      try { fs.writeFileSync(LOGFILE, `---- ${stamp()}: older lines trimmed, keeping the newest ----\n` + text.slice(text.indexOf('\n') + 1)); } catch {}
+      logStream = fs.createWriteStream(LOGFILE, { flags: 'a' });
+      for (const l of held) logStream.write(l);
+    });
+  } catch (err) { logOut('log trim failed: ' + err.message); }
+}
+trimLog();
+setInterval(trimLog, 60 * 60 * 1000);
+// A crash: write it down before exiting (start.cmd restarts the server).
+process.on('uncaughtException', err => {
+  try { fs.appendFileSync(LOGFILE, `${stamp()}  CRASH ${err.stack || err}\n`); } catch {}
+  process.exit(1);
+});
+
+// ---------- Settings ----------
+// config.json holds the password and port. It's not in git. The first run makes one with a random
+// password and port 3000; change either there. Saving the file restarts the server by itself when
+// it's run with `node --watch` (start.cmd does).
+const CONFIG = path.join(__dirname, 'config.json');
+const DEFAULT_PORT = 3000;
+if (!fs.existsSync(CONFIG)) {
+  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT };
+  fs.writeFileSync(CONFIG, JSON.stringify(fresh, null, 2) + '\n');
+  console.log(`No config.json yet: made one with the password "${fresh.password}" and port ${fresh.port}. Change them in config.json.`);
+}
+// Can't start: say why (in the log and the console), then stop. With --watch, fixing config.json starts it again.
+const fatal = msg => { const l = `${stamp()}  ${msg}\n`; try { fs.appendFileSync(LOGFILE, l); } catch {} process.stderr.write(l); process.exit(1); };
+let config;
+try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' + err.message); }
+const PORT = process.env.PORT || config.port || DEFAULT_PORT;
+const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
+if (!PASSWORD) fatal('No password set: put one in config.json');
+
+// ---------- State ----------
+let nextId = 1;
+let queue = [];        // { id, url, title, by, status: 'waiting'|'downloading'|'ready'|'failed', duration, file, audio }
+let current = null;    // item currently playing
+let startedAt = 0;     // Date.now() when current started (shifted on seek/resume)
+let paused = false;
+let pausedAt = 0;      // position in seconds while paused
+let log = [];          // { t, by, text, id } newest last, capped at 200
+let chat = [];         // { t, by, text } newest last, capped at 200
+let colors = {};       // nickname -> '#rrggbb' they picked (older entries may be a hue number)
+let faces = {};        // nickname -> the emoji they picked for their profile picture (pages make one up otherwise)
+
+// Not saved:
+const seen = {};       // nickname -> last time their page checked in
+let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n = clicks in the bundle, cid = sending page
+let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
+// Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
+// changed: most polls are then tiny. Start from the clock so a restart never matches an old value.
+let logRev = Date.now(), chatRev = Date.now();
+const running = new Map(); // id -> yt-dlp process, for songs downloading right now
+// Deleted songs can be undone for 10 minutes (from the Activity log). Their files are kept until then.
+const trash = new Map();   // id -> { item, index }  (index = where it was in the queue)
+const UNDO_MS = 10 * 60 * 1000;
+
+try {
+  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {} } =
+    JSON.parse(fs.readFileSync(STATE, 'utf8')));
+} catch {}
+for (const e of log) delete e.undo; // the trash does not survive a restart
+// Song files are found by name in data/downloads, wherever the data folder has been copied/moved to.
+for (const item of [current, ...queue]) {
+  if (!item) continue;
+  for (const k of ['file', 'audio', 'out']) if (item[k]) item[k] = path.join(DL, path.basename(item[k]));
+}
+
+// Saving: changes people make are saved straight away (so a restart never loses a click);
+// background changes (downloads finishing, songs advancing) mark the state dirty and the 1s timer saves it.
+let dirty = false;
+function save() {
+  dirty = false;
+  try {
+    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces }));
+    fs.renameSync(STATE + '.tmp', STATE); // rename so a crash mid-write can't corrupt state.json
+  } catch (err) {
+    dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
+    console.error('save failed:', err.message);
+  }
+}
+
+const elapsed = () => (paused ? pausedAt : (Date.now() - startedAt) / 1000);
+const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+
+function addLog(by, text, id) {
+  log.push({ t: Date.now(), by, text, id });
+  if (log.length > 200) log.shift();
+  logRev++;
+}
+
+// Someone changed their profile picture. Several tweaks in a row (within a minute) are one log entry,
+// e.g. dragging around the colour wheel, or trying a few emojis.
+function logLook(who, text) {
+  const last = log[log.length - 1], kind = text.split(' ').slice(0, 3).join(' '); // "changed their colour/emoji"
+  if (last && last.by === who && last.text.startsWith(kind) && Date.now() - last.t < 60000) { last.t = Date.now(); last.text = text; logRev++; }
+  else addLog(who, text);
+}
+
+// ---------- Downloads ----------
+// Delete files no song refers to: played songs, and duplicates left by downloads a restart interrupted.
+// Files of downloads in progress (e.g. 5-123.mp4.part, 5-123.f137.mp4) are kept by matching their prefix.
+function cleanup() {
+  const keep = [current, ...queue, ...[...trash.values()].map(x => x.item)].filter(Boolean)
+    .map(q => (q.status === 'downloading' ? q.out : q.file))
+    .filter(Boolean).map(f => path.basename(f, '.mp4'));
+  for (const f of fs.readdirSync(DL)) {
+    if (!keep.some(k => f.startsWith(k))) fs.rm(path.join(DL, f), { force: true }, () => {}); // locked files retry next minute
+  }
+}
+
+// Downloads: the top PREFETCH songs of the queue get downloaded (so the disk doesn't fill up with a whole
+// playlist), MAX_DOWNLOADS at a time, highest in the queue first. If both slots are busy with songs lower
+// down than a waiting one (e.g. someone dragged a song to the top), the lowest is stopped and restarted
+// later, so the song nearer the top goes first. Called whenever a download finishes, a song is played,
+// or the queue changes.
+function pump() {
+  for (const [i, q] of queue.slice(0, PREFETCH).entries()) {
+    if (q.status !== 'waiting') continue;
+    if (running.size >= MAX_DOWNLOADS) {
+      const lowest = [...running.keys()].map(id => queue.find(x => x.id === id)).filter(Boolean)
+        .sort((a, b) => queue.indexOf(b) - queue.indexOf(a))[0];
+      if (!lowest || queue.indexOf(lowest) < i) break; // the slots are on songs above this one: wait your turn
+      stopDownload(lowest);
+    }
+    download(q);
+  }
+}
+
+// yt-dlp.exe on Windows is a launcher that starts the real downloader as a child process, so killing it alone
+// leaves the download running: kill the whole process tree.
+function killTree(proc) {
+  if (process.platform === 'win32') spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F']).on('error', () => proc.kill());
+  else proc.kill();
+}
+
+// Put a downloading song back to waiting (it starts again from scratch later; cleanup() clears its files).
+function stopDownload(item) {
+  const proc = running.get(item.id);
+  if (proc) killTree(proc);
+  running.delete(item.id);
+  item.out = null; // marks the old attempt as stale, so its exit is ignored
+  item.status = 'waiting';
+  dirty = true;
+}
+
+// Fair queue: people take turns. Someone's new song goes in their next "round" (their 1st song in the queue is
+// round 1, their 2nd round 2...): after every song from the same or an earlier round, so it never jumps ahead
+// of anyone who's waited longer, and one big playlist can't keep everyone else waiting. The song playing now
+// counts as its person's turn. Dragging songs around still works as before; new songs fit in around it.
+function fairIndex(who) {
+  const count = {};
+  if (current) count[current.by] = 1;
+  const round = queue.reduce((n, q) => n + (q.by === who), count[who] || 0) + 1; // the new song's round
+  let at = 0;
+  queue.forEach((q, i) => { count[q.by] = (count[q.by] || 0) + 1; if (count[q.by] <= round) at = i + 1; });
+  return at;
+}
+
+function addSong(url, title, who) {
+  const item = { id: nextId++, url, title, by: who, status: 'waiting' };
+  queue.splice(fairIndex(who), 0, item);
+  return item;
+}
+
+// Read songs from YouTube without downloading anything (takes a few seconds): a playlist's songs, or
+// search results ("ytsearch3:daft punk"). Calls back with [{ id, duration, title, playlist }], playable ones only.
+function listSongs(target, max, cb) {
+  const p = spawn('yt-dlp', [
+    '--flat-playlist', '--yes-playlist', '--playlist-end', String(max),
+    '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', '--', target, // tab-separated: titles can contain anything else
+  ]);
+  let stdout = '', finished = false;
+  p.stdout.on('data', d => (stdout += d));
+  p.stderr.on('data', d => logOut(d));
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    const songs = [];
+    for (const line of stdout.split('\n')) {
+      const [id, duration, title, playlist] = line.trim().split('\t');
+      if (!/^[\w-]{11}$/.test(id || '') || /^\[(Private|Deleted|Unavailable) video\]$/.test(title)) continue; // skip unplayable entries
+      songs.push({ id, duration: parseFloat(duration) || 0, title: title || id, playlist: playlist && playlist !== 'NA' ? playlist : '' });
+    }
+    cb(songs);
+  };
+  p.on('error', finish);
+  p.on('close', finish);
+}
+
+// A whole playlist: queue every song (each one fitted into the fair queue).
+function addPlaylist(link, who) {
+  addLog(who, 'is adding a playlist…');
+  const entry = log[log.length - 1];
+  listSongs(link, PLAYLIST_MAX, songs => {
+    for (const s of songs) addSong(`https://www.youtube.com/watch?v=${s.id}`, s.title, who);
+    const name = songs.length && songs[0].playlist, n = songs.length;
+    entry.text = n ? `added playlist${name ? ` "${name}"` : ''} (${n} song${n === 1 ? '' : 's'})` : `couldn't read the playlist ${link}`;
+    logRev++;
+    dirty = true;
+    pump();
+  });
+}
+
+// A song name instead of a link: queue YouTube's top result. Looks at the top 3 and skips livestreams
+// (no length), which can't be played.
+function addSearch(query, who) {
+  addLog(who, `is searching for "${query}"…`);
+  const entry = log[log.length - 1];
+  listSongs(`ytsearch3:${query}`, 3, songs => {
+    const s = songs.find(s => s.duration > 0);
+    if (s) {
+      const item = addSong(`https://www.youtube.com/watch?v=${s.id}`, s.title, who);
+      entry.text = `added "${s.title}"`;
+      entry.id = item.id;
+    } else entry.text = `couldn't find anything for "${query}"`;
+    logRev++;
+    dirty = true;
+    pump();
+  });
+}
+
+// Turn yt-dlp's error output into a short reason, and whether trying again could help.
+function failReason(err) {
+  // The last error line, without "ERROR: [youtube] <id>: " in front.
+  const msg = ((err.match(/ERROR: .*/g) || []).pop() || '').replace(/^ERROR: (\[\w+\] [\w-]+: )?/, '');
+  if (/confirm your age|age.restricted|inappropriate/i.test(msg)) return ['Age-restricted', true];
+  if (/private video/i.test(msg)) return ['Private video', true];
+  if (/unavailable|has been removed|not available|does not exist|terminated/i.test(msg)) return ['Unavailable', true];
+  if (/members.only|join this channel/i.test(msg)) return ['Members only', true];
+  if (/HTTP Error 403/i.test(msg)) return ['Blocked by YouTube (403)', false];
+  if (/HTTP Error 429|too many requests/i.test(msg)) return ['YouTube rate limit', false];
+  if (/not a bot/i.test(msg)) return ['YouTube bot check', false];
+  return [msg.slice(0, 80) || 'Download error', false];
+}
+
+// A download failed. Temporary problems (e.g. YouTube refusing one attempt) are retried automatically,
+// twice, 10s then 20s later; permanent ones (age-restricted, private...) stay failed until someone retries.
+function failed(item, reason, permanent) {
+  item.status = 'failed';
+  item.error = reason;
+  item.tries = (item.tries || 0) + 1;
+  if (!permanent && item.tries <= 2) { item.retryAt = Date.now() + 10000 * item.tries; return; } // silent: it'll try again
+  item.retryAt = null;
+  addLog(item.by, `couldn't download "${item.title}" (${reason})`);
+}
+
+// Length of a downloaded file in seconds (0 if it can't be read). For the odd video whose length
+// YouTube doesn't report: without one, the server would move on 2 seconds into the song.
+function probeDuration(file, cb) {
+  const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]);
+  let out = '', fin = false;
+  const end = () => { if (fin) return; fin = true; cb(parseFloat(out) || 0); };
+  p.stdout.on('data', d => (out += d));
+  p.on('error', end);
+  p.on('close', end);
+}
+
+// Try a failed song again (the retry button).
+function retry(item) {
+  Object.assign(item, { status: 'waiting', tries: 0, error: null, retryAt: null });
+  dirty = true;
+}
+
+function download(item) {
+  // Unique name per attempt, so a download left running by an old server can't clash with a new one.
+  const out = path.join(DL, `${item.id}-${Date.now()}.mp4`);
+  item.out = out;
+  item.status = 'downloading';
+  dirty = true;
+  const p = spawn('yt-dlp', [
+    '--no-playlist', '--playlist-items', '1', // a playlist link: just its first video
+    '--no-progress', '--match-filter', '!is_live', // a livestream would download forever
+    '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
+    '-o', out, '--print', 'after_move:%(duration)s|%(title)s', '--', item.url,
+  ]);
+  running.set(item.id, p);
+  let stdout = '', stderr = '', done = false;
+  p.stdout.on('data', d => (stdout += d));
+  p.stderr.on('data', d => { logOut(d); stderr = (stderr + d).slice(-4000); });
+  // 'error' (yt-dlp missing) and 'close' can both fire: handle whichever comes first, once.
+  const finish = code => {
+    if (done) return;
+    done = true;
+    // Deleted from the queue, or stopped to make way for a song moved to the top: ignore this attempt
+    // (cleanup() clears its files).
+    if (item.removed || item.out !== out) return pump();
+    running.delete(item.id);
+    dirty = true;
+    const line = stdout.trim().split('\n').pop() || '';
+    const i = line.indexOf('|');
+    if (code !== 0 || i < 0) {
+      // Exit code 0 with no output = filtered out by --match-filter, i.e. a livestream.
+      if (code === 0) failed(item, "Livestreams aren't supported", true);
+      else failed(item, ...failReason(stderr));
+      return pump();
+    }
+    item.error = null; item.tries = 0;
+    item.duration = parseFloat(line.slice(0, i)) || 0;
+    item.title = line.slice(i + 1);
+    const entry = log.find(e => e.id === item.id);
+    if (entry) { entry.text = `added "${item.title}"`; logRev++; } // swap the link for the real title
+    item.file = out;
+    // Copy the audio track into its own small file (no re-encoding, takes a second or two).
+    // Phones pause <video> when the screen locks but keep <audio> playing, so pages play sound from this.
+    const audio = out.replace(/\.mp4$/, '.m4a');
+    const f = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-vn', '-c:a', 'copy', audio]);
+    let fDone = false;
+    const ready = ok => {
+      if (fDone) return;
+      fDone = true;
+      if (item.out !== out) return; // stopped (made way for another song) while the audio was being copied
+      // (if it was deleted meanwhile, still mark it ready: it's in the trash, and Undo brings it back ready)
+      if (ok) item.audio = audio;
+      const isReady = () => {
+        if (item.out !== out) return;
+        if (!item.duration) { failed(item, "Couldn't read the video length", true); return pump(); }
+        item.status = 'ready';
+        dirty = true;
+        pump(); // a 'downloading' slot in the top songs just became 'ready'
+      };
+      if (item.duration) isReady();
+      else probeDuration(out, d => { item.duration = d; isReady(); });
+    };
+    f.stderr.on('data', d => logOut(d));
+    f.on('error', () => ready(false)); // no ffmpeg: /audio falls back to the video file
+    f.on('close', c => ready(c === 0));
+    pump();
+  };
+  p.on('error', () => finish(-1));
+  p.on('close', finish);
+}
+
+// ---------- Playback ----------
+const nextUp = () => queue.find(q => q.status === 'ready'); // the song that will play next
+
+// headStart: seconds the next song has already been playing on people's pages (see the timer below).
+function advance(headStart = 0) {
+  if (current) { fs.rm(current.file, () => {}); if (current.audio) fs.rm(current.audio, () => {}); }
+  current = null;
+  paused = false;
+  const idx = queue.findIndex(q => q.status === 'ready');
+  if (idx >= 0) {
+    current = queue.splice(idx, 1)[0];
+    startedAt = Date.now() - headStart * 1000;
+  }
+  dirty = true;
+  pump(); // one fewer song ready ahead: room to download another
+}
+
+// Every second: move on when the current song is over (+ GRACE seconds).
+// Pages switch to the next song by themselves the moment a song ends (phones block starting audio
+// in the background, but allow carrying straight on), so by the time we advance here, the next song
+// has been playing for about the grace period already: start its clock from there, so nobody jumps back.
+setInterval(() => {
+  if (!current) { if (nextUp()) advance(); }
+  else if (!paused && elapsed() > current.duration + GRACE) advance(Math.min(elapsed() - current.duration, GRACE + 1));
+  // Failed songs stay in the queue (with a retry button) until someone retries or deletes them;
+  // temporary failures retry by themselves when due.
+  // Deleted songs past their 10 minutes: gone for good (the Undo button disappears, cleanup() takes the files).
+  for (const [id, { t }] of trash) if (Date.now() - t > UNDO_MS) { trash.delete(id); logRev++; }
+  const due = queue.filter(q => q.status === 'failed' && q.retryAt && Date.now() >= q.retryAt);
+  for (const q of due) { q.status = 'waiting'; q.retryAt = null; dirty = true; }
+  if (due.length) pump();
+  if (dirty) save();
+}, 1000);
+
+// After a restart: downloads that were cut off start again.
+for (const q of queue) if (q.status === 'downloading' || q.status === 'waiting') q.status = 'waiting';
+pump();
+cleanup();
+setInterval(() => {
+  cleanup();
+  for (const [ip, f] of fails) if (Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
+}, 60 * 1000);
+
+// ---------- Keeping yt-dlp up to date ----------
+// YouTube changes things often and an old yt-dlp is the usual reason downloads start failing (e.g. 403 errors).
+// "yt-dlp -U" checks GitHub for the newest release, verifies it and swaps it in. Run a minute after startup,
+// then daily; it waits until no downloads are running.
+let ytdlpVersion = '';
+function updateYtdlp() {
+  if (running.size) return setTimeout(updateYtdlp, 5 * 60 * 1000); // busy: try again in 5 minutes
+  const p = spawn('yt-dlp', ['-U']);
+  let out = '', fin = false;
+  p.stdout.on('data', d => (out += d));
+  p.stderr.on('data', d => (out += d));
+  const end = () => {
+    if (fin) return;
+    fin = true;
+    // yt-dlp says e.g. "Updated yt-dlp to stable@2026.11.20 from yt-dlp/yt-dlp"
+    //              or "yt-dlp is up to date (stable@2026.10.26 from yt-dlp/yt-dlp)"
+    const updated = /Updated yt-dlp to:?\s*(?:\S*@)?([\d.]+)/i.exec(out);
+    const current = /up to date \((?:\S*@)?([\d.]+)/i.exec(out);
+    if (updated) { ytdlpVersion = updated[1]; addLog('server', `updated yt-dlp to ${ytdlpVersion}`); dirty = true; }
+    else if (current) ytdlpVersion = current[1];
+    logOut('yt-dlp update check: ' + (out.trim().split('\n').pop() || 'no output'));
+  };
+  p.on('error', end);
+  p.on('close', end);
+}
+setTimeout(updateYtdlp, 60 * 1000);
+setInterval(updateYtdlp, 24 * 60 * 60 * 1000);
+
+// ---------- What pages see ----------
+const pub = i => i && { id: i.id, url: i.url, title: i.title, by: i.by, duration: i.duration };
+
+function state(q) {
+  const now = Date.now();
+  for (const n in seen) if (now - seen[n] > 3600000) delete seen[n]; // forget people gone for an hour
+  const s = {
+    current: pub(current),
+    elapsed: current ? elapsed() : 0,
+    paused,
+    next: pub(nextUp()),
+    queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt })),
+    colors, faces,
+    reactions: reactions.filter(r => now - r.t < 6000),
+    users: Object.keys(seen).filter(n => now - seen[n] < 10000).sort((a, b) => a.localeCompare(b)),
+    logRev, chatRev,
+  };
+  // `undo` (a song id) shows an Undo button on a "removed" entry, while that song can still be brought back.
+  if (q.get('log') !== String(logRev)) s.log = log.map(({ t, by, text, undo }) => ({ t, by, text, undo: trash.has(undo) ? undo : undefined }));
+  if (q.get('chat') !== String(chatRev)) s.chat = chat;
+  return s;
+}
+
+// ---------- HTTP helpers ----------
+function sendFile(req, res, file, type) {
+  fs.stat(file, (err, st) => {
+    if (err) { res.writeHead(404); return res.end(); }
+    const size = st.size;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (!m || (!m[1] && !m[2])) {
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': size, 'Accept-Ranges': 'bytes' });
+      return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    }
+    let start, end;
+    if (!m[1]) { start = Math.max(0, size - +m[2]); end = size - 1; } // "bytes=-500" = the last 500 bytes
+    else { start = +m[1]; end = m[2] ? Math.min(+m[2], size - 1) : size - 1; }
+    if (start >= size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); return res.end(); }
+    res.writeHead(206, {
+      'Content-Type': type, 'Accept-Ranges': 'bytes',
+      'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1,
+    });
+    fs.createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
+  });
+}
+
+function sendJson(res, obj) {
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(obj));
+}
+
+// A change someone made: save it now, reply with no content (pages poll for the new state).
+function done(res) { save(); res.writeHead(204); res.end(); }
+
+function readJson(req, max, cb) {
+  let body = '';
+  req.on('data', d => { body += d; if (body.length > max) req.destroy(); });
+  req.on('end', () => { let data; try { data = JSON.parse(body); } catch {} cb(data && typeof data === 'object' ? data : {}); });
+}
+
+function parseCookies(header) {
+  return Object.fromEntries((header || '').split(';').map(c => {
+    const i = c.indexOf('=');
+    try { return [c.slice(0, i).trim(), decodeURIComponent(c.slice(i + 1).trim())]; } catch { return ['', '']; }
+  }));
+}
+
+// Wrong-password limit: 20 tries per 15 minutes per address. Behind the Cloudflare tunnel every request
+// comes from localhost, so use the visitor address Cloudflare passes along.
+const fails = new Map(); // ip -> { n, since }
+const FAIL_WINDOW = 15 * 60 * 1000, FAIL_MAX = 20;
+const ipOf = req => req.headers['cf-connecting-ip'] || req.socket.remoteAddress;
+
+// Installing the site as a phone/desktop app. Icons are in icons/ (made from icons/icon.svg).
+const MANIFEST = JSON.stringify({
+  name: 'Couchwave', short_name: 'Couchwave', start_url: '/', scope: '/', display: 'standalone',
+  background_color: '#0c0c11', theme_color: '#0c0c11',
+  icons: [
+    { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }, // Android's shaped icons
+  ],
+});
+
+// ---------- Routes ----------
+http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x');
+  const route = req.method + ' ' + url.pathname;
+
+  if (route === 'GET /') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+    return fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
+  }
+
+  // "Add to Home screen" / install as an app: the app description and its icons. Phones fetch these
+  // without the password cookie, and there's nothing private in them.
+  if (route === 'GET /manifest.json') {
+    res.writeHead(200, { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-cache' });
+    return res.end(MANIFEST);
+  }
+  const icon = /^\/icons\/([\w-]+\.png)$/.exec(url.pathname);
+  if (req.method === 'GET' && icon) {
+    const file = path.join(__dirname, 'icons', icon[1]);
+    if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=86400' });
+    return fs.createReadStream(file).pipe(res);
+  }
+  // The font (Inter, from Google Fonts, kept in fonts/ so pages never contact Google). The join screen uses it too.
+  const font = /^\/fonts\/([\w-]+\.woff2)$/.exec(url.pathname);
+  if (req.method === 'GET' && font) {
+    const file = path.join(__dirname, 'fonts', font[1]);
+    if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'Content-Type': 'font/woff2', 'Cache-Control': 'max-age=2592000' });
+    return fs.createReadStream(file).pipe(res);
+  }
+
+  // Everything else needs the password cookie (set by the join screen).
+  const ip = ipOf(req), f = fails.get(ip);
+  if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
+  else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
+  const cookies = parseCookies(req.headers.cookie);
+  if (cookies.pw !== PASSWORD) {
+    if (cookies.pw) { const g = fails.get(ip) || { n: 0, since: Date.now() }; g.n++; fails.set(ip, g); }
+    res.writeHead(401); return res.end('Wrong password');
+  }
+  let who = (cookies.name || '').trim().slice(0, 30) || 'someone';
+  if (who === '__proto__' || who === 'constructor' || who === 'prototype') who = 'someone'; // would confuse object lookups
+
+  switch (route) {
+    case 'GET /state':
+      seen[who] = Date.now();
+      return sendJson(res, state(url.searchParams));
+
+    case 'POST /add': // { url: a YouTube link or a song name to search for, playlist: true = queue the whole playlist }
+      return readJson(req, 2000, ({ url: link, playlist }) => {
+        link = String(link || '').trim();
+        if (!link) { res.writeHead(400); return res.end('Paste a YouTube link or type a song name'); }
+        if (!/^https?:\/\//i.test(link)) { addSearch(link.slice(0, 150), who); return done(res); }
+        if (!/^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//.test(link)) {
+          res.writeHead(400); return res.end('Not a YouTube link');
+        }
+        if (playlist === true && /[?&]list=/.test(link)) { addPlaylist(link, who); return done(res); }
+        const item = addSong(link, link, who);
+        addLog(who, `added ${link}`, item.id);
+        pump();
+        done(res);
+      });
+
+    case 'POST /skip':
+      if (current) addLog(who, `skipped "${current.title}"`);
+      advance();
+      return done(res);
+
+    case 'POST /pause':
+      if (current && !paused) { pausedAt = elapsed(); paused = true; addLog(who, `paused at ${fmt(pausedAt)}`); }
+      return done(res);
+
+    case 'POST /play':
+      if (paused) { startedAt = Date.now() - pausedAt * 1000; paused = false; addLog(who, 'resumed'); }
+      return done(res);
+
+    case 'POST /seek':
+      return readJson(req, 200, ({ t }) => {
+        if (current) {
+          t = Math.max(0, Math.min(Number(t) || 0, current.duration));
+          if (paused) pausedAt = t; else startedAt = Date.now() - t * 1000;
+          addLog(who, `jumped to ${fmt(t)}`);
+        }
+        done(res);
+      });
+
+    case 'POST /move': // drag-to-reorder the queue: { id, to } (to = new 0-based index)
+      return readJson(req, 200, ({ id, to }) => {
+        const from = queue.findIndex(q => q.id === id);
+        to = Math.max(0, Math.min(Math.round(Number(to)) || 0, queue.length - 1));
+        if (from >= 0 && to !== from) {
+          const [item] = queue.splice(from, 1);
+          queue.splice(to, 0, item);
+          addLog(who, `moved "${item.title}" to #${to + 1}`);
+          pump(); // a waiting song moved up may now be next to download
+        }
+        done(res);
+      });
+
+    case 'POST /remove': // delete a song from the queue: { id }
+      return readJson(req, 200, ({ id }) => {
+        const i = queue.findIndex(q => q.id === id);
+        if (i >= 0) {
+          const [item] = queue.splice(i, 1);
+          item.removed = true;
+          if (running.has(item.id)) stopDownload(item); // still downloading: stop it, free its slot now
+          trash.set(item.id, { item, index: i, t: Date.now() }); // files kept for 10 minutes, in case of undo
+          addLog(who, `removed "${item.title}"`);
+          log[log.length - 1].undo = item.id;
+          pump(); // its download slot is free for the next waiting song
+        }
+        done(res);
+      });
+
+    case 'POST /undo': // bring back a deleted song: { id }
+      return readJson(req, 200, ({ id }) => {
+        const entry = trash.get(id);
+        if (entry) {
+          const { item, index } = entry;
+          trash.delete(id);
+          item.removed = false;
+          // Downloaded: ready again straight away. Stopped mid-download: starts again. Failed: stays failed (retry button).
+          if (item.status !== 'failed' && !(item.status === 'ready' && item.file && fs.existsSync(item.file))) {
+            Object.assign(item, { status: 'waiting', out: null, file: null, audio: null });
+          }
+          queue.splice(Math.min(index, queue.length), 0, item); // back where it was
+          for (const e of log) if (e.undo === id) delete e.undo;
+          addLog(who, `restored "${item.title}"`);
+          pump();
+        }
+        done(res);
+      });
+
+    case 'POST /retry': // try a failed song again: { id }
+      return readJson(req, 200, ({ id }) => {
+        const item = queue.find(q => q.id === id && q.status === 'failed');
+        if (item) { retry(item); addLog(who, `retried "${item.title}"`); pump(); }
+        done(res);
+      });
+
+    case 'POST /chat':
+      return readJson(req, 2000, ({ text }) => {
+        text = String(text || '').trim().slice(0, 500);
+        if (text) {
+          chat.push({ t: Date.now(), by: who, text });
+          if (chat.length > 200) chat.shift();
+          chatRev++;
+        }
+        done(res);
+      });
+
+    // Profile picture: { color: '#rrggbb' } / { face: emoji }. quiet = sent while joining (the picture they set
+    // up on the join screen), which isn't news for the log.
+    case 'POST /color':
+      return readJson(req, 200, ({ color, quiet }) => {
+        color = String(color || '').toLowerCase();
+        if (/^#[0-9a-f]{6}$/.test(color) && colors[who] !== color) {
+          colors[who] = color;
+          if (!quiet) logLook(who, 'changed their colour');
+        }
+        done(res);
+      });
+
+    case 'POST /face':
+      return readJson(req, 200, ({ face, quiet }) => {
+        face = String(face || '');
+        if (face.length <= 16 && /\p{Extended_Pictographic}/u.test(face) && !/[<>&"'\s]/.test(face) && faces[who] !== face) {
+          faces[who] = face;
+          if (!quiet) logLook(who, `changed their emoji to ${face}`);
+        }
+        done(res);
+      });
+
+    case 'POST /react': // { e: emoji, n: clicks, cid: page id }. Spammy, so it isn't saved or logged.
+      return readJson(req, 300, r => {
+        const e = String(r.e || '');
+        if (e.length <= 16 && /\p{Extended_Pictographic}/u.test(e) && !/[<>&"']/.test(e)) {
+          const now = Date.now();
+          reactions.push({ id: ++reactId, t: now, e, n: Math.max(1, Math.min(50, Math.round(Number(r.n)) || 1)), cid: String(r.cid || '').slice(0, 20) });
+          reactions = reactions.filter(x => now - x.t < 8000).slice(-300);
+        }
+        res.writeHead(204); res.end();
+      });
+  }
+
+  // Media for the current song, or the next ready one (pages start it the instant the current one ends).
+  const media = /^\/(video|audio)\/(\d+)$/.exec(url.pathname);
+  if (req.method === 'GET' && media) {
+    const id = +media[2];
+    const item = current && current.id === id ? current : queue.find(q => q.id === id && q.status === 'ready');
+    if (!item) { res.writeHead(404); return res.end(); }
+    // Audio: the audio-only copy (for playing with the screen off), or the mp4 itself if there isn't one.
+    if (media[1] === 'audio' && item.audio && fs.existsSync(item.audio)) return sendFile(req, res, item.audio, 'audio/mp4');
+    return sendFile(req, res, item.file, 'video/mp4');
+  }
+
+  res.writeHead(404); res.end();
+}).listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));

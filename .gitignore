@@ -1,0 +1,16 @@
+# Your own stuff, never committed:
+# the password and port (made on the first run)
+config.json
+# queue, chat, activity log, downloaded songs, log files. Back up by copying this folder.
+data/
+
+# Not needed in the repo
+node_modules/
+*.log
+*.tmp
+.env
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+.DS_Store

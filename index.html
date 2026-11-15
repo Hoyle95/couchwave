@@ -1,0 +1,1409 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Couchwave</title>
+<meta name="description" content="Watch YouTube together with friends: a shared queue, synced playback, chat and reactions.">
+<!-- Tab icon: the same logo as the header (red-orange rounded square with a white couch whose back is a sound wave). -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x2='1' y2='1'><stop offset='0' stop-color='%23ff3d5a'/><stop offset='1' stop-color='%23ff8a3d'/></linearGradient></defs><rect width='64' height='64' rx='16' fill='url(%23g)'/><g fill='%23fff' transform='translate(8 6.5) scale(2)'><rect x='1' y='9.5' width='4' height='10' rx='2'/><rect x='19' y='9.5' width='4' height='10' rx='2'/><rect x='1' y='14' width='22' height='5.5' rx='2'/><rect x='3.2' y='18' width='2' height='3' rx='.8'/><rect x='18.8' y='18' width='2' height='3' rx='.8'/><rect x='5.8' y='6' width='2' height='9' rx='1'/><rect x='8.4' y='4.5' width='2' height='10.5' rx='1'/><rect x='11' y='5.5' width='2' height='9.5' rx='1'/><rect x='13.6' y='7.5' width='2' height='7.5' rx='1'/><rect x='16.2' y='6.5' width='2' height='8.5' rx='1'/></g></svg>">
+<!-- Install as an app ("Add to Home screen"): -->
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="theme-color" id="themeColor" content="#0c0c11">
+<link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script>
+  // Apply a saved theme before the page draws, so there's no flash of the wrong colours.
+  try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
+</script>
+<style>
+  /* ---------- Theme ---------- */
+  /* Dark is the default; light applies when the OS prefers it (unless toggled to dark) or when toggled to light. */
+  :root {
+    color-scheme: dark;
+    --bg: #0c0c11; --glow1: #ff3d5a22; --glow2: #7c4dff1c;
+    --surface: #16161e; --surface2: #1e1e28; --border: #272733;
+    --fg: #f2f2f6; --muted: #8a8a9a; --soft: #b4b4c2;
+    --accent: #ff3d5a; --accent2: #ff8a3d; --ok: #2fd27a; --warn: #ffb020; --err: #ff5c6c;
+    --shadow: 0 10px 30px #0006; --name-l: 66%; --name-ol: transparent;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
+      --bg: #f3f3f7; --glow1: #ff3d5a18; --glow2: #7c4dff14;
+      --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
+      --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
+      --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839;
+      --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%; --name-ol: #000;
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f3f3f7; --glow1: #ff3d5a18; --glow2: #7c4dff14;
+    --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
+    --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
+    --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839;
+    --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%; --name-ol: #000;
+  }
+
+  /* ---------- Font ---------- */
+  /* Inter (rsms.me/inter, from Google Fonts, SIL Open Font License: see fonts/OFL.txt), served from this
+     site's own fonts/ folder. One variable file holds every weight. Other alphabets and emoji use the system font. */
+  @font-face {
+    font-family: Inter; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(/fonts/inter-latin.woff2) format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: Inter; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url(/fonts/inter-latin-ext.woff2) format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+
+  /* ---------- Base ---------- */
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    margin: 0; min-height: 100vh; color: var(--fg);
+    font: 15px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(900px 500px at 10% -10%, var(--glow1), transparent 70%),
+      radial-gradient(800px 500px at 100% 0%, var(--glow2), transparent 70%),
+      var(--bg);
+    background-attachment: fixed;
+  }
+  [hidden] { display: none !important; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 16px; }
+  .muted { color: var(--muted); }
+  svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
+  ul { list-style: none; margin: 0; padding: 0; }
+
+  input:not([type=range]) {
+    flex: 1; min-width: 0; padding: 11px 14px; font: inherit; font-size: 16px;
+    color: var(--fg); background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:not([type=range]):focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow1); }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border: 0; border-radius: 10px; padding: 11px 18px;
+    color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    transition: transform .1s, filter .15s, background .15s;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(.96); }
+  .ghost { background: var(--surface2); color: var(--fg); border: 1px solid var(--border); }
+  .ghost:hover { filter: none; border-color: var(--muted); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; }
+  .card + .card { margin-top: 16px; }
+  .card h3 { margin: 0 0 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .count { background: var(--surface2); border: 1px solid var(--border); color: var(--soft); border-radius: 99px; padding: 0 8px; font-size: 12px; letter-spacing: 0; }
+
+  /* Profile pictures: an emoji on the person's colour */
+  .avatar {
+    width: 26px; height: 26px; border-radius: 50%; flex: none; display: inline-grid; place-items: center;
+    font-size: 15px; line-height: 1; user-select: none;
+  }
+  /* Your own picture: click to edit it. A pencil shows over it on hover; on touch screens (no hover)
+     it's a small pencil badge in the corner instead, so it's clear it can be tapped. */
+  .editAv { position: relative; display: inline-grid; flex: none; border-radius: 50%; cursor: pointer; transition: transform .15s; }
+  .editAv:hover { transform: scale(1.06); }
+  .editOv {
+    position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; pointer-events: none;
+    background: #000000a0; color: #fff; opacity: 0; transition: opacity .15s;
+  }
+  .editOv svg { width: 50%; height: 50%; }
+  .editAv:hover .editOv, .editAv:focus-visible .editOv { opacity: 1; }
+  @media (hover: none) {
+    .editAv .editOv { inset: auto; right: -3px; bottom: -3px; width: 15px; height: 15px; opacity: 1; background: var(--accent); border: 2px solid var(--surface); }
+    .editAv .editOv svg { width: 8px; height: 8px; }
+  }
+
+  /* ---------- Header ---------- */
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 6px 18px var(--glow1);
+  }
+  /* Names in their chosen colour get a thin solid outline (black, on the light theme only), drawn behind the letters so the colour stays full strength and pale colours stay readable. */
+  .nm { -webkit-text-stroke: 1px var(--name-ol); paint-order: stroke fill; }
+  .nm, .me b.nm, .msg .head b.nm { font-weight: 800; } /* names stand out in heavy type */
+  .logo svg { width: 28px; height: 28px; }
+  .brand h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+  .me { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 5px 6px; position: relative; }
+  .me b { font-weight: 600; }
+  #theme { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+  #theme svg { width: 18px; height: 18px; }
+  /* Log out: same round shape as the theme toggle, in the red accent */
+  #logoutBtn { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+  #logoutBtn svg { width: 17px; height: 17px; margin-left: 2px; } /* nudge: the arrow is off-centre */
+
+  /* Profile picture picker (click your picture): emoji + colour */
+  #meAvatar { width: 30px; height: 30px; font-size: 18px; }
+  #colorPop { max-height: calc(100vh - 90px); overflow-y: auto; }
+  #facePick { max-height: 150px; overflow-y: auto; margin: -4px -4px 0; padding: 0 4px; }
+  #facePick .pop-title { margin: 6px 0 2px; font-size: 11px; }
+  #facePick .emoji-grid button { background: none; padding: 3px 0; font-size: 21px; line-height: 1.2; border-radius: 8px; font-weight: 400; color: inherit; }
+  #facePick .emoji-grid button:hover { background: var(--surface2); filter: none; }
+  #facePick .emoji-grid button.on { background: var(--surface2); box-shadow: inset 0 0 0 2px var(--accent); }
+  .pop {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 5; width: 272px; padding: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .pop-title { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  #swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  #swatches button { width: 100%; aspect-ratio: 1; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+  #swatches button.on { border-color: var(--fg); box-shadow: 0 0 0 2px var(--surface) inset; }
+  /* Colour wheel: hue around the edge, white in the centre (saturation), dark layer on top = brightness */
+  #wheel {
+    position: relative; width: 200px; aspect-ratio: 1; margin: 0 auto; border-radius: 50%; cursor: crosshair; touch-action: none;
+    background: radial-gradient(closest-side, #fff, #fff0), conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  #wheelDark { position: absolute; inset: 0; border-radius: 50%; background: #000; pointer-events: none; }
+  #wheelDot {
+    position: absolute; width: 16px; height: 16px; border-radius: 50%; border: 2px solid #fff; pointer-events: none;
+    box-shadow: 0 0 0 1px #0009, 0 1px 4px #0008; transform: translate(-50%, -50%);
+  }
+  #valSlider { width: 100%; height: 10px; }
+  .pop-inputs { display: grid; grid-template-columns: 1.7fr repeat(3, 1fr); gap: 6px; }
+  .pop-inputs label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; font-weight: 700; color: var(--muted); }
+  .pop-inputs input:not([type=range]) { width: 100%; padding: 6px 7px; font-size: 14px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+  .pop-inputs input.bad { border-color: var(--err); }
+  .pop-preview { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  #popAvatar { width: 34px; height: 34px; font-size: 20px; }
+  @media (max-width: 560px) { .pop { right: auto; left: 0; max-width: calc(100vw - 32px); } }
+
+  /* ---------- Layout ---------- */
+  /* Row 1: player card + sidebar, stretched to the same height (the player decides it).
+     Row 2: Activity above Up next, full width. */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+  .layout > main { display: flex; flex-direction: column; }
+  .layout > main > .card { flex: 1; }
+  .rest { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; } /* Activity, then Up next */
+  .rest .card + .card { margin-top: 0; }
+  @media (max-width: 860px) {
+    .layout, .rest { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ---------- Add form ---------- */
+  #addForm { display: flex; gap: 8px; }
+
+  /* ---------- Player ---------- */
+  .player { position: relative; margin-top: 14px; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 16 / 9; }
+  video { width: 100%; height: 100%; display: block; background: #000; }
+  #unmute {
+    position: absolute; inset: 0; width: 100%; border-radius: 0; font-size: 20px;
+    background: #000a; backdrop-filter: blur(2px); flex-direction: column; gap: 10px;
+  }
+  #unmute svg { width: 48px; height: 48px; }
+  #idle { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; color: #9a9aab; padding: 16px; }
+  #idle svg { width: 72px; height: 72px; opacity: .35; margin-bottom: 8px; }
+
+  .now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 2px 4px; min-height: 30px; }
+  .nowMain { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  #nowTitle { min-width: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .by { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .by .avatar { width: 20px; height: 20px; font-size: 12px; }
+  .copy { width: 34px; height: 34px; padding: 0; border-radius: 50%; flex: none; }
+  .copy svg { width: 16px; height: 16px; }
+  .copy.done { color: var(--ok); border-color: var(--ok); }
+  #queue .copy { width: 28px; height: 28px; }
+  #queue .copy svg { width: 14px; height: 14px; }
+  .retry { width: 28px; height: 28px; padding: 0; border-radius: 50%; flex: none; color: var(--accent); }
+  .retry svg { width: 15px; height: 15px; }
+  .retry:hover { border-color: var(--accent); }
+  .qerr { display: block; font-size: 12px; font-weight: 400; color: var(--err); }
+  .del { width: 28px; height: 28px; padding: 0; border-radius: 50%; flex: none; color: var(--muted); }
+  .del svg { width: 15px; height: 15px; }
+  .del:hover { color: var(--err); border-color: var(--err); }
+  .del.armed { color: #fff; background: var(--err); border-color: var(--err); }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 10px; }
+  #pp { width: 46px; height: 46px; padding: 0; border-radius: 50%; box-shadow: 0 6px 16px var(--glow1); }
+  #pp svg { width: 22px; height: 22px; }
+  #time { font-variant-numeric: tabular-nums; color: var(--soft); font-size: 13px; min-width: 84px; }
+  #seek { flex: 1 1 220px; }
+  .vol { display: flex; align-items: center; gap: 8px; color: var(--soft); }
+  #vol { width: 96px; }
+  .iconbtn { background: none; color: var(--soft); padding: 6px; border-radius: 8px; }
+  .iconbtn:hover { filter: none; color: var(--fg); background: var(--surface2); }
+  .controls .ghost { padding: 9px 14px; }
+
+  /* Custom sliders: --p is the filled percentage, set from JS */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; height: 6px; border-radius: 99px; cursor: pointer; margin: 0;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)) 0 / var(--p, 0%) 100% no-repeat, var(--border);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 0;
+    box-shadow: 0 1px 4px #0006; transition: transform .1s;
+  }
+  input[type=range]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 1px 4px #0006; }
+  input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
+
+  /* ---------- Lists ---------- */
+  #queue li { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; }
+  #queue li:nth-child(odd) { background: var(--surface2); }
+  .grip { display: grid; place-items: center; color: var(--muted); cursor: grab; touch-action: none; padding: 4px 0; margin-right: -6px; }
+  .grip:hover { color: var(--fg); }
+  .grip svg { width: 16px; height: 16px; }
+  #queue li.dragging { position: relative; z-index: 2; background: var(--surface); box-shadow: var(--shadow), 0 0 0 1px var(--accent); }
+  #queue li.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+  #queue li.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
+  body.dragging-q, body.dragging-q * { cursor: grabbing !important; user-select: none; }
+  @media (max-width: 640px) {
+    #queue li { flex-wrap: wrap; gap: 6px 10px; }
+    #queue .qtitle { order: -1; flex: 1 1 100%; } /* title first, full width */
+    #queue .by { margin-right: auto; }            /* pushes status + buttons to the right */
+  }
+  .num { width: 22px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .qtitle { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+  .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+  .badge.ready { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .badge.downloading { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+  .badge.waiting { color: var(--muted); background: var(--surface); border: 1px solid var(--border); }
+  .badge.failed { color: var(--err); background: color-mix(in srgb, var(--err) 14%, transparent); }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .empty { color: var(--muted); padding: 10px; text-align: center; }
+
+  /* Activity: fixed height (~5 rows), scrolls after that */
+  #log { height: 150px; overflow-y: auto; font-size: 14px; }
+  #log li { display: flex; gap: 8px; padding: 4px 2px; line-height: 20px; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
+  #log li:last-child { border-bottom: 0; }
+  #log .undo { margin-left: auto; flex: none; align-self: center; padding: 2px 10px; font-size: 12px; border-radius: 99px; }
+  .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; flex: none; }
+
+  /* ---------- Sidebar ---------- */
+  /* Sidebar fills the row height; chat takes whatever is left under "Online". */
+  aside { display: flex; flex-direction: column; min-height: 0; }
+  .chat-card { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #users { display: flex; flex-wrap: wrap; gap: 6px; }
+  #users li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 99px; background: var(--surface2); border: 1px solid var(--border); font-size: 13px; font-weight: 500; }
+  #users .avatar { width: 22px; height: 22px; font-size: 13px; position: relative; }
+  #users .avatar::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); border: 2px solid var(--surface2); }
+
+  /* flex-basis 0 so the chat never makes the row taller than the player; it just scrolls */
+  #chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; margin-bottom: 12px; }
+  @media (max-width: 860px) { #chat { flex: none; height: 360px; } } /* stacked on phones: chat gets its own fixed height */
+  /* ---------- Full screen: player on the left, chat down the right (body.fs) ---------- */
+  #fsBtn { margin-left: auto; }
+  body.fs header, body.fs .rest { display: none; }
+  body.fs .wrap { max-width: none; height: 100vh; height: 100dvh; padding: 10px; display: flex; flex-direction: column; }
+  body.fs .layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) clamp(240px, 26vw, 380px); grid-template-rows: minmax(0, 1fr); gap: 10px; }
+  body.fs main, body.fs aside { min-height: 0; }
+  body.fs main > .card { display: flex; flex-direction: column; min-height: 0; padding: 12px; }
+  body.fs .player { flex: 1; min-height: 0; aspect-ratio: auto; margin-top: 10px; }
+  body.fs #addForm input:not([type=range]), body.fs #addForm button { padding-top: 8px; padding-bottom: 8px; }
+  /* Online list sits compactly above the chat; scrolls if lots of people are on */
+  body.fs aside > .card:first-child { padding: 10px 12px; flex: none; max-height: 110px; overflow-y: auto; }
+  body.fs aside > .card:first-child h3 { margin-bottom: 8px; }
+  body.fs aside > .card + .card { margin-top: 10px; }
+  body.fs video { object-fit: contain; }
+  body.fs .chat-card { padding: 12px; }
+  body.fs #chat { flex: 1 1 0; height: auto; }
+  /* Phone held upright: video on top, chat underneath */
+  @media (max-aspect-ratio: 1/1) {
+    body.fs .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    body.fs .player { flex: none; aspect-ratio: 16 / 9; }
+  }
+  .chatSound { margin-left: auto; display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
+  .chatSound .iconbtn { padding: 4px; }
+  .chatSound svg { width: 16px; height: 16px; }
+  #chatVol { width: 72px; }
+  .msg { display: flex; gap: 10px; }
+  .msg .body { min-width: 0; }
+  .msg .head { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
+  .msg .head b { font-weight: 700; }
+  .msg .text { overflow-wrap: anywhere; color: var(--soft); }
+  #chatForm { display: flex; gap: 8px; position: relative; }
+  #chatForm input { padding: 9px 12px; }
+  #chatForm button { padding: 9px 12px; }
+  #chatForm #emojiBtn { padding: 6px; }
+  #emojiBtn svg { width: 22px; height: 22px; }
+  .msg .text.big { font-size: 30px; line-height: 1.2; } /* messages that are just 1-3 emojis */
+
+  /* Emoji picker: opens above the chat box */
+  #emojiPop { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; max-height: 280px; overflow-y: auto; padding: 8px 10px; gap: 4px; }
+  #emojiPop .pop-title { margin: 6px 2px 2px; font-size: 11px; }
+  .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); }
+  #emojiPop .emoji-grid button, #reactPop .emoji-grid button { background: none; padding: 4px 0; font-size: 22px; line-height: 1.2; border-radius: 8px; font-weight: 400; touch-action: manipulation; }
+  #emojiPop .emoji-grid button:hover, #reactPop .emoji-grid button:hover { background: var(--surface2); filter: none; }
+
+  /* ---------- Reactions: bar under the video (right), particles float up over the video ---------- */
+  .reacts { margin-left: auto; position: relative; display: flex; align-items: center; gap: 4px; }
+  #reactRecent { display: flex; gap: 4px; }
+  .react {
+    width: 36px; height: 36px; padding: 0; border-radius: 50%; font-size: 19px; font-weight: 400; line-height: 1;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none; /* no double-tap zoom when spamming */
+  }
+  .react:active { transform: scale(.85); }
+  #reactMore svg { width: 18px; height: 18px; }
+  #reactPop { top: auto; bottom: calc(100% + 8px); right: 0; width: 300px; max-width: calc(100vw - 40px); max-height: 280px; overflow-y: auto; padding: 8px 10px; gap: 4px; }
+  #reactPop .pop-title { margin: 6px 2px 2px; font-size: 11px; }
+  .particle {
+    position: absolute; bottom: 10px; left: 0; z-index: 3; font-size: 34px; line-height: 1;
+    pointer-events: none; user-select: none; will-change: transform, opacity;
+    filter: drop-shadow(0 2px 4px #0007);
+  }
+
+  /* Thin scrollbars */
+  #chat, #log { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+  /* ---------- Playlist pop-up ---------- */
+  .modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: #0009; backdrop-filter: blur(3px); }
+  .modal-card { width: 100%; max-width: 420px; }
+  .modal-card p { margin: 0 0 14px; }
+  .modal-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+  .modal-btns .iconbtn { margin-left: auto; padding: 11px 14px; }
+  .modal-note { font-size: 13px; margin: 14px 0 0 !important; }
+
+  /* ---------- Join screen ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; overflow-y: auto;
+    background: radial-gradient(700px 400px at 50% 0%, var(--glow1), transparent 70%), var(--bg);
+  }
+  .overlay form { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .overlay .logo { width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 6px; }
+  .overlay .logo svg { width: 44px; height: 44px; }
+  .overlay h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+  .overlay p { margin: 0 0 8px; }
+  .overlay form > button { padding: 14px; font-size: 17px; }
+  /* Join screen: your profile picture, editable before you join (the picker opens underneath it) */
+  .joinAv { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 2px 0 6px; text-align: left; }
+  #joinAvatar { width: 84px; height: 84px; font-size: 46px; box-shadow: var(--shadow); }
+  .joinAv .editOv svg { width: 34%; height: 34%; }
+  .joinAv small { font-size: 12px; }
+  .joinAv #colorPop { position: static; width: 100%; max-width: none; max-height: none; margin-top: 4px; } /* opens in place, pushing the form down */
+  @media (hover: none) {
+    .joinAv .editOv { width: 26px; height: 26px; right: 0; bottom: 0; border-width: 3px; border-color: var(--bg); }
+    .joinAv .editOv svg { width: 12px; height: 12px; }
+  }
+  #err { color: var(--err); min-height: 1.3em; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- SVG icons -->
+<svg style="display:none">
+  <!-- The logo: a couch whose back is a sound wave. -->
+  <symbol id="i-logo" viewBox="0 .75 24 24"><rect x="1" y="9.5" width="4" height="10" rx="2"/><rect x="19" y="9.5" width="4" height="10" rx="2"/><rect x="1" y="14" width="22" height="5.5" rx="2"/><rect x="3.2" y="18" width="2" height="3" rx=".8"/><rect x="18.8" y="18" width="2" height="3" rx=".8"/><rect x="5.8" y="6" width="2" height="9" rx="1"/><rect x="8.4" y="4.5" width="2" height="10.5" rx="1"/><rect x="11" y="5.5" width="2" height="9.5" rx="1"/><rect x="13.6" y="7.5" width="2" height="7.5" rx="1"/><rect x="16.2" y="6.5" width="2" height="8.5" rx="1"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 6.3v11.4a1 1 0 0 0 1.55.83L15 13v4.5a1 1 0 0 0 2 0v-11a1 1 0 0 0-2 0V11L6.55 5.47A1 1 0 0 0 5 6.3z"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.5 8.5a1 1 0 0 1 1.4.1 5.5 5.5 0 0 1 0 6.8 1 1 0 1 1-1.5-1.3 3.5 3.5 0 0 0 0-4.2 1 1 0 0 1 .1-1.4z"/></symbol>
+  <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.3 9.3a1 1 0 0 1 1.4 0L19 10.6l1.3-1.3a1 1 0 1 1 1.4 1.4L20.4 12l1.3 1.3a1 1 0 0 1-1.4 1.4L19 13.4l-1.3 1.3a1 1 0 0 1-1.4-1.4l1.3-1.3-1.3-1.3a1 1 0 0 1 0-1.4z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></g></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a.6.6 0 0 0-.8-.7A9.5 9.5 0 1 0 21.2 15a.6.6 0 0 0-.7-.8z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4a1 1 0 0 1 0 2H6v12h4a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm5.3 3.3a1 1 0 0 1 1.4 0l4 4a1 1 0 0 1 0 1.4l-4 4a1 1 0 0 1-1.4-1.4l2.3-2.3H10a1 1 0 1 1 0-2h7.6l-2.3-2.3a1 1 0 0 1 0-1.4z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M9 3h9a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-1v-2h1a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1H6V6a3 3 0 0 1 3-3zM6 8h9a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-7a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M9.5 16.2 5.3 12a1 1 0 1 0-1.4 1.4l4.9 4.9a1 1 0 0 0 1.4 0L20.1 8.4A1 1 0 1 0 18.7 7z"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9a1 1 0 0 0 2 0V6h3a1 1 0 0 0 0-2H5a1 1 0 0 0-1 1zm11-5a1 1 0 1 0 0 2h3v3a1 1 0 1 0 2 0V5a1 1 0 0 0-1-1zM6 15a1 1 0 1 0-2 0v4a1 1 0 0 0 1 1h4a1 1 0 1 0 0-2H6zm14 0a1 1 0 1 0-2 0v3h-3a1 1 0 1 0 0 2h4a1 1 0 0 0 1-1z"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4a1 1 0 0 0-1 1v3H5a1 1 0 0 0 0 2h4a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1zm6 0a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h4a1 1 0 1 0 0-2h-3V5a1 1 0 0 0-1-1zM5 14a1 1 0 1 0 0 2h3v3a1 1 0 1 0 2 0v-4a1 1 0 0 0-1-1zm10 0a1 1 0 0 0-1 1v4a1 1 0 1 0 2 0v-3h3a1 1 0 1 0 0-2z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 0 0 0 2h14a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1zM6 9a1 1 0 0 1 1 .9l.8 9.1h8.4l.8-9.1a1 1 0 1 1 2 .2l-.9 10A1 1 0 0 1 17 21H7a1 1 0 0 1-1-.9l-.9-10A1 1 0 0 1 6 9zm4 1a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.4 5H17a1 1 0 1 0 0 2h4a1 1 0 0 0 1-1V6a1 1 0 1 0-2 0v1.4A10 10 0 1 0 22 13a1 1 0 1 0-2-.2A8 8 0 1 1 12 4z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 5a1 1 0 1 1 2 0v6h6a1 1 0 1 1 0 2h-6v6a1 1 0 1 1-2 0v-6H5a1 1 0 1 1 0-2h6z"/></symbol>
+  <symbol id="i-smile" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-3 5.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM7.8 14.4a1 1 0 0 1 1.4.2 3.5 3.5 0 0 0 5.6 0 1 1 0 1 1 1.6 1.2 5.5 5.5 0 0 1-8.8 0 1 1 0 0 1 .2-1.4z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M3.4 20.4 21 12.8a.9.9 0 0 0 0-1.6L3.4 3.6a.8.8 0 0 0-1.1 1l2.4 6.4 8.3 1-8.3 1-2.4 6.4a.8.8 0 0 0 1.1 1z"/></symbol>
+</svg>
+
+<div id="join" class="overlay" hidden>
+  <form onsubmit="join(event)">
+    <div class="logo"><svg><use href="#i-logo"/></svg></div>
+    <h1>Couchwave</h1>
+    <p class="muted">Queue up videos and watch together.</p>
+    <div class="joinAv" id="joinAvWrap">
+      <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="joinAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+      <small class="muted">Tap your picture to change it</small>
+      <!-- the picture picker (#colorPop) is moved here until you've joined -->
+    </div>
+    <input id="name" placeholder="Your nickname" maxlength="30" required>
+    <input id="pw" type="password" placeholder="Password" required>
+    <button><svg><use href="#i-play"/></svg> Join the party</button>
+    <div id="err"></div>
+  </form>
+</div>
+
+<div id="plModal" class="modal" hidden>
+  <div class="card modal-card" role="dialog" aria-modal="true" aria-labelledby="plTitle">
+    <h3 id="plTitle">Playlist link</h3>
+    <p id="plText">This link is part of a playlist. Add every song in it to the queue?</p>
+    <div class="modal-btns">
+      <button id="plAll" type="button">Add full playlist</button>
+      <button id="plOne" type="button" class="ghost">Just this song</button>
+      <button id="plCancel" type="button" class="iconbtn">Cancel</button>
+    </div>
+    <p class="muted modal-note">Up to 100 songs. They download a few at a time as the queue plays.</p>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo"><svg><use href="#i-logo"/></svg></div>
+      <h1>Couchwave</h1>
+    </div>
+    <div class="me">
+      <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+      <b id="me" class="nm"></b>
+      <div id="colorPop" class="pop" hidden>
+        <div class="pop-preview"><span class="avatar" id="popAvatar"></span> <b id="popName" class="nm"></b></div>
+        <div class="pop-title">Your emoji</div>
+        <div id="facePick"></div>
+        <div class="pop-title">Your colour</div>
+        <div id="wheel"><div id="wheelDark"></div><div id="wheelDot"></div></div>
+        <input id="valSlider" type="range" min="0" max="100" step="1" aria-label="Brightness" title="Brightness">
+        <div class="pop-inputs">
+          <label>HEX <input id="hexIn" maxlength="7" spellcheck="false" autocomplete="off"></label>
+          <label>R <input id="rIn" type="number" min="0" max="255"></label>
+          <label>G <input id="gIn" type="number" min="0" max="255"></label>
+          <label>B <input id="bIn" type="number" min="0" max="255"></label>
+        </div>
+        <div id="swatches"></div>
+      </div>
+      <button id="logoutBtn" onclick="logout()" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
+      <button id="theme" class="ghost" onclick="toggleTheme()" title="Switch light / dark"></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main>
+      <section class="card">
+        <form id="addForm" onsubmit="add(event)">
+          <input id="url" placeholder="Paste a YouTube link or type a song name…" autocomplete="off">
+          <button><svg><use href="#i-plus"/></svg> Add</button>
+        </form>
+
+        <div class="player" id="player">
+          <video id="v" playsinline muted></video>
+          <audio id="a" preload="auto"></audio>
+          <div id="idle"><div><svg><use href="#i-logo"/></svg><div>Nothing playing — paste a YouTube link or type a song name above to get started</div></div></div>
+          <button id="unmute" hidden onclick="unmute()"><svg><use href="#i-mute"/></svg> Tap to unmute</button>
+        </div>
+
+        <div class="now">
+          <div class="nowMain"> <!-- copy button + title stay together, even when the title wraps -->
+            <button id="copyBtn" class="ghost copy" hidden onclick="copyLink(nowUrl, this)" title="Copy the YouTube link" aria-label="Copy the YouTube link"><svg><use href="#i-copy"/></svg></button>
+            <div id="nowTitle" class="muted">Nothing playing</div>
+          </div>
+          <span class="by" id="nowBy"></span>
+          <div class="reacts" title="React (everyone sees it)">
+            <span id="reactRecent"></span>
+            <button type="button" id="reactMore" class="ghost react" onclick="toggleReactPop(event)" title="Pick a different reaction" aria-label="Pick a different reaction"><svg><use href="#i-smile"/></svg></button>
+            <div id="reactPop" class="pop" hidden></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="pp" onclick="togglePause()" title="Pause / play for everyone"></button>
+          <span id="time">0:00 / 0:00</span>
+          <input id="seek" type="range" min="0" max="0" step="0.1" value="0" title="Seek (for everyone)">
+          <button class="ghost" onclick="skip()" title="Skip for everyone"><svg><use href="#i-skip"/></svg> Skip</button>
+          <div class="vol" title="Your volume only">
+            <button id="muteBtn" class="iconbtn" onclick="toggleMute()" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
+            <input id="vol" type="range" min="0" max="1" step="0.01">
+          </div>
+          <button id="fsBtn" class="iconbtn" onclick="toggleFs()" title="Full screen (double-click the video too)" aria-label="Full screen"></button>
+        </div>
+      </section>
+    </main>
+
+    <aside>
+      <section class="card">
+        <h3>Online <span class="count" id="userCount">0</span></h3>
+        <ul id="users"></ul>
+      </section>
+      <section class="card chat-card">
+        <h3>Chat
+          <span class="chatSound" title="Message sound (just you)">
+            <button id="chatMute" class="iconbtn" onclick="toggleChatMute()" title="Mute / unmute message sound" aria-label="Mute / unmute message sound"></button>
+            <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Message sound volume">
+          </span>
+        </h3>
+        <div id="chat"></div>
+        <form id="chatForm" onsubmit="sendChat(event)">
+          <div id="emojiPop" class="pop" hidden></div>
+          <button type="button" id="emojiBtn" class="iconbtn" onclick="toggleEmoji(event)" title="Emoji" aria-label="Emoji"><svg><use href="#i-smile"/></svg></button>
+          <input id="chatText" placeholder="Say something…" maxlength="500" autocomplete="off">
+          <button title="Send"><svg><use href="#i-send"/></svg></button>
+        </form>
+      </section>
+    </aside>
+
+    <div class="rest">
+      <section class="card">
+        <h3>Activity</h3>
+        <ul id="log"></ul>
+      </section>
+      <section class="card">
+        <h3>Up next <span class="count" id="queueCount">0</span></h3>
+        <ul id="queue"></ul>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const v = $('v'), seek = $('seek'), vol = $('vol');
+let joined = false, playingId = null, serverPaused = false, seeking = false, actionAt = 0;
+// What's on screen, so each poll only redraws what changed. The server only sends the log / chat
+// when its change counter (rev) differs from the one we have.
+let logRev = '', chatRev = '', logList = [], chatList = [], chatDrawn = false;
+let lastQueue = '', lastUsers = '', lastColorsKey = '';
+
+const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
+const setCookie = (k, val, age = 31536000) => { document.cookie = `${k}=${encodeURIComponent(val)}; max-age=${age}; path=/; SameSite=Lax`; };
+// (a failed request resolves to null instead of throwing: the next poll shows the real state anyway)
+const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null); };
+const icon = name => `<svg><use href="#i-${name}"/></svg>`;
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// ---- Colour helpers ----
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const toHex = rgb => '#' + rgb.map(x => Math.round(x).toString(16).padStart(2, '0')).join('');
+function parseHex(s) { // accepts "#ff8800", "ff8800", "#f80", "f80"
+  s = String(s).trim().replace(/^#/, '');
+  if (/^[0-9a-f]{3}$/i.test(s)) s = s.replace(/./g, c => c + c);
+  return /^[0-9a-f]{6}$/i.test(s) ? '#' + s.toLowerCase() : null;
+}
+function hsvToRgb(h, s, v) {
+  const f = n => { const k = (n + h / 60) % 6; return 255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))); };
+  return [f(5), f(3), f(1)].map(Math.round);
+}
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = 60 * (max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4);
+  return { h: (h + 360) % 360, s: max ? d / max : 0, v: max };
+}
+
+// Each nickname gets a colour: the exact one they picked (hex), or a stable one made from their name.
+// (Older picks were stored as a hue number; those still work.)
+let colors = {}, myName = '';
+function autoHue(name) {
+  if (typeof colors[name] === 'number') return colors[name];
+  let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
+}
+const picked = name => (typeof colors[name] === 'string' ? colors[name] : null);
+const avatarBg = name => picked(name) || `hsl(${autoHue(name)} 65% 50%)`;
+const nameColor = name => picked(name) || `hsl(${autoHue(name)} 70% var(--name-l))`;
+
+// Each nickname's emoji: the one they picked, or a random-looking one made from their name (so it's the
+// same on everyone's screen, and nobody has to pick).
+const FACES = ('🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🦆 🦉 🦄 🐝 🦋 🐢 🐙 🦈 🐳 🐬 🦖 🐲 🦩 ' +
+               '👽 🤖 👻 🎃 😎 🤠 🥳 🤓 🤡 💀 🌵 🍄 🌻 🍕 🍩 🍉 🍓 🥑 🍒 🔥 ⚡ 🌈 ⭐ 🌙 🎧 🎸 🎮 🚀 💎 👑').split(' ');
+let faces = {};
+function autoFace(name) { let h = 7; for (const c of String(name)) h = (h * 33 + c.codePointAt(0)) % 1000003; return FACES[h % FACES.length]; }
+const face = name => faces[name] || autoFace(name);
+const avatar = name => `<span class="avatar" style="background:${avatarBg(name)}">${esc(face(name))}</span>`;
+
+// The picture I picked (emoji and/or colour), also kept on this device so the join screen can show it.
+let myPick = {};
+try { myPick = JSON.parse(localStorage.getItem('myPick') || '{}') || {}; } catch {}
+const savePick = () => { try { localStorage.setItem('myPick', JSON.stringify(myPick)); } catch {} };
+
+// On load: if the saved cookie still works, skip the join screen.
+(async () => {
+  if (getCookie('pw') && (await fetch('/state').catch(() => null))?.ok) return enter();
+  $('name').value = getCookie('name');
+  $('joinAvWrap').appendChild($('colorPop')); // the picture picker opens under the big picture until you've joined
+  previewMe();
+  $('name').oninput = previewMe;
+  $('join').hidden = false;
+})();
+
+// Join screen: show the picture you'll have, for the nickname typed so far.
+function previewMe() {
+  myName = $('name').value.trim();
+  colors = myPick.color ? { [myName]: myPick.color } : {};
+  faces = myPick.face ? { [myName]: myPick.face } : {};
+  paintMe();
+}
+
+async function join(e) {
+  e.preventDefault();
+  setCookie('name', $('name').value.trim());
+  setCookie('pw', $('pw').value);
+  const r = await fetch('/state').catch(() => null);
+  if (!r || !r.ok) {
+    if (r && r.status === 401) setCookie('pw', '', 0); // don't keep a wrong password: every reload would count as another wrong try
+    $('err').textContent = !r ? "Can't reach the server" : r.status === 429 ? 'Too many wrong tries, wait a few minutes' : 'Wrong password';
+    return;
+  }
+  // The picture shown on the join screen is the one you get (if you've picked one: otherwise you keep
+  // whatever your nickname already has).
+  await Promise.all([
+    myPick.face && post('/face', { face: myPick.face, quiet: true }),
+    myPick.color && post('/color', { color: myPick.color, quiet: true }),
+  ]);
+  $('join').hidden = true;
+  enter();
+}
+
+function enter() {
+  joined = true;
+  myName = getCookie('name') || 'someone';
+  $('me').textContent = myName;
+  $('me').after($('colorPop')); // the picker belongs in the header from now on
+  $('colorPop').hidden = true;
+  paintMe();
+  poll();
+}
+
+// ---- Colour picker ----
+const SWATCHES = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e',
+                  '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1', '#a855f7', '#ec4899'];
+$('swatches').innerHTML = SWATCHES.map(c =>
+  `<button type="button" data-c="${c}" style="background:${c}" title="${c}"></button>`).join('');
+
+function paintMe() {
+  const f = face(myName);
+  for (const el of [$('meAvatar'), $('popAvatar'), $('joinAvatar')]) { el.style.background = avatarBg(myName); el.textContent = f; }
+  for (const el of [$('me'), $('popName')]) el.style.color = nameColor(myName);
+  $('popName').textContent = myName || 'You';
+  for (const b of $('facePick').querySelectorAll('button')) b.classList.toggle('on', b.dataset.e === f);
+}
+
+let cur = { h: 0, s: 0, v: 1 }; // the picker's colour, as hue / saturation / brightness
+
+// Redraw the picker. `skip` = the box the user is typing in, so we don't overwrite their typing.
+function drawPicker(hex, skip) {
+  const R = 100, a = cur.h * Math.PI / 180; // wheel is 200px wide
+  $('wheelDot').style.left = R + Math.sin(a) * cur.s * R + 'px';
+  $('wheelDot').style.top = R - Math.cos(a) * cur.s * R + 'px';
+  $('wheelDot').style.background = hex;
+  $('wheelDark').style.opacity = 1 - cur.v;
+  $('valSlider').value = Math.round(cur.v * 100);
+  $('valSlider').style.background = `linear-gradient(90deg, #000, ${toHex(hsvToRgb(cur.h, cur.s, 1))})`;
+  const [r, g, b] = hexToRgb(hex);
+  if (skip !== 'hex') { $('hexIn').value = hex; $('hexIn').classList.remove('bad'); }
+  if (skip !== 'rgb') { $('rIn').value = r; $('gIn').value = g; $('bIn').value = b; }
+  for (const btn of $('swatches').children) btn.classList.toggle('on', btn.dataset.c === hex);
+}
+
+// Use a colour: update the picker and everything showing my colour. save=true also tells everyone.
+function apply(hsv, { hex, skip, save } = {}) {
+  cur = hsv;
+  hex = hex || toHex(hsvToRgb(cur.h, cur.s, cur.v));
+  drawPicker(hex, skip);
+  colors[myName] = hex; paintMe(); lastColorsKey = ''; // next poll redraws names in the new colour
+  if (save) {
+    myPick.color = hex; savePick();
+    if (joined) post('/color', { color: hex }).then(poll); // (on the join screen it's sent when you join)
+  }
+}
+
+// Picking an emoji for your picture
+function setFace(em) {
+  faces[myName] = myPick.face = em; savePick();
+  paintMe(); lastColorsKey = '';
+  if (joined) post('/face', { face: em }).then(poll);
+}
+$('facePick').onclick = e => { const b = e.target.closest('button[data-e]'); if (b) setFace(b.dataset.e); };
+// Enter in the hex / RGB boxes: just use the value (on the join screen it would otherwise submit the form).
+$('colorPop').onkeydown = e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.target.blur(); } };
+const myHex = () => colors[myName] && typeof colors[myName] === 'string' ? colors[myName]
+  : toHex(getComputedStyle($('meAvatar')).backgroundColor.match(/\d+/g).slice(0, 3).map(Number));
+
+function toggleColorPop(e) {
+  e.stopPropagation();
+  const pop = $('colorPop');
+  pop.hidden = !pop.hidden;
+  if (!pop.hidden) { const hex = myHex(); cur = rgbToHsv(...hexToRgb(hex)); drawPicker(hex); }
+}
+$('colorPop').onclick = e => e.stopPropagation();
+document.addEventListener('click', () => { $('colorPop').hidden = true; $('emojiPop').hidden = true; $('reactPop').hidden = true; }); // click elsewhere closes popups
+
+// ---- Emoji picker ----
+const EMOJI = {
+  'Smileys': '😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😛 😜 🤪 😎 🤩 🥳 😏 😒 😔 😢 😭 😤 😡 🤯 😳 🥺 😱 🤔 🤫 🙄 😴 🤤 😬 🤮 🤡 💀 👻 👽 🤖 💩',
+  'Gestures': '👍 👎 👏 🙌 👐 🤝 🙏 ✌️ 🤞 🤟 🤘 👌 🤌 👈 👉 👆 👇 ✋ 👋 💪 🫶 👀 🧠',
+  'Hearts': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💔 💕 💖 💯 💥 ✨ 🔥 ⭐ 🌟 💫',
+  'Music & party': '🎵 🎶 🎧 🎤 🎸 🎹 🥁 🎷 🎺 🎻 📻 💿 🔊 🕺 💃 🪩 🎉 🎊 🍾 🥂 🍻 🍺 🍷 🍸',
+  'Food': '🍕 🍔 🍟 🌭 🌮 🍿 🍩 🍪 🍫 🍦 🍓 🍉 🍌 🍑 🍆 🥑 🌶️ ☕ 🧃',
+  'Animals': '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🙈 🙉 🙊 🐔 🐧 🦄 🐝 🦋 🐢 🐍 🦖 🐙 🦈 🐳',
+  'Other': '🚀 🏆 🎮 🎲 💸 💰 ⏰ 📸 🌈 ☀️ 🌙 ⚡ ❄️ 🌊 🍀 🚗 ✅ ❌ ❓ ❗ 🆗 🆒',
+};
+let recentEmoji = [];
+try { recentEmoji = JSON.parse(localStorage.getItem('recentEmoji') || '[]'); } catch {}
+const emojiGridHtml = groups => Object.entries(groups).map(([name, list]) =>
+  `<div class="pop-title">${name}</div><div class="emoji-grid">${
+    list.split(' ').map(e => `<button type="button" data-e="${e}">${e}</button>`).join('')}</div>`).join('');
+function drawEmoji() {
+  $('emojiPop').innerHTML = emojiGridHtml(recentEmoji.length ? { 'Recent': recentEmoji.join(' '), ...EMOJI } : EMOJI);
+}
+$('facePick').innerHTML = emojiGridHtml({ 'Popular': FACES.join(' '), ...EMOJI }); // profile picture choices
+paintMe(); // (mark the current one)
+
+// ---- Reactions: click an emoji under the video, it floats up over the player for everyone ----
+const myCid = Math.random().toString(36).slice(2, 12); // this page, so we don't replay our own reactions
+let recentReact = ['🔥', '😂', '❤️', '👍', '🎉'];
+try { const r = JSON.parse(localStorage.getItem('recentReact') || 'null'); if (Array.isArray(r) && r.length) recentReact = r.slice(0, 5); } catch {}
+let lastReactId = null, liveParticles = 0, pendingReacts = {}, reactTimer = null;
+
+function drawReacts() {
+  $('reactRecent').innerHTML = recentReact.map(e => `<button type="button" class="ghost react" data-e="${e}">${e}</button>`).join('');
+}
+// One floating emoji over the video. Random size, drift and spin so spam looks lively.
+function burst(e) {
+  if (liveParticles >= 160 || document.hidden) return; // plenty on screen already / nobody's looking
+  const player = $('player'), s = document.createElement('span');
+  s.className = 'particle'; s.textContent = e;
+  s.style.left = (45 + Math.random() * 48) + '%'; // mostly the right side, like stream reactions
+  player.appendChild(s); liveParticles++;
+  const size = 0.7 + Math.random() * 0.8, drift = (Math.random() - 0.5) * 140;
+  const rise = player.clientHeight * (0.55 + Math.random() * 0.4), spin = (Math.random() - 0.5) * 70;
+  s.animate([
+    { transform: `translate(-50%, 0) scale(${size * 0.4})`, opacity: 0 },
+    { transform: `translate(-50%, -${rise * 0.12}px) scale(${size})`, opacity: 1, offset: 0.12 },
+    { transform: `translate(calc(-50% + ${drift}px), -${rise}px) scale(${size}) rotate(${spin}deg)`, opacity: 0 },
+  ], { duration: 1700 + Math.random() * 1000, easing: 'cubic-bezier(.2,.7,.4,1)' })
+    .onfinish = () => { s.remove(); liveParticles--; };
+}
+// Clicks show instantly here; they're bundled and sent every 250ms so spamming doesn't flood the server.
+function react(e) {
+  burst(e);
+  pendingReacts[e] = (pendingReacts[e] || 0) + 1;
+  if (!reactTimer) reactTimer = setTimeout(() => {
+    reactTimer = null;
+    for (const [em, n] of Object.entries(pendingReacts)) fetch('/react', { method: 'POST', body: JSON.stringify({ e: em, n, cid: myCid }) }).catch(() => {});
+    pendingReacts = {};
+  }, 250);
+}
+// Other people's reactions arrive with each poll: spread each bundle out so it still looks like a stream.
+function showReactions(list) {
+  if (!list) return;
+  const newest = list.reduce((m, r) => Math.max(m, r.id), lastReactId || 0);
+  if (lastReactId !== null) {
+    for (const r of list) {
+      if (r.id <= lastReactId || r.cid === myCid) continue;
+      for (let i = 0; i < Math.min(r.n, 40); i++) setTimeout(() => burst(r.e), Math.random() * 1600);
+    }
+  }
+  lastReactId = newest; // first poll: just remember where we are, don't replay old ones
+}
+$('reactRecent').onclick = e => { const b = e.target.closest('[data-e]'); if (b) react(b.dataset.e); };
+function toggleReactPop(e) {
+  e.stopPropagation();
+  const pop = $('reactPop');
+  if (pop.hidden) pop.innerHTML = emojiGridHtml(EMOJI);
+  pop.hidden = !pop.hidden;
+}
+$('reactPop').onclick = e => {
+  e.stopPropagation(); // stays open: you can spam from here too
+  const b = e.target.closest('[data-e]');
+  if (!b) return;
+  react(b.dataset.e);
+  // Picked one: it joins your 5 quick reactions (newest first).
+  recentReact = [b.dataset.e, ...recentReact.filter(x => x !== b.dataset.e)].slice(0, 5);
+  try { localStorage.setItem('recentReact', JSON.stringify(recentReact)); } catch {}
+  drawReacts();
+};
+drawReacts();
+function toggleEmoji(e) {
+  e.stopPropagation();
+  const pop = $('emojiPop');
+  if (pop.hidden) drawEmoji();
+  pop.hidden = !pop.hidden;
+}
+$('emojiPop').onclick = e => {
+  e.stopPropagation(); // keep it open so you can add a few
+  const b = e.target.closest('button[data-e]');
+  if (!b) return;
+  const em = b.dataset.e, input = $('chatText');
+  const s = input.selectionStart ?? input.value.length, end = input.selectionEnd ?? s;
+  input.value = input.value.slice(0, s) + em + input.value.slice(end); // insert where the cursor is
+  input.selectionStart = input.selectionEnd = s + em.length;
+  recentEmoji = [em, ...recentEmoji.filter(x => x !== em)].slice(0, 16);
+  try { localStorage.setItem('recentEmoji', JSON.stringify(recentEmoji)); } catch {}
+  if (!matchMedia('(pointer: coarse)').matches) input.focus(); // on phones, don't pop the keyboard up over the picker
+};
+// A message that's only 1-3 emojis is shown bigger.
+const bigEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t) // FE0F/200D: emoji joiners
+  && [...t.replace(/\s|\uFE0F|\u200D/g, "")].filter(c => /\p{Extended_Pictographic}/u.test(c)).length <= 3;
+
+// Wheel: drag to pick hue (angle) and saturation (distance from centre).
+let dragging = false;
+function wheelAt(e) {
+  const r = $('wheel').getBoundingClientRect(), R = r.width / 2;
+  const dx = e.clientX - r.left - R, dy = e.clientY - r.top - R;
+  const h = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+  return { h, s: Math.min(1, Math.hypot(dx, dy) / R), v: cur.v < 0.05 ? 1 : cur.v }; // from black, jump to full brightness
+}
+$('wheel').onpointerdown = e => { dragging = true; $('wheel').setPointerCapture(e.pointerId); apply(wheelAt(e)); };
+$('wheel').onpointermove = e => { if (dragging) apply(wheelAt(e)); };
+$('wheel').onpointerup = e => { if (dragging) { dragging = false; apply(wheelAt(e), { save: true }); } };
+
+$('valSlider').oninput = e => apply({ ...cur, v: e.target.value / 100 });
+$('valSlider').onchange = e => apply({ ...cur, v: e.target.value / 100 }, { save: true });
+
+// Typing a hex code
+$('hexIn').oninput = e => {
+  const hex = parseHex(e.target.value);
+  e.target.classList.toggle('bad', !hex && e.target.value.trim() !== '');
+  if (hex) apply(rgbToHsv(...hexToRgb(hex)), { hex, skip: 'hex' });
+};
+$('hexIn').onchange = e => {
+  const hex = parseHex(e.target.value);
+  if (hex) apply(rgbToHsv(...hexToRgb(hex)), { hex, save: true }); else drawPicker(myHex());
+};
+
+// Typing R / G / B (0-255)
+const readRgb = () => {
+  const vals = ['rIn', 'gIn', 'bIn'].map(id => $(id).value.trim());
+  if (vals.some(x => x === '' || isNaN(x))) return null;
+  return vals.map(x => Math.max(0, Math.min(255, Math.round(+x))));
+};
+for (const id of ['rIn', 'gIn', 'bIn']) {
+  $(id).oninput = () => { const rgb = readRgb(); if (rgb) apply(rgbToHsv(...rgb), { hex: toHex(rgb), skip: 'rgb' }); };
+  $(id).onchange = () => { const rgb = readRgb(); if (rgb) apply(rgbToHsv(...rgb), { hex: toHex(rgb), save: true }); else drawPicker(myHex()); };
+}
+
+$('swatches').onclick = e => {
+  const b = e.target.closest('button');
+  if (b) apply(rgbToHsv(...hexToRgb(b.dataset.c)), { hex: b.dataset.c, save: true });
+};
+
+function logout() { setCookie('pw', '', 0); location.reload(); }
+
+// Theme: follows the OS until you click the toggle, then remembers your choice.
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')) === 'dark';
+function showThemeIcon() {
+  $('theme').innerHTML = icon(isDark() ? 'sun' : 'moon'); // icon = what you'll switch to
+  $('themeColor').content = isDark() ? '#0c0c11' : '#f3f3f7'; // phone status bar / app title bar colour
+}
+function toggleTheme() {
+  const t = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch {}
+  showThemeIcon();
+}
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', showThemeIcon);
+showThemeIcon();
+
+// ---- Playback: sound comes from the hidden <audio>, the <video> is always muted and just follows it ----
+// Phones pause <video> when the screen locks or the browser is minimised, but keep <audio> going,
+// so this way the music carries on in your pocket and the picture catches up when you come back.
+const a = $('a');
+let heldLocally = false;   // paused just for me (lock-screen pause button, headphones unplugged)
+let ourPauseAt = 0;        // when *we* last paused/reloaded the audio, to tell that apart from the browser doing it
+const markOurPause = () => (ourPauseAt = Date.now());
+function pauseBoth() { markOurPause(); a.pause(); v.pause(); }
+// (0.5s: slow phones drift a little; seeking the picture for every tiny drift makes it stutter)
+function syncVideo() { if (Math.abs(v.currentTime - a.currentTime) > 0.5) v.currentTime = a.currentTime; }
+
+// Browsers may block sound until the user clicks. If so, keep the muted picture going and show the unmute overlay.
+function tryPlay() {
+  if (!document.hidden) v.play().catch(() => {});
+  // Only "not allowed" means sound is blocked. (An AbortError just means a song change interrupted loading.)
+  a.play().catch(err => { if (err.name === 'NotAllowedError') $('unmute').hidden = false; });
+}
+function unmute() {
+  a.muted = false; heldLocally = false;
+  $('unmute').hidden = true;
+  if (!serverPaused) tryPlay();
+}
+
+// The browser paused the audio by itself (e.g. headphones unplugged, another app took over): stay paused for me.
+// (the pause event arrives a moment after pause() is called, hence the 1s window)
+a.onpause = () => { if (Date.now() - ourPauseAt > 1000 && !a.ended && !serverPaused) { heldLocally = true; v.pause(); } };
+a.onplay = () => { heldLocally = false; };
+// ---- Song changes that survive a locked phone ----
+// Phones let a page carry on playing audio in the background, but block it from *starting* audio later
+// (e.g. from our 2-second timer). So the player never goes idle: the instant a song ends we switch the same
+// <audio> straight to the next one, and if nothing is ready yet we loop a second of silence until it is.
+let upNext = null;   // the server's next ready song, from the last poll
+let endedId = null;  // the song we just finished (the server moves on ~2s after us)
+let silent = false;  // playing the silence loop
+
+// 1 second of silent 8kHz audio, built in memory (no file needed).
+const SILENCE = (() => {
+  const n = 8000, b = new Uint8Array(44 + n), d = new DataView(b.buffer);
+  const w = (o, s) => [...s].forEach((c, i) => (b[o + i] = c.charCodeAt(0)));
+  w(0, 'RIFF'); d.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+  d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, 8000, true); d.setUint32(28, 8000, true); d.setUint16(32, 1, true); d.setUint16(34, 8, true);
+  w(36, 'data'); d.setUint32(40, n, true); b.fill(128, 44);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+})();
+
+let videoRetries = 0; // network errors on the picture, for the current song
+function startTrack(item, at, play) {
+  playingId = item.id; silent = false; videoRetries = 0;
+  markOurPause();
+  a.loop = false;
+  a.src = '/audio/' + item.id;
+  v.src = '/video/' + item.id;
+  a.currentTime = v.currentTime = at;
+  setMediaSession(item);
+  if (play) tryPlay();
+}
+function playSilence() {
+  playingId = null;
+  markOurPause();
+  v.removeAttribute('src'); v.load();
+  if (!silent) { silent = true; a.loop = true; a.src = SILENCE; a.play().catch(() => {}); }
+  try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Waiting for the next song…', album: 'Couchwave' }); } catch {}
+}
+function clearPlayer() {
+  playingId = null; silent = false;
+  markOurPause();
+  for (const m of [v, a]) { m.removeAttribute('src'); m.load(); }
+}
+a.onended = () => {
+  endedId = playingId;
+  if (upNext && upNext.id !== playingId) startTrack(upNext, 0, true); // same event = allowed in the background
+  else playSilence();
+  poll();
+};
+// Coming back to the page: the picture was paused in the background, catch it up.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !playingId) return;
+  v.currentTime = a.currentTime;
+  if (!a.paused) v.play().catch(() => {});
+});
+
+// ---- Controls ----
+// Volume is personal (saved in this browser). Pause / seek / skip affect everyone.
+const paint = el => el.style.setProperty('--p', ((+el.value / (+el.max || 1)) * 100) + '%'); // slider fill
+try { vol.value = localStorage.getItem('vol') ?? 1; } catch { vol.value = 1; }
+a.volume = vol.value; paint(vol);
+vol.oninput = () => {
+  preMute = null;
+  a.volume = vol.value; paint(vol);
+  if (a.muted) unmute();
+  try { localStorage.setItem('vol', vol.value); } catch {}
+};
+
+// Speaker button: mute, then click again to get back the exact level you had.
+let preMute = null;
+function toggleMute() {
+  if (a.muted || +vol.value === 0) {
+    let level = preMute ?? +vol.value;
+    if (!level) level = 1; // was dragged all the way down: come back at full
+    preMute = null;
+    vol.value = level; a.volume = level; paint(vol);
+    try { localStorage.setItem('vol', level); } catch {}
+    unmute();
+  } else {
+    preMute = +vol.value; // remembered for unmuting, not saved, so a reload comes back unmuted
+    a.muted = true; vol.value = 0; paint(vol);
+  }
+}
+a.onvolumechange = () => ($('muteBtn').innerHTML = icon(a.muted || a.volume === 0 ? 'mute' : 'vol'));
+
+const fmt = t => { t = Math.floor(t || 0); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+const showTime = t => ($('time').textContent = fmt(t) + ' / ' + fmt(seek.max));
+
+seek.oninput = () => { seeking = true; showTime(seek.value); paint(seek); };
+seek.onchange = () => { seeking = false; a.currentTime = v.currentTime = +seek.value; post('/seek', { t: +seek.value }); };
+// The audio is the clock, unless it's blocked (unmute overlay showing) and only the picture is running.
+const clock = () => (a.paused && !v.paused ? v : a);
+function onTime() {
+  if (!a.paused && !document.hidden) syncVideo();
+  if (!seeking) { const t = clock().currentTime; seek.value = t; showTime(t); paint(seek); }
+}
+a.ontimeupdate = onTime;
+v.ontimeupdate = onTime;
+
+function updatePP() { $('pp').innerHTML = icon(serverPaused ? 'play' : 'pause'); }
+function togglePause() {
+  serverPaused = !serverPaused;
+  heldLocally = false;
+  if (serverPaused) { pauseBoth(); post('/pause'); } else { tryPlay(); post('/play'); }
+  updatePP();
+}
+
+// ---- Full screen (player + chat side by side) ----
+// Uses real browser full screen where allowed; iPhones don't allow it for pages, so there it just fills the window.
+const isFs = () => document.body.classList.contains('fs');
+function drawFs() {
+  $('fsBtn').innerHTML = icon(isFs() ? 'shrink' : 'expand');
+  $('fsBtn').title = isFs() ? 'Exit full screen' : 'Full screen (double-click the video too)';
+  const c = $('chat'); c.scrollTop = c.scrollHeight; // chat box changed size: show the latest messages
+}
+function toggleFs() {
+  if (!isFs()) {
+    document.body.classList.add('fs');
+    const el = document.documentElement;
+    try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el).catch?.(() => {}); } catch {}
+  } else {
+    document.body.classList.remove('fs');
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch {}
+  }
+  drawFs();
+}
+// Leaving browser full screen with Esc / back gesture also leaves our layout.
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('fs'); drawFs(); });
+v.ondblclick = toggleFs;
+drawFs();
+
+// ---- Lock screen / notification controls (Media Session) ----
+// Play/pause there only affect YOU (so unplugging headphones or a stray tap doesn't pause the whole room).
+// "Next" skips for everyone, same as the Skip button.
+function ytThumb(url) { const m = /(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/.exec(url || ''); return m ? `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg` : ''; }
+function setMediaSession(cur) {
+  if (!('mediaSession' in navigator)) return;
+  const art = ytThumb(cur.url);
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: cur.title, artist: 'added by ' + cur.by, album: 'Couchwave',
+      artwork: art ? [{ src: art, sizes: '480x360', type: 'image/jpeg' }] : [],
+    });
+  } catch {}
+}
+if ('mediaSession' in navigator) {
+  const ms = navigator.mediaSession;
+  const handlers = {
+    play: () => { heldLocally = false; if (!serverPaused) tryPlay(); },
+    pause: () => { heldLocally = true; pauseBoth(); },
+    nexttrack: () => skip(),
+  };
+  for (const [action, fn] of Object.entries(handlers)) { try { ms.setActionHandler(action, fn); } catch {} }
+}
+function skip() { post('/skip').then(poll); }
+updatePP();
+
+// Pop-up for links that contain a playlist. Resolves to 'all', 'one', or null (cancelled).
+function askPlaylist(hasVideo) {
+  $('plOne').textContent = hasVideo ? 'Just this song' : 'Just the first song';
+  $('plText').textContent = hasVideo
+    ? 'This song is part of a playlist. Add every song in the playlist to the queue?'
+    : 'This is a playlist link. Add every song in it to the queue?';
+  $('plModal').hidden = false;
+  $('plAll').focus();
+  return new Promise(resolve => {
+    const close = answer => {
+      $('plModal').hidden = true;
+      document.removeEventListener('keydown', onKey);
+      resolve(answer);
+    };
+    const onKey = e => { if (e.key === 'Escape') close(null); };
+    document.addEventListener('keydown', onKey);
+    $('plAll').onclick = () => close('all');
+    $('plOne').onclick = () => close('one');
+    $('plCancel').onclick = () => close(null);
+    $('plModal').onclick = e => { if (e.target === $('plModal')) close(null); }; // click outside = cancel
+  });
+}
+
+let adding = false; // stops a double-click adding the same song twice
+async function add(e) {
+  e.preventDefault();
+  const input = $('url'), link = input.value.trim();
+  if (adding || !link) return;
+  let playlist = false;
+  if (/^https?:\/\//i.test(link) && /[?&]list=/.test(link)) { // (anything that isn't a link is a search)
+    const choice = await askPlaylist(/[?&]v=|youtu\.be\/[\w-]{11}/.test(link)); // has a specific song in it?
+    if (!choice) return; // cancelled: leave the link in the box
+    playlist = choice === 'all';
+  }
+  adding = true;
+  try {
+    const r = await fetch('/add', { method: 'POST', body: JSON.stringify({ url: link, playlist }) }).catch(() => null);
+    if (!r) return alert("Couldn't reach the server, try again in a moment");
+    if (!r.ok) return alert(await r.text());
+    if (input.value.trim() === link) input.value = ''; // (unless they've already pasted the next one)
+    poll();
+  } finally { adding = false; }
+}
+
+async function sendChat(e) {
+  e.preventDefault();
+  const input = $('chatText'), text = input.value;
+  if (!text.trim()) return;
+  input.value = ''; // clear now, so anything typed while it sends isn't wiped
+  const r = await fetch('/chat', { method: 'POST', body: JSON.stringify({ text }) }).catch(() => null);
+  if (!r || !r.ok) { if (!input.value) input.value = text; return; } // didn't send: put it back
+  poll();
+}
+
+// Copy a YouTube link (the playing video, or any song in the queue).
+// navigator.clipboard only works on https/localhost, and friends use http://<ip>, so fall back to the old way.
+let nowUrl = '';
+async function copyLink(url, b) {
+  if (!url) return;
+  let ok = false;
+  try { await navigator.clipboard.writeText(url); ok = true; } catch {}
+  if (!ok) {
+    const ta = document.createElement('textarea');
+    ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch {}
+    ta.remove();
+  }
+  if (!ok) return prompt('Copy this link:', url); // last resort: show it so they can copy by hand
+  // Flash a green tick on the button that was clicked.
+  b.classList.add('done'); b.innerHTML = icon('check'); b.title = 'Copied!';
+  clearTimeout(b._t);
+  b._t = setTimeout(() => { b.classList.remove('done'); b.innerHTML = icon('copy'); b.title = 'Copy the YouTube link'; }, 1500);
+}
+// Undo a deleted song (button on its "removed" entry in Activity; works for 10 minutes).
+// A brand-new Undo button ignores clicks for 1.5s: deleting can shift the page, and a quick extra tap
+// could otherwise land on the Undo that just appeared (this happened).
+const undoSeen = {}; // song id -> when its Undo button first appeared
+$('log').onclick = e => {
+  const b = e.target.closest('.undo');
+  if (b && Date.now() - (undoSeen[b.dataset.undo] || 0) < 1500) return;
+  if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(poll); }
+};
+$('queue').onclick = e => {
+  const copy = e.target.closest('.copy');
+  if (copy) return copyLink(copy.dataset.url, copy);
+  const again = e.target.closest('.retry');
+  if (again) { again.disabled = true; return post('/retry', { id: +again.closest('li').dataset.id }).then(poll); }
+  const del = e.target.closest('.del');
+  if (!del) return;
+  // Deleting affects everyone, so it takes two clicks: the first turns the button red for 3 seconds.
+  if (!del.classList.contains('armed')) {
+    del.classList.add('armed'); del._armedAt = Date.now(); del.title = 'Click again to remove';
+    clearTimeout(del._t);
+    del._t = setTimeout(() => { del.classList.remove('armed'); del.title = 'Remove from the queue'; }, 3000);
+    return;
+  }
+  if (Date.now() - del._armedAt < 350) return; // part of a double-tap: needs a separate, deliberate second tap
+  const li = del.closest('li');
+  li.style.opacity = '.4'; // feedback while it goes
+  post('/remove', { id: +li.dataset.id }).then(poll);
+};
+
+// ---- Drag to reorder the queue (pointer events, so it works with mouse and touch) ----
+// The list itself doesn't move while dragging: the row follows your pointer and a red line shows where it will land.
+let drag = null; // { li, id, from, startY, to }
+function dropIndex(y) { // where the row would be inserted, as an index into the current list
+  const lis = [...$('queue').children];
+  for (let i = 0; i < lis.length; i++) {
+    if (lis[i] === drag.li) continue; // the dragged row follows the pointer, so ignore it
+    const r = lis[i].getBoundingClientRect();
+    if (y < r.top + r.height / 2) return i;
+  }
+  return lis.length;
+}
+function clearMarks() { for (const li of $('queue').children) li.classList.remove('drop-before', 'drop-after'); }
+$('queue').addEventListener('pointerdown', e => {
+  const grip = e.target.closest('.grip');
+  if (!grip) return;
+  e.preventDefault();
+  const li = grip.closest('li');
+  drag = { li, id: +li.dataset.id, from: [...$('queue').children].indexOf(li), startY: e.clientY, to: null };
+  li.classList.add('dragging');
+  document.body.classList.add('dragging-q');
+});
+window.addEventListener('pointermove', e => {
+  if (!drag) return;
+  drag.li.style.transform = `translateY(${e.clientY - drag.startY}px)`;
+  const lis = [...$('queue').children], at = dropIndex(e.clientY);
+  drag.to = at > drag.from ? at - 1 : at; // final position once the row is taken out of its old spot
+  clearMarks();
+  if (drag.to !== drag.from) {
+    if (at < lis.length) lis[at].classList.add('drop-before'); else lis[lis.length - 1].classList.add('drop-after');
+  }
+});
+function endDrag() {
+  if (!drag) return;
+  const { li, id, from, to } = drag;
+  drag = null;
+  li.classList.remove('dragging'); li.style.transform = '';
+  document.body.classList.remove('dragging-q');
+  clearMarks();
+  if (to != null && to !== from) {
+    // Move it locally right away so it doesn't jump back, then tell the server.
+    const lis = [...$('queue').children];
+    lis.splice(from, 1); lis.splice(to, 0, li);
+    $('queue').append(...lis);
+    [...$('queue').children].forEach((x, i) => (x.querySelector('.num').textContent = i + 1));
+    lastQueue = '';
+    post('/move', { id, to }).then(poll);
+  }
+}
+window.addEventListener('pointerup', endDrag);
+window.addEventListener('pointercancel', endDrag);
+
+// ---- Chat ding: two soft bell tones made with Web Audio (no sound file needed) ----
+let audioCtx = null, chatSeen = null;
+// Browsers only allow sound after the user has clicked something, so unlock audio on the first click.
+document.addEventListener('pointerdown', () => {
+  try { audioCtx = audioCtx || new AudioContext(); audioCtx.resume(); } catch {}
+}, { once: true });
+// Your own message-sound settings, saved in this browser.
+let chatVol = 1, chatMuted = false;
+try { chatVol = +(localStorage.getItem('chatVol') ?? 1); chatMuted = localStorage.getItem('chatMuted') === '1'; } catch {}
+function saveChatSound() { try { localStorage.setItem('chatVol', chatVol); localStorage.setItem('chatMuted', chatMuted ? '1' : '0'); } catch {} }
+function drawChatSound() {
+  $('chatVol').value = chatMuted ? 0 : chatVol; paint($('chatVol'));
+  $('chatMute').innerHTML = icon(chatMuted || !chatVol ? 'mute' : 'vol');
+}
+function toggleChatMute() {
+  if (chatMuted || !chatVol) { chatMuted = false; if (!chatVol) chatVol = 1; ding(); } // unmute + let you hear it
+  else chatMuted = true;
+  saveChatSound(); drawChatSound();
+}
+$('chatVol').oninput = e => { chatVol = +e.target.value; chatMuted = false; saveChatSound(); drawChatSound(); };
+$('chatVol').onchange = () => ding(); // preview when you let go of the slider
+drawChatSound();
+
+function ding() {
+  if (chatMuted || !chatVol) return;
+  const peak = 0.6 * chatVol; // 0.6 max: the two tones overlap a little, so this stays below clipping
+  try {
+    audioCtx = audioCtx || new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t = audioCtx.currentTime;
+    for (const [freq, delay] of [[880, 0], [1320, 0.09]]) {
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(peak, t + delay + 0.01); // quick attack
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.6); // bell-like fade
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.65);
+    }
+  } catch {}
+}
+
+const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function drawLog() {
+  $('log').innerHTML = logList.slice().reverse().map(e =>
+    `<li><span class="time">${hhmm(e.t)}</span><span><b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ${esc(e.text)}</span>${e.undo ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
+  ).join('') || '<li class="empty">Nothing yet</li>';
+}
+function drawChat() {
+  const c = $('chat');
+  const atBottom = !chatDrawn || c.scrollHeight - c.scrollTop - c.clientHeight < 40;
+  c.innerHTML = chatList.map(m => `
+    <div class="msg">
+      ${avatar(m.by)}
+      <div class="body">
+        <div class="head"><b class="nm" style="color:${nameColor(m.by)}">${esc(m.by)}</b><span class="time">${hhmm(m.t)}</span></div>
+        <div class="text${bigEmoji(m.text) ? ' big' : ''}">${esc(m.text)}</div>
+      </div>
+    </div>`).join('') || '<div class="empty">No messages yet — say hi!</div>';
+  chatDrawn = true;
+  if (atBottom) c.scrollTop = c.scrollHeight; // follow new messages unless you scrolled up to read
+}
+const QUEUE_BADGE = { ready: 'Ready', downloading: 'Downloading', waiting: 'Waiting', failed: 'Failed' };
+
+let pollSeq = 0, appliedSeq = 0;
+async function poll() {
+  if (!joined) return;
+  const seq = ++pollSeq, asked = Date.now();
+  let s;
+  try {
+    const r = await fetch(`/state?log=${logRev}&chat=${chatRev}`);
+    if (r.status === 401) return location.reload(); // password changed: back to the join screen
+    if (!r.ok) return;
+    s = await r.json();
+  } catch { return; } // server restarting: the next tick tries again
+  // Polls can overlap (timer + after clicks): never apply an older answer over a newer one,
+  // or one that predates our own click.
+  if (seq < appliedSeq || asked < actionAt) return;
+  appliedSeq = seq;
+
+  showReactions(s.reactions);
+
+  // Profile pictures (keep my own unsaved preview while I'm dragging the slider)
+  const mine = colors[myName], myFace = faces[myName];
+  colors = s.colors || {};
+  faces = s.faces || {};
+  if (!$('colorPop').hidden) { if (mine != null) colors[myName] = mine; if (myFace) faces[myName] = myFace; }
+  paintMe();
+  const colorsKey = JSON.stringify([colors, faces]), recolor = colorsKey !== lastColorsKey; // names/pictures need redrawing
+  lastColorsKey = colorsKey;
+
+  // Now playing
+  $('idle').hidden = !!s.current;
+  $('nowTitle').textContent = s.current ? s.current.title : 'Nothing playing';
+  $('nowTitle').className = s.current ? '' : 'muted';
+  $('nowBy').innerHTML = s.current ? `added by ${avatar(s.current.by)} ${esc(s.current.by)}` : '';
+  nowUrl = s.current ? s.current.url : '';
+  $('copyBtn').hidden = !nowUrl;
+
+  // Queue
+  $('queueCount').textContent = s.queue.length;
+  const queueHtml = s.queue.map((q, i) => `
+    <li data-id="${q.id}">
+      <span class="grip" title="Drag to reorder">${icon('grip')}</span>
+      <span class="num">${i + 1}</span>
+      <button class="ghost copy" data-url="${esc(q.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button>
+      <span class="qtitle">${esc(q.title)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>` : ''}</span>
+      <span class="by">${avatar(q.by)} ${esc(q.by)}</span>
+      ${q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
+        : `<span class="badge ${esc(q.status)}">${QUEUE_BADGE[q.status] || esc(q.status)}</span>`}
+      ${q.status === 'failed' && !q.retrying ? `<button class="ghost retry" title="Try downloading again" aria-label="Try downloading again">${icon('retry')}</button>` : ''}
+      <button class="ghost del" title="Remove from the queue" aria-label="Remove from the queue">${icon('trash')}</button>
+    </li>`).join('') || '<li class="empty">Queue is empty — add something!</li>';
+  // Only redraw when it changes, so a "copied" tick isn't wiped by the next refresh.
+  if (!drag && queueHtml !== lastQueue) { $('queue').innerHTML = queueHtml; lastQueue = queueHtml; } // never redraw mid-drag
+
+  // Activity (only sent when it changed; redrawn then, or when someone's colour changed)
+  if (s.log) { logList = s.log; logRev = s.logRev; }
+  if (s.log || recolor) drawLog();
+
+  // Users
+  $('userCount').textContent = s.users.length;
+  const usersHtml = s.users.map(u => `<li>${avatar(u)} <span class="nm" style="color:${nameColor(u)}">${esc(u)}</span></li>`).join('');
+  if (usersHtml !== lastUsers) { $('users').innerHTML = usersHtml; lastUsers = usersHtml; }
+
+  // Chat (same idea as the log). Ding for new messages from other people, not on first load or for my own.
+  if (s.chat) {
+    if (chatSeen !== null && s.chat.some(m => m.t > chatSeen && m.by !== myName)) ding();
+    chatSeen = Math.max(chatSeen || 0, s.chat.length ? s.chat[s.chat.length - 1].t : 0);
+    chatList = s.chat; chatRev = s.chatRev;
+  }
+  if (s.chat || recolor) drawChat();
+
+  serverPaused = s.paused;
+  updatePP();
+
+  // Playback
+  upNext = s.next;
+  if (endedId !== null) {
+    if (s.current && s.current.id === endedId) return; // we already moved on; the server is catching up
+    endedId = null;
+  }
+  if (!s.current) {
+    if (playingId) {
+      // Nothing left to play. If sound is running (maybe on a locked phone), keep the player alive with
+      // silence so the next song is allowed to start; otherwise just clear it.
+      if (!a.paused && !heldLocally) playSilence(); else clearPlayer();
+    }
+    seek.max = 0; seek.value = 0; showTime(0); paint(seek);
+    return;
+  }
+  seek.max = s.current.duration;
+
+  if (s.current.id !== playingId || a.error) { // new song, or the sound's connection dropped (e.g. server restart)
+    heldLocally = false; // a new song starts playing for everyone again
+    startTrack(s.current, s.elapsed, !s.paused);
+    return;
+  }
+  // Only the picture failed: reload just the picture, so the sound carries on uninterrupted. Network errors only
+  // (code 2), a few times: if this phone simply can't decode the video's format, retrying won't help.
+  if (v.error && v.error.code === 2 && videoRetries < 3) {
+    videoRetries++;
+    v.src = '/video/' + playingId;
+    v.currentTime = a.currentTime;
+    if (!a.paused && !document.hidden) v.play().catch(() => {});
+  }
+  // Keep everyone in sync with the server.
+  if (!seeking && Math.abs(clock().currentTime - s.elapsed) > (s.paused ? 0.5 : 3)) a.currentTime = v.currentTime = s.elapsed;
+  if (s.paused) { if (!a.paused || !v.paused) pauseBoth(); return; }
+  if (heldLocally) return; // paused just for me: don't restart it
+  if (a.paused && !a.ended && $('unmute').hidden) tryPlay();
+  else if (v.paused && !v.ended && !document.hidden) v.play().catch(() => {});
+}
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
