@@ -222,7 +222,7 @@ const wasDeleted = name => { const list = accounts(), key = nameKey(name); retur
 // Not allowed as nicknames: the activity log's own entries, the DJ's name, and names that would confuse object lookups.
 const RESERVED = new Set(['server', 'someone', 'dj', '__proto__', 'constructor', 'prototype']);
 let dj = null; // the DJ (dj.js), started further down (see "The DJ")
-const DJ_NAME = 'DJ'; // its songs go in under this name (reserved above): anyone can delete them from the queue
+const DJ_NAME = 'DJ'; // its songs go in under this name (reserved above), always after everyone else's
 const isDjSong = item => !!item && item.by === DJ_NAME;
 // Scrambling a password takes a moment (that's the point: it makes guessing slow), so it runs in the
 // background rather than holding up everyone's video and chat.
@@ -284,6 +284,7 @@ setInterval(() => {
 }, 5000);
 let wasHere = null;    // who was here when the server last stopped, and when each was last seen (loaded below)
 let savedSkip = null;  // skip votes when the server last stopped (loaded below, see "Vote to skip")
+let savedRemove = null; // votes to remove queued songs, the same (see "Vote to remove")
 let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n = clicks in the bundle, cid = sending page
 let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
 // Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
@@ -295,7 +296,7 @@ const trash = new Map();   // id -> { item, index }  (index = where it was in th
 const UNDO_MS = 10 * 60 * 1000;
 
 try {
-  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], history = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null } =
+  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], history = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null, removeVotes: savedRemove = null } =
     JSON.parse(fs.readFileSync(STATE, 'utf8')));
 } catch {}
 for (const e of log) delete e.undo; // the trash does not survive a restart
@@ -316,7 +317,8 @@ function save() {
     // can tell a quick restart from the server having been off). skip: the votes on the current song.
     const herePlus = Object.fromEntries([...here].map(n => [n, seen[n] || 0]));
     const skip = current ? { song: current.id, voters: [...skipVotes] } : null;
-    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, history, colors, faces, here: herePlus, skip }));
+    const removeVotesSaved = Object.fromEntries([...removeVotes].map(([id, votes]) => [id, [...votes]]));
+    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, history, colors, faces, here: herePlus, skip, removeVotes: removeVotesSaved }));
   } catch (err) {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
     console.error('save failed:', err.message);
@@ -671,6 +673,42 @@ function checkSkip() {
   advance();
 }
 
+// ---------- Vote to remove ----------
+// Every queued song has a bin button. Whoever added a song removes it straight away; anyone else's (the
+// DJ's too) is a vote: it goes once more than half of the people online have voted, as for skipping.
+// Clicking again takes the vote back; votes only count while the voter is online, and survive a restart.
+const removeVotes = new Map(); // song id -> Set of nicknames, in the order they voted
+if (savedRemove && typeof savedRemove === 'object') {
+  for (const [id, names] of Object.entries(savedRemove)) {
+    if (Array.isArray(names) && queue.some(q => q.id === +id)) removeVotes.set(+id, new Set(names.filter(n => typeof n === 'string')));
+  }
+}
+// Takes a song out of the queue (into the deleted songs, for Undo) and logs it as `who`.
+function removeFromQueue(item, who, text) {
+  const i = queue.indexOf(item);
+  if (i < 0) return;
+  queue.splice(i, 1);
+  item.removed = true;
+  removeVotes.delete(item.id);
+  if (running.has(item.id)) stopDownload(item); // still downloading: stop it, free its slot now
+  trash.set(item.id, { item, index: i, t: Date.now(), by: who }); // files kept for 10 minutes, in case of undo
+  addLog(who, text);
+  log[log.length - 1].undo = item.id;
+  dirty = true;
+  pump(); // its download slot is free for the next waiting song
+}
+function checkRemoves() {
+  const people = online();
+  for (const [id, votes] of removeVotes) {
+    const item = queue.find(q => q.id === id);
+    if (!item) { removeVotes.delete(id); continue; }
+    const voters = people.filter(n => votes.has(n));
+    if (!voters.length || voters.length < skipNeeded(people.length)) continue;
+    const last = [...votes].filter(n => voters.includes(n)).pop(); // the vote that tipped it
+    removeFromQueue(item, last, people.length === 1 ? `removed "${item.title}"` : `removed "${item.title}" (${voters.length} of ${people.length} voted)`);
+  }
+}
+
 // ---------- Playback ----------
 const nextUp = () => queue.find(q => q.status === 'ready'); // the song that will play next
 
@@ -683,6 +721,7 @@ function advance(headStart = 0) {
   const idx = queue.findIndex(q => q.status === 'ready');
   if (idx >= 0) {
     current = queue.splice(idx, 1)[0];
+    removeVotes.delete(current.id); // it's playing now (skipping it is its own vote)
     startedAt = Date.now() - headStart * 1000;
     // History (the panel under Activity, and the DJ's ideas): newest first, the last HISTORY_MAX.
     history.unshift({ url: current.url, title: current.title, by: current.by, t: Date.now() });
@@ -699,6 +738,7 @@ function advance(headStart = 0) {
 // has been playing for about the grace period already: start its clock from there, so nobody jumps back.
 setInterval(() => {
   checkSkip(); // a voter may have come back, or someone who hadn't voted left
+  checkRemoves(); // the same, for votes to remove queued songs
   if (!current) { if (nextUp()) advance(); }
   else if (!paused && elapsed() > current.duration + GRACE) advance(Math.min(elapsed() - current.duration, GRACE + 1));
   // Failed songs stay in the queue (with a retry button) until someone retries or deletes them;
@@ -725,7 +765,7 @@ setInterval(() => {
 // ---------- The DJ ----------
 // dj.js: plays something like what people have been asking for when the queue runs out, if someone has
 // typed "!dj on" in the chat. This is everything it can use. Its songs are queued as "DJ" (the name can't
-// be taken as a nickname), and anyone can delete them from the queue (skipping the one playing is a vote).
+// be taken as a nickname). Removing or skipping them is a vote, as for anyone's songs.
 dj = require('./dj')({
   dataDir: DATA,
   writeAtomic,
@@ -780,7 +820,9 @@ function state(q) {
     elapsed: current ? elapsed() : 0,
     paused,
     next: pub(nextUp()),
-    queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt })),
+    // removeVoters: who (online) has voted to remove each song (see "Vote to remove")
+    queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt,
+      removeVoters: removeVotes.has(id) ? users.filter(n => removeVotes.get(id).has(n)) : [] })),
     colors, faces,
     reactions: reactions.filter(r => now - r.t < 6000),
     users,
@@ -1067,18 +1109,21 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /remove': // delete a song from the queue: { id }. Only whoever added it can (anyone, for the DJ's).
-      return readJson(req, 200, ({ id }) => {
-        const i = queue.findIndex(q => q.id === id);
-        if (i >= 0 && queue[i].by !== who && !isDjSong(queue[i])) { res.writeHead(403); return res.end('Only whoever added a song can remove it'); }
-        if (i >= 0) {
-          const [item] = queue.splice(i, 1);
-          item.removed = true;
-          if (running.has(item.id)) stopDownload(item); // still downloading: stop it, free its slot now
-          trash.set(item.id, { item, index: i, t: Date.now(), by: who }); // files kept for 10 minutes, in case of undo
-          addLog(who, `removed "${item.title}"`);
-          log[log.length - 1].undo = item.id;
-          pump(); // its download slot is free for the next waiting song
+    // { id, vote }: your own song goes straight away. Anyone else's (the DJ's too): vote: true = vote to remove
+    // it, false = take the vote back (see "Vote to remove"). A page from before votes sends no vote: a vote.
+    case 'POST /remove':
+      return readJson(req, 200, ({ id, vote }) => {
+        const item = queue.find(q => q.id === id);
+        if (item) {
+          seen[who] = Date.now(); // counts as online
+          arrived(who);
+          if (item.by === who) removeFromQueue(item, who, `removed "${item.title}"`);
+          else {
+            const votes = removeVotes.get(item.id) || new Set();
+            if (vote === false) votes.delete(who); else votes.add(who);
+            if (votes.size) removeVotes.set(item.id, votes); else removeVotes.delete(item.id);
+            checkRemoves();
+          }
         }
         done(res);
       });

@@ -60,7 +60,7 @@ Anyone in the room can type these in the chat (they aren't posted as messages):
 
 | Command | What it does |
 |---|---|
-| `!dj on` | Turns the DJ on: it keeps up to 10 songs queued, like what people have been asking for (from YouTube's Mix of recent requests, other artists first). Its songs always go after everyone else's, and anyone can delete them from the queue (skipping the one playing is a vote, like any song). |
+| `!dj on` | Turns the DJ on: it keeps up to 10 songs queued, like what people have been asking for (from YouTube's Mix of recent requests, other artists first). Its songs always go after everyone else's, and removing or skipping them is a vote, like any song. |
 | `!dj off` | Turns it off: it stops adding songs. What it already queued stays, until someone deletes it. |
 | `!dj` | Says whether the DJ is on. |
 

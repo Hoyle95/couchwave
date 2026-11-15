@@ -21,14 +21,15 @@ but Node.js, yt-dlp and ffmpeg. No sign-up emails, no database, no npm packages.
 ## What it does
 
 - **Shared queue**: paste a link, a playlist, or a song name. People take turns: one person's 100-song
-  playlist doesn't drown out everyone else. Delete your own songs (with undo), copy links.
+  playlist doesn't drown out everyone else. Remove your own songs, or vote to remove anyone's (with
+  undo), copy links.
 - **In sync**: play, pause and seek for everyone, and vote to skip (more than half of the people online
   skips the song; whoever added it can skip it straight away). Your own volume stays yours, and so does
   **audio-only** mode: turn the video off to just listen (and save data).
 - **Chat, reactions and who's online**, with emoji profile pictures and colours. Messages, votes and
   songs changing show up for everyone instantly.
 - **A DJ** to keep the music going: type `!dj on` in the chat and it keeps up to 10 songs queued, like
-  what people have been asking for, always after everyone else's (anyone can delete them from the queue).
+  what people have been asking for, always after everyone else's.
   `!dj off` stops it. It's off until someone turns it on.
 - **History**: the last 100 songs played, with who asked for them and when, and their links to copy.
 - **Your own nickname**, with its own password, so nobody else can join as you.

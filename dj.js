@@ -6,7 +6,7 @@
 //
 // Off until someone types "!dj on" in the chat; "!dj off" stops it adding songs (what it queued stays);
 // "!dj" says whether it's on. Its songs go in as "DJ", always after everyone else's (server.js), and anyone
-// can delete them from the queue (skipping the one playing is a vote, as for anyone's). It remembers whether
+// can vote to remove them from the queue or skip them, as for anyone's songs. It remembers whether
 // it's on in data/dj.json.
 //
 // It only uses what server.js hands it (`app`, see "The DJ" there), so it can be changed or swapped out
@@ -55,12 +55,12 @@ module.exports = function startDj(app) {
         save();
         app.log(who, `turned the DJ ${want}`);
         if (on) {
-          app.say(NAME, `${FACE} DJ on! I'll keep up to ${KEEP_QUEUED} songs queued, like what you've been asking for, always after yours. Anyone can delete mine from the queue. Type !dj off to stop me.`);
+          app.say(NAME, `${FACE} DJ on! I'll keep up to ${KEEP_QUEUED} songs queued, like what you've been asking for, always after yours. You can vote mine out of the queue like anyone's. Type !dj off to stop me.`);
           tick();
         } else {
           // What it already queued stays, until someone deletes it.
           const n = app.queue().filter(q => q.by === NAME).length;
-          app.say(NAME, `${FACE} DJ off: I won't add any more${n ? `. My ${n} song${n === 1 ? '' : 's'} already queued stay${n === 1 ? 's' : ''} (anyone can delete them)` : ''}. Type !dj on to bring me back.`);
+          app.say(NAME, `${FACE} DJ off: I won't add any more${n ? `. My ${n} song${n === 1 ? '' : 's'} already queued stay${n === 1 ? 's' : ''} (you can vote them out of the queue)` : ''}. Type !dj on to bring me back.`);
         }
       }
     } else {

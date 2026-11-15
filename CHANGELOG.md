@@ -8,8 +8,8 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 
 - **DJ**: type `!dj on` in the chat, and a DJ keeps up to 10 songs queued, like what people have been asking
   for (from YouTube's Mix of recent requests and the History, other artists first, no repeats, no albums or
-  hour-long mixes). Its songs always go after everyone else's, and anyone can delete them from the queue (skipping
-  the one playing is a vote, like any song). `!dj off` stops it adding songs (what it queued stays); `!dj` says whether it's on. Off by default. The nickname
+  hour-long mixes). Its songs always go after everyone else's, and removing or skipping
+  them is a vote, like any song. `!dj off` stops it adding songs (what it queued stays); `!dj` says whether it's on. Off by default. The nickname
   "DJ" is reserved. It's a separate file (`dj.js`).
 - **History**: a row of the last 100 songs played under Activity, newest on the left: thumbnail (opens it
   on YouTube), title, who asked for it, when it played, and a button to copy its link.
@@ -65,8 +65,10 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
   a-ha song).
 - **Titles with accents, dashes, emoji or other alphabets** now come through right on Windows, instead of
   turning into "�".
-- **Only whoever added a song can delete it** from the queue (and undo deleting it). Other people's songs
-  have no delete button, and the server refuses it too.
+- **Vote to remove**: every queued song has a bin button for everyone. Your own songs go straight away;
+  anyone else's (and the DJ's) is a vote, removed once more than half of the people online have voted, like
+  skipping. The button shows the count (e.g. "1/3") for everyone, and hovering says who voted. Click again
+  to take your vote back. The log says how many voted; the deciding voter or the song's owner can Undo.
 - **Chat and page loads no longer stall while video plays**: songs are now sent to each viewer at a steady
   pace (the first 20 seconds at full speed, so songs and seeks still start straight away, then 3× what the
   video needs) instead of as fast as the connection allows. Several browsers grabbing video at full speed

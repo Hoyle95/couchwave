@@ -1,6 +1,7 @@
-// The DJ (dj.js): off until "!dj on"; keeps up to 10 songs of its own queued, always after people's; anyone
-// can delete them from the queue; skipping the one playing is a vote; "!dj off" leaves them queued. YouTube's Mix comes from the stand-in yt-dlp: for a
-// song, one by the same artist, two by other artists, and a full album and a jingle it should skip.
+// The DJ (dj.js): off until "!dj on"; keeps up to 10 songs of its own queued, always after people's;
+// removing or skipping them is a vote, like anyone's; "!dj off" leaves them queued. YouTube's Mix comes
+// from the stand-in yt-dlp: for a song, one by the same artist, two by other artists, and a full album and
+// a jingle it should skip.
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
@@ -81,14 +82,19 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok(q.slice(firstDj).every(x => x.by === 'DJ'), 'then the DJ\'s');
   });
 
-  test('anyone can delete the DJ\'s queued songs; skipping the one playing is a vote; !dj off leaves the rest queued', async () => {
+  test('the DJ\'s songs: removing one from the queue, or skipping the one playing, is a vote; !dj off leaves the rest queued', async () => {
     const s = await start();
     await aliceSong(s, 'shrt_000004'); // 3 seconds: a DJ song plays next
+    const stop = s.keepOnline('Alice', 'Bob', 'Cara', 'Dan'); // 4 people online: 3 votes needed
+    for (const n of ['Bob', 'Cara', 'Dan']) await s.state(n);
     await say(s, 'Bob', '!dj on');
     const [first] = await waitFor(async () => { const d = await djSongs(s); return d.length && d; }, 8000, 'a DJ song');
-    assert.equal((await s.post('/remove', { id: first.id }, { as: 'Cara' })).status, 204, 'Cara deletes it');
-    assert.equal((await s.post('/undo', { id: first.id }, { as: 'Dan' })).status, 403, 'only Cara can undo that');
-    const playing = await waitFor(async () => { const st = await s.state('Dan'); await s.state('Cara'); await s.state('Bob'); return st.current?.by === 'DJ' && st.current; }, 15000, 'a DJ song to play');
+    await s.post('/remove', { id: first.id, vote: true }, { as: 'Cara' });
+    assert.deepEqual((await djSongs(s)).find(q => q.id === first.id)?.removeVoters, ['Cara'], 'one vote: still there, and shown');
+    for (const who of ['Bob', 'Dan']) await s.post('/remove', { id: first.id, vote: true }, { as: who });
+    assert.ok(!(await djSongs(s)).some(q => q.id === first.id), '3 of 4: removed');
+    assert.equal((await s.post('/undo', { id: first.id }, { as: 'Alice' })).status, 403, 'only the deciding voter can undo it (the DJ isn\'t a person)');
+    const playing = await waitFor(async () => { const st = await s.state('Dan'); return st.current?.by === 'DJ' && st.current; }, 15000, 'a DJ song to play');
     await s.post('/skip', { id: playing.id }, { as: 'Dan' });
     const st = await s.state('Dan');
     assert.equal(st.current?.id, playing.id, 'one vote isn\'t enough, even for the DJ\'s song');
@@ -99,10 +105,11 @@ describe('the DJ', { concurrency: true }, () => {
     const before = (await djSongs(s)).length;
     assert.ok(before > 0, 'it has songs queued');
     await say(s, 'Bob', '!dj off');
-    assert.equal((await djSongs(s)).length, before, 'off: what it queued stays, until someone deletes it');
-    assert.match((await s.state()).chat.at(-1).text, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(anyone can delete them\)/);
+    assert.equal((await djSongs(s)).length, before, 'off: what it queued stays, until it\'s voted out');
+    assert.match((await s.state()).chat.at(-1).text, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(you can vote them out of the queue\)/);
     await sleep(4000);
     assert.equal((await djSongs(s)).length, before, '...and it doesn\'t add any more');
+    stop();
   });
 
   test('on/off is remembered when the server restarts', async () => {

@@ -156,20 +156,51 @@ test('delete (even mid-download) and undo', async () => {
   await waitFor(() => inQueue(s, x => x.id === q.id && x.status === 'ready'), 9000, 'it to finish downloading');
 });
 
-test('only whoever added a song can delete it, or undo deleting it', async () => {
+test('your own song: removed straight away, and only you (or the deciding voter) can undo it', async () => {
   const s = await start();
   await s.post('/add', { url: yt('mine_000001') }, { as: 'Alice' });
   const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
-  const r = await s.post('/remove', { id: q.id }, { as: 'Bob' });
-  assert.equal(r.status, 403, 'Bob is refused');
-  assert.ok(await inQueue(s, x => x.id === q.id), 'still in the queue');
-  assert.ok(!(await s.log()).some(l => /removed/.test(l)), 'nothing logged');
   await s.post('/remove', { id: q.id }, { as: 'Alice' });
-  assert.equal((await s.state()).queue.length, 0, 'Alice can');
-  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'Bob can\'t bring it back either');
-  assert.equal((await s.state()).queue.length, 0);
+  assert.equal((await s.state()).queue.length, 0, 'gone');
+  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'Bob can\'t bring it back');
   await s.post('/undo', { id: q.id }, { as: 'Alice' });
   assert.ok(await inQueue(s, x => x.id === q.id), 'Alice can');
+});
+
+test('anyone else\'s song: a vote to remove it, shown to everyone; more than half of the people online removes it', async () => {
+  const s = await start();
+  for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n); // 3 people online: 2 votes needed
+  const stop = s.keepOnline('Alice', 'Bob', 'Cara');
+  await s.post('/add', { url: yt('vote_000001') }, { as: 'Alice' });
+  const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
+  await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' });
+  let x = await inQueue(s, y => y.id === q.id);
+  assert.ok(x, '1 vote of 3: still there');
+  assert.deepEqual(x.removeVoters, ['Bob'], 'everyone sees who voted');
+  assert.deepEqual((await inQueue(s, y => y.id === q.id)).removeVoters, ['Bob']);
+  await s.post('/remove', { id: q.id, vote: false }, { as: 'Bob' });
+  assert.deepEqual((await inQueue(s, y => y.id === q.id)).removeVoters, [], 'a vote can be taken back');
+  await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' });
+  await s.post('/remove', { id: q.id, vote: true }, { as: 'Cara' });
+  assert.ok(!(await inQueue(s, y => y.id === q.id)), '2 of 3: removed');
+  assert.ok((await s.log()).some(l => /^Cara: removed ".+" \(2 of 3 voted\)$/.test(l)), 'the log says how many voted');
+  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'Bob (not the deciding vote) can\'t undo');
+  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Cara' })).status, 204, 'Cara (the deciding vote) can');
+  x = await inQueue(s, y => y.id === q.id);
+  assert.ok(x, 'back');
+  assert.deepEqual(x.removeVoters, [], 'with no votes');
+  stop();
+});
+
+test('votes to remove survive a restart', async () => {
+  const s = await start();
+  for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n);
+  await s.post('/add', { url: yt('vote_000002') }, { as: 'Alice' });
+  const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
+  await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' });
+  await s.restart();
+  for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n);
+  assert.deepEqual((await inQueue(s, y => y.id === q.id)).removeVoters, ['Bob']);
 });
 
 test('the queue can\'t be reordered by hand', async () => {
