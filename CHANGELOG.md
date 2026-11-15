@@ -19,7 +19,7 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   go once enough of the people online vote. The vote count shows on the button. If a song plays before
   enough people vote to remove it, their votes count as votes to skip it.
 - **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"). Whoever added the song can skip it straight
-  away.
+  away. A song skipped by a vote shows in Activity as everyone's doing, not the last voter's.
 - **`public` in config.json (not recommended)**: `"public": true` removes the room password, so anyone with
   the address can join (nicknames still have their own passwords). Off by default; see the warning in the
   README.
@@ -49,3 +49,10 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   host's upload.
 - **Titles with accents, dashes, emoji or other alphabets** display properly on Windows.
 - **Safer logins**: browsers keep a signed login, never a password.
+- **Names on the light theme** no longer have a black outline.
+
+### Fixed
+
+- **People flickering offline**: someone with Couchwave in a background tab or on a locked phone kept
+  dropping off the online list and coming back (browsers slow such pages down). That also left them out of
+  vote counts, so fewer votes than needed could remove or skip a song. An open page now always counts.

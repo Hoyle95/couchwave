@@ -294,7 +294,19 @@ function departed(who, t) { delete closed[who]; if (here.delete(who)) { addLog(w
 // Gone: no check-in for a minute, or their page said it was closing and hasn't checked in since (a reload
 // checks in again within a second or two, so it doesn't count; neither does closing one of two tabs).
 const gone = (who, now) => now - (seen[who] || 0) > LEAVE_AFTER || (closed[who] > (seen[who] || 0) && now - closed[who] > CLOSED_AFTER);
+// An open page also keeps /events open (instant updates), which counts as checking in. Pages in a background
+// tab or on a locked phone get their 2-second timer slowed to as little as once a minute by the browser, so
+// going by checks-ins alone, they'd flicker offline between them (and drop out of the vote count). Only
+// while that login is still good: logging out (or --logout-everyone, --delete-account) ends the stream.
+function streamsSeen() {
+  const now = Date.now();
+  for (const res of listeners) {
+    if (loggedIn(res.auth)?.name !== res.who) { listeners.delete(res); res.end(); continue; }
+    seen[res.who] = now;
+  }
+}
 setInterval(() => {
+  streamsSeen();
   const now = Date.now();
   for (const who of here) if (gone(who, now)) departed(who);
   if (here.size && now - savedAt > secs(30)) dirty = true; // keeps the saved last-seen times fresh (see save())
@@ -678,7 +690,7 @@ const skipVotes = new Set(); // nicknames, in the order they voted
 if (savedSkip && current && savedSkip.song === current.id && Array.isArray(savedSkip.voters)) {
   for (const n of savedSkip.voters) if (typeof n === 'string') skipVotes.add(n);
 }
-const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
+const online = () => { streamsSeen(); const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
 // Votes needed (to skip, or to remove someone else's song) with this many people online: never fewer than 1.
 const votesNeeded = people => Math.max(1, Math.ceil(people * VOTE_PERCENT / 100 - 1e-9));
 function checkSkip() {
@@ -1055,7 +1067,10 @@ http.createServer((req, res) => {
   }
   if (route === 'POST /logout') {
     const acc = loggedIn(parseCookies(req.headers.cookie).auth);
-    if (acc) { delete seen[acc.name]; departed(acc.name); }
+    if (acc) {
+      for (const r of listeners) if (r.who === acc.name) { listeners.delete(r); r.end(); } // their pages' instant updates too (see streamsSeen())
+      delete seen[acc.name]; departed(acc.name);
+    }
     res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', '').replace('%d', 0) }); // the name cookie stays, for the join screen
     return res.end();
   }
@@ -1074,8 +1089,10 @@ http.createServer((req, res) => {
     case 'GET /events': // instant updates (see nudge())
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
       res.write('retry: 3000\n\n'); // after a drop-out, the browser reconnects in 3 seconds
+      res.who = who; res.auth = parseCookies(req.headers.cookie).auth; // counts as being here (see streamsSeen())
+      seen[who] = Date.now();
       listeners.add(res);
-      req.on('close', () => listeners.delete(res));
+      req.on('close', () => { if (listeners.delete(res)) seen[who] = Date.now(); }); // last seen: just now
       return;
 
     case 'POST /bye': // the page was closed (or is reloading): "left" soon, unless it checks in again (see gone())
