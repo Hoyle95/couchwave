@@ -740,7 +740,10 @@ function advance(headStart = 0) {
   const idx = queue.findIndex(q => q.status === 'ready');
   if (idx >= 0) {
     current = queue.splice(idx, 1)[0];
-    removeVotes.delete(current.id); // it's playing now (skipping it is its own vote)
+    // It's playing now, so votes to remove it carry over as votes to skip it (they wanted it gone).
+    // Anyone who still wants it can take theirs back; checkSkip (every second) skips it if there are enough.
+    for (const n of removeVotes.get(current.id) || []) if (n !== current.by) skipVotes.add(n);
+    removeVotes.delete(current.id);
     startedAt = Date.now() - headStart * 1000;
     // History (the panel under Activity, and the DJ's ideas): newest first, the last HISTORY_MAX.
     history.unshift({ url: current.url, title: current.title, by: current.by, t: Date.now() });

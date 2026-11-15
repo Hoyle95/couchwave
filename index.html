@@ -25,7 +25,7 @@
     --surface: #16161e; --surface2: #1e1e28; --border: #272733;
     --fg: #f2f2f6; --muted: #8a8a9a; --soft: #b4b4c2;
     --accent: #ff3d5a; --accent2: #ff8a3d; --ok: #2fd27a; --warn: #ffb020; --err: #ff5c6c;
-    --shadow: 0 10px 30px #0006; --name-l: 66%; --name-ol: transparent;
+    --shadow: 0 10px 30px #0006; --name-l: 66%;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -34,7 +34,7 @@
       --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
       --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
       --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839;
-      --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%; --name-ol: #000;
+      --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%;
     }
   }
   :root[data-theme="light"] {
@@ -43,7 +43,7 @@
     --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
     --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
     --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839;
-    --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%; --name-ol: #000;
+    --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%;
   }
 
   /* ---------- Font ---------- */
@@ -131,8 +131,6 @@
     width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff;
     background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 6px 18px var(--glow1);
   }
-  /* Names in their chosen colour get a thin solid outline (black, on the light theme only), drawn behind the letters so the colour stays full strength and pale colours stay readable. */
-  .nm { -webkit-text-stroke: 1px var(--name-ol); paint-order: stroke fill; }
   .nm, .me b.nm, .msg .head b.nm { font-weight: 800; } /* names stand out in heavy type */
   .logo svg { width: 28px; height: 28px; }
   .brand h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
@@ -431,6 +429,7 @@
     position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; overflow-y: auto;
     background: radial-gradient(700px 400px at 50% 0%, var(--glow1), transparent 70%), var(--bg);
   }
+  #join { grid-template-rows: 1fr auto; } /* the card in the middle, the footer (moved here until you join) at the bottom */
   .joinCard { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
   .joinCard form { display: contents; } /* the two forms are for password managers; the card lays everything out */
   .overlay .logo { width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 6px; }
@@ -636,8 +635,8 @@
       <section class="card chat-card">
         <h3>Chat
           <span class="chatSound" title="Message sound (just you)">
-            <button id="chatMute" class="iconbtn" onclick="toggleChatMute()" title="Mute / unmute message sound" aria-label="Mute / unmute message sound"></button>
-            <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Message sound volume">
+            <button id="chatMute" class="iconbtn" onclick="toggleChatMute()" title="Mute / unmute the message, join and leave sounds" aria-label="Mute / unmute the message, join and leave sounds"></button>
+            <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Volume of the message, join and leave sounds">
           </span>
           <button type="button" class="iconbtn fsOnly" onclick="toggleChat()" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-collapse"/></svg></button><!-- full screen only -->
         </h3>
@@ -667,7 +666,7 @@
     </div>
   </div>
 
-  <footer>
+  <footer id="footer"><!-- shown on the join screen too, until you join (see enter()) -->
     <p>Couchwave is free and open source: host your own instance, <a href="https://github.com/Hoyle95/couchwave" target="_blank" rel="noopener">get it on GitHub</a>.</p>
     <p>Designed by <a href="https://matthoyle.me/" target="_blank" rel="noopener">Matt Hoyle</a> using Claude Opus 5.5</p>
   </footer>
@@ -675,6 +674,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
+const footerHome = $('footer').parentNode; // where the footer lives once you've joined
 const v = $('v'), seek = $('seek'), vol = $('vol');
 let joined = false, playingId = null, serverPaused = false, seeking = false, actionAt = 0;
 // What's on screen, so each poll only redraws what changed. The server only sends the log / chat
@@ -746,6 +746,7 @@ const savePick = () => { try { localStorage.setItem('myPick', JSON.stringify(myP
   if (room.public) { $('roomGroup').style.display = 'none'; $('pw').required = false; }
   $('name').value = getCookie('name');
   $('joinAvWrap').appendChild($('colorPop')); // the picture picker opens under the big picture until you've joined
+  $('join').appendChild($('footer')); // and the footer goes under the join card
   previewMe();
   $('name').oninput = previewMe;
   $('join').hidden = false;
@@ -799,6 +800,7 @@ function enter() {
   $('me').textContent = myName;
   $('me').after($('colorPop')); // the picker belongs in the header from now on
   $('colorPop').hidden = true;
+  footerHome.appendChild($('footer')); // back at the bottom of the page (it's the last thing there)
   paintMe();
   poll();
 }
@@ -1438,8 +1440,8 @@ $('queue').onclick = e => {
 };
 
 
-// ---- Chat ding: two soft bell tones made with Web Audio (no sound file needed) ----
-let audioCtx = null, chatSeen = null;
+// ---- Sounds: the chat ding, and someone joining or leaving, made with Web Audio (no sound files needed) ----
+let audioCtx = null, chatSeen = null, logKeys = null; // logKeys: the activity entries already seen (for the join/leave sounds)
 // Browsers only allow sound after the user has clicked something, so unlock audio on the first click.
 document.addEventListener('pointerdown', () => {
   try { audioCtx = audioCtx || new AudioContext(); audioCtx.resume(); } catch {}
@@ -1461,26 +1463,32 @@ $('chatVol').oninput = e => { chatVol = +e.target.value; chatMuted = false; save
 $('chatVol').onchange = () => ding(); // preview when you let go of the slider
 drawChatSound();
 
-function ding() {
+// Plays notes: [frequency, start delay, how long it fades over], at `loud` (0-1) times the message sound volume.
+function tones(notes, { type = 'sine', loud = 0.6 } = {}) {
   if (chatMuted || !chatVol) return;
-  const peak = 0.6 * chatVol; // 0.6 max: the two tones overlap a little, so this stays below clipping
+  const peak = loud * chatVol; // 0.6 max: the tones overlap a little, so this stays below clipping
   try {
     audioCtx = audioCtx || new AudioContext();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     const t = audioCtx.currentTime;
-    for (const [freq, delay] of [[880, 0], [1320, 0.09]]) {
+    for (const [freq, delay, fade] of notes) {
       const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
-      osc.type = 'sine';
+      osc.type = type;
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, t + delay);
       gain.gain.exponentialRampToValueAtTime(peak, t + delay + 0.01); // quick attack
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.6); // bell-like fade
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + fade);
       osc.connect(gain).connect(audioCtx.destination);
       osc.start(t + delay);
-      osc.stop(t + delay + 0.65);
+      osc.stop(t + delay + fade + 0.05);
     }
   } catch {}
 }
+// A new message: two high bell tones.
+const ding = () => tones([[880, 0, 0.6], [1320, 0.09, 0.6]]);
+// Someone joined / left: two short, lower, softer notes, going up (G4 to C5) or down (C5 to G4).
+const joinSound = () => tones([[392, 0, 0.25], [523, 0.11, 0.35]], { type: 'triangle', loud: 0.45 });
+const leaveSound = () => tones([[523, 0, 0.25], [392, 0.11, 0.35]], { type: 'triangle', loud: 0.45 });
 
 const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -1589,7 +1597,14 @@ async function poll() {
   if (queueHtml !== lastQueue) { $('queue').innerHTML = queueHtml; lastQueue = queueHtml; }
 
   // Activity (only sent when it changed; redrawn then, or when someone's colour changed)
-  if (s.log) { logList = s.log; logRev = s.logRev; }
+  if (s.log) {
+    // A sound when someone else joins or leaves (once, even if several did at once), not on first load.
+    const key = l => `${l.t}|${l.by}|${l.text}`, fresh = logKeys ? s.log.filter(l => !logKeys.has(key(l)) && l.by !== myName) : [];
+    if (fresh.some(l => l.text === 'joined')) joinSound();
+    else if (fresh.some(l => l.text === 'left')) leaveSound();
+    logKeys = new Set(s.log.map(key));
+    logList = s.log; logRev = s.logRev;
+  }
   if (s.log || recolor) drawLog();
 
   // History (only sent when it changed, like the log)

@@ -16,7 +16,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   Off by default; `!dj off` stops it.
 - **History**: the last 100 songs played, under Activity, with thumbnails, who asked, when, and a copy link.
 - **Vote to remove**: a bin on every queued song. Your own go straight away; anyone else's, and the DJ's,
-  go once enough of the people online vote. The vote count shows on the button.
+  go once enough of the people online vote. The vote count shows on the button. If a song plays before
+  enough people vote to remove it, their votes count as votes to skip it.
 - **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"). Whoever added the song can skip it straight
   away.
 - **`public` in config.json (not recommended)**: `"public": true` removes the room password, so anyone with
@@ -25,10 +26,12 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
   someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
 - **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
-- **Joined / left** in the activity log.
+- **Joined / left** in the activity log, with a sound (different from the message ding, and set by the same
+  volume slider and mute button).
 - **Audio only**: turn the video off just for you, to listen and save data.
 - **Loading spinner** while the video loads.
 - **Join screen**: eye buttons to show what you typed, and password managers can now fill in your login.
+  The footer (GitHub link and credits) shows there too.
 - **Tests**: `node --test` checks the whole app in under 10 seconds, without internet or your real data.
 - **Docs**: installing is in [docs/INSTALL.md](docs/INSTALL.md), commands in
   [docs/COMMANDS.md](docs/COMMANDS.md).

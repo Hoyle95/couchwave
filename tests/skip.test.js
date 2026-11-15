@@ -72,6 +72,23 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.deepEqual((await s.state()).skip.voters, ['Bob']);
   });
 
+  test('votes to remove a queued song carry over as votes to skip it once it plays', async () => {
+    const s = await start();
+    await s.post('/remove', { id: 2 }, { as: 'Alice' }); // 1 of 3: not enough to remove it
+    assert.deepEqual((await s.state()).queue.find(q => q.id === 2).removeVoters, ['Alice']);
+    await vote(s, 'Bob', 1); await vote(s, 'Cara', 1); // Song A skipped, Song B plays
+    let st = await s.state();
+    assert.equal(st.current.title, 'Song B');
+    assert.deepEqual(st.skip.voters, ['Alice'], 'Alice\'s vote to remove is now a vote to skip ("1 out of 3")');
+    await vote(s, 'Alice', 2, false); // and she can take it back
+    assert.deepEqual((await s.state()).skip.voters, []);
+    await s.post('/remove', { id: 3 }, { as: 'Alice' });
+    await vote(s, 'Bob', 2); await vote(s, 'Cara', 2); // Song B skipped, Song C plays
+    await waitFor(async () => (await title(s)) === 'Song C');
+    await vote(s, 'Bob', 3); // with Alice's carried-over vote: 2 of 3
+    assert.ok(await waitFor(async () => (await s.state()).current?.title !== 'Song C'), 'skipped with the carried-over vote');
+  });
+
   test('someone reloading doesn\'t tip the vote; someone leaving does', async () => {
     const s = await start();
     s.stopOnline(); const stopAB = await s.keepOnline('Alice', 'Bob');

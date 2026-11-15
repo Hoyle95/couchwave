@@ -10,13 +10,6 @@ yt-dlp and ffmpeg (no database, no npm packages).
 
 ![Couchwave in a browser: a video playing with emoji reactions floating over it, a skip vote in progress, the chat and online friends on the right, and below them the activity log, the history of songs played with thumbnails, and the queue](docs/screenshot.png)
 
-<details>
-<summary>On a phone</summary>
-
-<img src="docs/screenshot-phone.png" alt="Couchwave on a phone" width="320">
-
-</details>
-
 ## What it does
 
 - **Shared queue**: links, playlists or song names. People take turns, so one big playlist doesn't hog it.
@@ -34,6 +27,8 @@ yt-dlp and ffmpeg (no database, no npm packages).
 2. Open <http://localhost:3000>. The room password is in `config.json`, made on the first run.
 3. Send your friends the address and the room password. The first time they join, they pick a nickname
    and a password for it.
+
+<p align="center"><img src="docs/screenshot-join.png" alt="The join screen: a profile picture and nickname with its own password under &quot;You&quot;, the room password below, and a Join the party button" width="450"></p>
 
 Admin commands (log everyone out, delete an account, reset a password) and chat commands are in
 **[docs/COMMANDS.md](docs/COMMANDS.md)**.
