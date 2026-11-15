@@ -321,26 +321,55 @@
   /* flex-basis 0 so the chat never makes the row taller than the player; it just scrolls */
   #chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; margin-bottom: 12px; }
   @media (max-width: 860px) { #chat { flex: none; height: 360px; } } /* stacked on phones: chat gets its own fixed height */
-  /* ---------- Full screen: player on the left, chat down the right (body.fs) ---------- */
+  /* ---------- Full screen, like Twitch (body.fs) ----------
+     The video fills everything left of the chat, edge to edge; the song's title (with reactions) and the
+     controls float over it, and fade out after a few seconds without moving the mouse (body.uiAway). The
+     chat runs the full height down the right, the online list a slim strip on top of it. The chat can be
+     hidden (body.chatHidden, remembered), and then the video takes the whole screen. */
   #fsBtn { margin-left: auto; }
-  body.fs header, body.fs .rest { display: none; }
-  body.fs .wrap { max-width: none; height: 100vh; height: 100dvh; padding: 10px; display: flex; flex-direction: column; }
-  body.fs .layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) clamp(240px, 26vw, 380px); grid-template-rows: minmax(0, 1fr); gap: 10px; }
+  .fsOnly { display: none !important; }
+  body.fs .fsOnly { display: inline-grid !important; place-items: center; }
+  body.fs header, body.fs .rest, body.fs #addForm, body.fs footer { display: none; }
+  body.fs .wrap { max-width: none; height: 100vh; height: 100dvh; padding: 0; display: flex; flex-direction: column; }
+  body.fs .layout { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) clamp(280px, 24vw, 360px); grid-template-rows: minmax(0, 1fr); gap: 0; }
+  body.fs.chatHidden .layout { grid-template-columns: minmax(0, 1fr); }
+  body.fs.chatHidden aside { display: none; }
   body.fs main, body.fs aside { min-height: 0; }
-  body.fs main > .card { display: flex; flex-direction: column; min-height: 0; padding: 12px; }
-  body.fs .player { flex: 1; min-height: 0; aspect-ratio: auto; margin-top: 10px; }
-  body.fs #addForm input:not([type=range]), body.fs #addForm button { padding-top: 8px; padding-bottom: 8px; }
-  /* Online list sits compactly above the chat; scrolls if lots of people are on */
-  body.fs aside > .card:first-child { padding: 10px 12px; flex: none; max-height: 110px; overflow-y: auto; }
-  body.fs aside > .card:first-child h3 { margin-bottom: 8px; }
-  body.fs aside > .card + .card { margin-top: 10px; }
+  body.fs main > .card { position: relative; display: flex; flex-direction: column; min-height: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: #000; }
+  body.fs .player { flex: 1; min-height: 0; aspect-ratio: auto; margin: 0; border-radius: 0; }
   body.fs video { object-fit: contain; }
-  body.fs .chat-card { padding: 12px; }
+  /* Title on top, controls at the bottom, over the video */
+  body.fs .now, body.fs .controls { position: absolute; left: 0; right: 0; z-index: 5; margin: 0; transition: opacity .3s;
+    color: #fff; --fg: #fff; --soft: #e8e8ee; --muted: #c4c4cc; }
+  body.fs .now { top: 0; padding: 14px 18px 36px; background: linear-gradient(#000b, #0000); }
+  body.fs .controls { bottom: 0; padding: 40px 18px 14px; background: linear-gradient(#0000, #000c); }
+  body.fs .now .ghost, body.fs .controls .ghost { background: #0007; border-color: #fff3; color: #fff; }
+  body.fs .now .ghost:hover, body.fs .controls .ghost:hover { border-color: #fff8; }
+  body.fs .controls .iconbtn:hover { background: #fff2; }
+  body.fs.uiAway .now, body.fs.uiAway .controls { opacity: 0; pointer-events: none; }
+  body.fs.uiAway main { cursor: none; }
+  /* The chat, down the right */
+  body.fs aside { background: var(--surface); border-left: 1px solid var(--border); }
+  body.fs aside > .card { margin: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+  body.fs aside > .card:first-child { padding: 10px 14px; flex: none; max-height: 96px; overflow-y: auto; border-bottom: 1px solid var(--border); }
+  body.fs aside > .card:first-child h3 { margin-bottom: 8px; }
+  body.fs .chat-card { padding: 12px 14px; }
   body.fs #chat { flex: 1 1 0; height: auto; }
-  /* Phone held upright: video on top, chat underneath */
+  #chatBtn { position: relative; }
+  #chatBtn.unread::after { content: ''; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); } /* a message came in while the chat was hidden */
+  /* Phone held upright: video on top (title and controls under it, not over it), chat underneath */
   @media (max-aspect-ratio: 1/1) {
     body.fs .layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    body.fs.chatHidden .layout { grid-template-rows: minmax(0, 1fr); }
+    body.fs main > .card { background: var(--surface); }
     body.fs .player { flex: none; aspect-ratio: 16 / 9; }
+    body.fs.chatHidden .player { flex: 1; aspect-ratio: auto; }
+    body.fs .now, body.fs .controls { position: static; background: none; color: inherit; --fg: initial; --soft: initial; --muted: initial; opacity: 1; pointer-events: auto; }
+    body.fs .now { padding: 10px 12px 0; }
+    body.fs .controls { padding: 8px 12px 12px; }
+    body.fs .now .ghost, body.fs .controls .ghost { background: var(--surface2); border-color: var(--border); color: var(--fg); }
+    body.fs aside { border-left: 0; border-top: 1px solid var(--border); }
+    body.fs.uiAway main { cursor: auto; }
   }
   .chatSound { margin-left: auto; display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
   .chatSound .iconbtn { padding: 4px; }
@@ -444,6 +473,9 @@
   <!-- Show / hide password: an eye, and the eye with a slash (cut out like video-off) -->
   <symbol id="i-eye" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 5C6.6 5 2.8 9.1 1.5 11.4a1.2 1.2 0 0 0 0 1.2C2.8 14.9 6.6 19 12 19s9.2-4.1 10.5-6.4a1.2 1.2 0 0 0 0-1.2C21.2 9.1 17.4 5 12 5zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/><circle cx="12" cy="12" r="2"/></symbol>
   <symbol id="i-eye-off" viewBox="0 0 24 24"><mask id="m-eye-off"><rect width="24" height="24" fill="#fff"/><path d="M3.5 3.5 20.5 20.5" stroke="#000" stroke-width="5" stroke-linecap="round"/></mask><g mask="url(#m-eye-off)"><path fill-rule="evenodd" d="M12 5C6.6 5 2.8 9.1 1.5 11.4a1.2 1.2 0 0 0 0 1.2C2.8 14.9 6.6 19 12 19s9.2-4.1 10.5-6.4a1.2 1.2 0 0 0 0-1.2C21.2 9.1 17.4 5 12 5zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/><circle cx="12" cy="12" r="2"/></g><path d="M3.5 3.5 20.5 20.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <!-- Full screen: show / hide the chat -->
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 4h14a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-7.6l-4.8 3.6A1 1 0 0 1 5 20.8V18a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M5.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 0-1.4zm7 0a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l5.3-5.3-5.3-5.3a1 1 0 0 1 0-1.4z"/></symbol>
   <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 6.3v11.4a1 1 0 0 0 1.55.83L15 13v4.5a1 1 0 0 0 2 0v-11a1 1 0 0 0-2 0V11L6.55 5.47A1 1 0 0 0 5 6.3z"/></symbol>
   <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.5 8.5a1 1 0 0 1 1.4.1 5.5 5.5 0 0 1 0 6.8 1 1 0 1 1-1.5-1.3 3.5 3.5 0 0 0 0-4.2 1 1 0 0 1 .1-1.4z"/></symbol>
   <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.3 9.3a1 1 0 0 1 1.4 0L19 10.6l1.3-1.3a1 1 0 1 1 1.4 1.4L20.4 12l1.3 1.3a1 1 0 0 1-1.4 1.4L19 13.4l-1.3 1.3a1 1 0 0 1-1.4-1.4l1.3-1.3-1.3-1.3a1 1 0 0 1 0-1.4z"/></symbol>
@@ -587,6 +619,7 @@
             <input id="vol" type="range" min="0" max="1" step="0.01">
           </div>
           <button id="audioBtn" class="iconbtn" onclick="toggleAudioOnly()" aria-pressed="false" aria-label="Audio only"><svg><use href="#i-video"/></svg></button>
+          <button id="chatBtn" class="iconbtn fsOnly" onclick="toggleChat()" aria-pressed="true" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-chat"/></svg></button><!-- full screen only -->
           <button id="fsBtn" class="iconbtn" onclick="toggleFs()" title="Full screen (double-click the video too)" aria-label="Full screen"></button>
         </div>
       </section>
@@ -603,6 +636,7 @@
             <button id="chatMute" class="iconbtn" onclick="toggleChatMute()" title="Mute / unmute message sound" aria-label="Mute / unmute message sound"></button>
             <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Message sound volume">
           </span>
+          <button type="button" class="iconbtn fsOnly" onclick="toggleChat()" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-collapse"/></svg></button><!-- full screen only -->
         </h3>
         <div id="chat"></div>
         <form id="chatForm" onsubmit="sendChat(event)">
@@ -1179,9 +1213,44 @@ function toggleFs() {
   drawFs();
 }
 // Leaving browser full screen with Esc / back gesture also leaves our layout.
-document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('fs'); drawFs(); });
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) document.body.classList.remove('fs'); drawFs(); showUi(); });
 v.ondblclick = toggleFs;
 drawFs();
+
+// Full screen: hide / show the chat (remembered in this browser). While it's hidden, a dot on the chat
+// button says a message came in.
+let chatHidden = false;
+try { chatHidden = localStorage.getItem('fsChatHidden') === '1'; } catch {}
+function drawChatHidden() {
+  document.body.classList.toggle('chatHidden', chatHidden);
+  const b = $('chatBtn');
+  b.setAttribute('aria-pressed', !chatHidden);
+  b.title = chatHidden ? 'Show chat' : 'Hide chat';
+  b.setAttribute('aria-label', b.title);
+  if (!chatHidden) b.classList.remove('unread');
+}
+function toggleChat() {
+  chatHidden = !chatHidden;
+  try { localStorage.setItem('fsChatHidden', chatHidden ? '1' : '0'); } catch {}
+  drawChatHidden();
+  const c = $('chat'); c.scrollTop = c.scrollHeight;
+  showUi();
+}
+drawChatHidden();
+
+// Full screen: the title and controls over the video fade out after a few seconds without moving the
+// mouse (or touching the screen), and come back on any movement. They stay while paused or nothing's
+// playing, and while the pointer is over them or a pop-up (reactions) is open.
+let uiTimer = null;
+function showUi() {
+  document.body.classList.remove('uiAway');
+  clearTimeout(uiTimer);
+  uiTimer = setTimeout(() => {
+    const keep = !isFs() || serverPaused || !playingId || document.querySelector('.now:hover, .controls:hover, #reactPop:not([hidden])');
+    if (keep) showUi(); else document.body.classList.add('uiAway');
+  }, 3000);
+}
+for (const ev of ['pointermove', 'pointerdown', 'keydown']) document.addEventListener(ev, () => { if (isFs()) showUi(); }, { passive: true });
 drawAudioOnly();
 
 // ---- Lock screen / notification controls (Media Session) ----
@@ -1513,7 +1582,10 @@ async function poll() {
 
   // Chat (same idea as the log). Ding for new messages from other people, not on first load or for my own.
   if (s.chat) {
-    if (chatSeen !== null && s.chat.some(m => m.t > chatSeen && m.by !== myName)) ding();
+    if (chatSeen !== null && s.chat.some(m => m.t > chatSeen && m.by !== myName)) {
+      ding();
+      if (isFs() && chatHidden) $('chatBtn').classList.add('unread');
+    }
     chatSeen = Math.max(chatSeen || 0, s.chat.length ? s.chat[s.chat.length - 1].t : 0);
     chatList = s.chat; chatRev = s.chatRev;
   }

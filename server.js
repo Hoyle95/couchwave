@@ -736,14 +736,6 @@ dj = require('./dj')({
   // YouTube's Mix (radio playlist) for a video: [{ id, duration, title }]
   mix: id => new Promise(ok => listSongs(`https://www.youtube.com/watch?v=${id}&list=RD${id}`, 30, ok)),
   addSong: (url, title, by, logText) => { addSong(url, title, by); addLog(by, logText); pump(); dirty = true; },
-  // Takes the DJ's songs out of the queue (when it's turned off); returns how many.
-  removeDjSongs: () => {
-    const mine = queue.filter(isDjSong);
-    for (const item of mine) { item.removed = true; if (running.has(item.id)) stopDownload(item); } // cleanup() takes the files
-    queue = queue.filter(q => !isDjSong(q));
-    if (mine.length) { dirty = true; pump(); }
-    return mine.length;
-  },
   log: (who, text) => { addLog(who, text); dirty = true; },
   say: (by, text) => { chat.push({ t: Date.now(), by, text }); if (chat.length > 200) chat.shift(); chatRev++; dirty = true; },
 });

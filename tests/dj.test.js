@@ -81,7 +81,7 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok(q.slice(firstDj).every(x => x.by === 'DJ'), 'then the DJ\'s');
   });
 
-  test('anyone can delete the DJ\'s songs, or skip one straight away; !dj off takes them out', async () => {
+  test('anyone can delete the DJ\'s songs, or skip one straight away; !dj off leaves the rest queued', async () => {
     const s = await start();
     await aliceSong(s, 'shrt_000004'); // 3 seconds: a DJ song plays next
     await say(s, 'Bob', '!dj on');
@@ -92,9 +92,13 @@ describe('the DJ', { concurrency: true }, () => {
     await s.post('/skip', { id: playing.id }, { as: 'Dan' }); // 3 people online, no vote needed
     assert.notEqual((await s.state()).current?.id, playing.id, 'skipped');
     assert.ok((await s.log()).some(l => l.startsWith(`Dan: skipped the DJ's song`)));
+    const before = (await djSongs(s)).length;
+    assert.ok(before > 0, 'it has songs queued');
     await say(s, 'Bob', '!dj off');
-    assert.equal((await djSongs(s)).length, 0, 'off: its songs are out of the queue');
-    assert.match((await s.state()).chat.at(-1).text, /DJ off: I've taken my \d+ songs? out of the queue/);
+    assert.equal((await djSongs(s)).length, before, 'off: what it queued stays, until someone deletes it');
+    assert.match((await s.state()).chat.at(-1).text, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(anyone can delete them\)/);
+    await sleep(4000);
+    assert.equal((await djSongs(s)).length, before, '...and it doesn\'t add any more');
   });
 
   test('on/off is remembered when the server restarts', async () => {

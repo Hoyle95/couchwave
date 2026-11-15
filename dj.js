@@ -4,7 +4,7 @@
 // History or the queue, and anything too short, too long or not really a song (full albums, hour-long
 // mixes, live sets...). When there's nothing new to find from people's songs, it carries on from its own.
 //
-// Off until someone types "!dj on" in the chat; "!dj off" stops it and takes its songs out of the queue;
+// Off until someone types "!dj on" in the chat; "!dj off" stops it adding songs (what it queued stays);
 // "!dj" says whether it's on. Its songs go in as "DJ", always after everyone else's (server.js), and anyone
 // can skip or delete them straight away. It remembers whether it's on in data/dj.json.
 //
@@ -57,8 +57,9 @@ module.exports = function startDj(app) {
           app.say(NAME, `${FACE} DJ on! I'll keep up to ${KEEP_QUEUED} songs queued, like what you've been asking for, always after yours. Anyone can skip or delete mine. Type !dj off to stop me.`);
           tick();
         } else {
-          const n = app.removeDjSongs();
-          app.say(NAME, `${FACE} DJ off${n ? `: I've taken my ${n} song${n === 1 ? '' : 's'} out of the queue` : ''}. Type !dj on to bring me back.`);
+          // What it already queued stays, until someone deletes it.
+          const n = app.queue().filter(q => q.by === NAME).length;
+          app.say(NAME, `${FACE} DJ off: I won't add any more${n ? `. My ${n} song${n === 1 ? '' : 's'} already queued stay${n === 1 ? 's' : ''} (anyone can delete them)` : ''}. Type !dj on to bring me back.`);
         }
       }
     } else {
