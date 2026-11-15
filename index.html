@@ -389,12 +389,13 @@
     position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 16px; overflow-y: auto;
     background: radial-gradient(700px 400px at 50% 0%, var(--glow1), transparent 70%), var(--bg);
   }
-  .overlay form { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .joinCard { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .joinCard form { display: contents; } /* the two forms are for password managers; the card lays everything out */
   .overlay .logo { width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 6px; }
   .overlay .logo svg { width: 44px; height: 44px; }
   .overlay h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
   .overlay p { margin: 0 0 8px; }
-  .overlay form > button { padding: 14px; font-size: 17px; margin-top: 10px; } /* a bit of room under the Room password box */
+  .joinCard > button { padding: 14px; font-size: 17px; margin-top: 10px; } /* a bit of room under the Room password box */
   /* Join screen: your profile picture, editable before you join (the picker opens underneath it) */
   .joinAv { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 2px 0 6px; text-align: left; }
   #joinAvatar { width: 84px; height: 84px; font-size: 46px; box-shadow: var(--shadow); }
@@ -453,10 +454,14 @@
 </svg>
 
 <div id="join" class="overlay" hidden>
-  <form onsubmit="join(event)">
+  <!-- Two forms: the login a password manager saves and fills in (nickname + its password), and the room
+       password on its own. In one form, two password boxes look like a sign-up or change-password form to
+       password managers, and then they don't fill in the login. -->
+  <div class="joinCard">
     <div class="logo"><svg><use href="#i-logo"/></svg></div>
     <h1>Couchwave</h1>
     <p class="muted">Queue up videos and watch together.</p>
+    <form id="joinForm" onsubmit="join(event)">
     <fieldset class="joinGroup">
       <legend>You</legend>
       <div class="joinAv" id="joinAvWrap">
@@ -464,24 +469,30 @@
         <small class="muted">Tap your picture to change it</small>
         <!-- the picture picker (#colorPop) is moved here until you've joined -->
       </div>
-      <input id="name" placeholder="Nickname" maxlength="30" autocomplete="username" required aria-label="Nickname">
+      <!-- standard names and autocomplete, so password managers know these are the login -->
+      <input id="name" name="username" placeholder="Nickname" maxlength="30" autocomplete="username" required aria-label="Nickname">
       <div class="pwWrap">
-        <input id="ownPw" type="password" placeholder="Your password" autocomplete="current-password" minlength="4" required aria-label="Your password">
+        <input id="ownPw" name="password" type="password" placeholder="Your password" autocomplete="current-password" minlength="4" required aria-label="Your password">
         <button type="button" class="iconbtn pwEye" onclick="togglePw(this)" onmousedown="event.preventDefault()" aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
       </div>
       <small class="muted joinHint">New user? Choose a password, but don't forget it!</small>
     </fieldset>
+    </form>
+    <form id="roomForm" onsubmit="join(event)"><!-- Enter in the room password joins too -->
     <fieldset class="joinGroup">
       <legend>Room password</legend>
       <div class="pwWrap">
-        <input id="pw" type="password" placeholder="Room password" autocomplete="off" required aria-label="Room password">
+        <!-- marked for password managers to leave alone (it's the same for everyone, not your login) -->
+        <input id="pw" name="room-password" type="password" placeholder="Room password" autocomplete="off" required aria-label="Room password"
+          data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other">
         <button type="button" class="iconbtn pwEye" onclick="togglePw(this)" onmousedown="event.preventDefault()" aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
       </div>
       <small class="muted joinHint">Ask whoever runs this Couchwave instance.</small>
     </fieldset>
-    <button><svg><use href="#i-play"/></svg> Join the party</button>
+    </form>
+    <button form="joinForm"><svg><use href="#i-play"/></svg> Join the party</button><!-- submits the login form -->
     <div id="err"></div>
-  </form>
+  </div>
 </div>
 
 <div id="plModal" class="modal" hidden>
@@ -514,10 +525,11 @@
         <div id="wheel"><div id="wheelDark"></div><div id="wheelDot"></div></div>
         <input id="valSlider" type="range" min="0" max="100" step="1" aria-label="Brightness" title="Brightness">
         <div class="pop-inputs">
-          <label>HEX <input id="hexIn" maxlength="7" spellcheck="false" autocomplete="off"></label>
-          <label>R <input id="rIn" type="number" min="0" max="255"></label>
-          <label>G <input id="gIn" type="number" min="0" max="255"></label>
-          <label>B <input id="bIn" type="number" min="0" max="255"></label>
+          <!-- (on the join screen these sit in the login form: marked so password managers don't take one for the username) -->
+          <label>HEX <input id="hexIn" maxlength="7" spellcheck="false" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other"></label>
+          <label>R <input id="rIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+          <label>G <input id="gIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+          <label>B <input id="bIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
         </div>
         <div id="swatches"></div>
       </div>
@@ -705,6 +717,8 @@ function togglePw(b) {
 
 async function join(e) {
   e.preventDefault();
+  // Two forms (see roomForm): whichever was submitted, check every box is filled in, showing the usual hint.
+  if (!$('joinForm').reportValidity() || !$('pw').reportValidity()) return;
   // The server checks the room password and your nickname's own password (or, for a new nickname, takes
   // it as the password from now on), and answers with a login cookie. No password is kept in the browser.
   const r = await fetch('/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value, name: $('name').value.trim(), own: $('ownPw').value }) }).catch(() => null);
