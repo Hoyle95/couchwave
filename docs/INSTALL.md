@@ -123,7 +123,9 @@ To host it publicly, we recommend either:
   ```
 
 Either way, use `https://`: the passwords and everyone's login are sent over it, and phones only offer
-"Install app" on secure sites.
+"Install app" on secure sites. Both tell Couchwave the visit came over `https://`, so it marks logins
+HTTPS-only (never sent unencrypted). Another proxy has to run on the same machine and send
+`X-Forwarded-Proto` (nginx: `proxy_set_header X-Forwarded-Proto $scheme;`).
 
 Then send your friends the address and the room password. The first time they join, they pick a nickname
 and a password for it.

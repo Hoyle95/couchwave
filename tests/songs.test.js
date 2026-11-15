@@ -95,8 +95,8 @@ test('a playlist: every playable song (private ones skipped), or just the one if
   await s.post('/add', { url: 'https://www.youtube.com/playlist?list=PLtest', playlist: true });
   await waitFor(async () => (await s.state()).queue.length === 3, 5000, '3 songs');
   // (by video, not title: a song that finishes downloading takes the title the download reports)
-  assert.deepEqual((await s.state()).queue.map(q => q.url.slice(-11)).sort(), ['plist_00001', 'plist_00003', 'plist_00004'], 'the private one is skipped');
-  assert.ok((await s.log()).includes('Alice: added playlist "Test Playlist" (3 songs)'));
+  assert.deepEqual((await s.state()).queue.map(q => q.url.slice(-11)).sort(), ['plist_00001', 'plist_00003', 'plist_00004'], 'the private one and the 4-hour one are skipped');
+  assert.ok((await s.log()).includes('Alice: added playlist "Test Playlist" (3 songs, 1 longer than 3 hours left out)'));
   await s.post('/add', { url: yt('okay_000002') + '&list=PLtest' }); // playlist: false -> just this song
   await waitFor(async () => (await s.state()).queue.length === 4, 5000, 'one more song');
 });
@@ -127,6 +127,56 @@ test('a livestream is refused', async () => {
   await s.post('/add', { url: yt('live_000001') });
   const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
   assert.equal(q.error, "Livestreams aren't supported");
+});
+
+test('longer than maxHours (3 by default): refused before downloading, with the reason', async () => {
+  const s = await start();
+  await s.post('/add', { url: yt('long_000001') }); // 4 hours
+  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
+  assert.equal(q.error, 'Longer than 3 hours');
+  assert.equal(q.retrying, false, 'for good: trying again won\'t make it shorter');
+  assert.deepEqual(fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => f.startsWith(q.id + '-')), [], 'nothing downloaded');
+  await s.post('/add', { url: yt('okay_000003') }); // 200 seconds: fine
+  await waitFor(() => inQueue(s, x => x.url.endsWith('okay_000003') && x.status === 'ready'), 5000, 'a normal song to download');
+});
+
+test('a song name: results longer than maxHours are passed over; if they all are, it says so', async () => {
+  const s = await start();
+  await s.post('/add', { url: 'long song' }); // the closest match is 4 hours long
+  const q = await waitFor(() => inQueue(s, q => q.url), 5000, 'the result');
+  assert.equal(q.url.slice(-11), '2longsong00', 'the second result: the first is too long');
+  const t = await servers({ config: { maxHours: 0.01 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } }); // 36 seconds
+  await t.post('/add', { url: 'long song' });
+  await waitFor(async () => (await t.log()).includes('Alice: couldn\'t find anything shorter than 1 minute for "long song"'), 5000, 'the log to say so');
+});
+
+test('maxHours in config.json: any number of hours, not just whole ones (1.5 = 1 hour 30 minutes)', async () => {
+  for (const [maxHours, text] of [[1.5, '1 hour 30 minutes'], [0.3, '18 minutes'], [1, '1 hour'], [3.75, '3 hours 45 minutes']]) {
+    const s = await servers({ config: { maxHours }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
+    await s.post('/add', { url: yt('long_000002') });
+    const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
+    assert.equal(q.error, `Longer than ${text}`, `maxHours ${maxHours}`);
+  }
+  const big = await servers({ config: { maxHours: 5 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
+  await big.post('/add', { url: yt('long_000003') });
+  await waitFor(() => inQueue(big, q => q.status === 'ready'), 5000, 'a 4-hour video to download with maxHours 5');
+});
+
+test('a maxHours that isn\'t a number above 0 falls back to 3, and the log says so', async () => {
+  for (const bad of ['lots', 0, -2]) {
+    const s = await servers({ config: { maxHours: bad }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
+    assert.match(fs.readFileSync(s.logFile, 'utf8'), new RegExp(`maxHours should be a number of hours above 0 \\(like 3, or 1\\.5\\), not ${JSON.stringify(bad)}; using 3`));
+    await s.post('/add', { url: yt('long_000004') });
+    assert.equal((await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure')).error, 'Longer than 3 hours');
+  }
+});
+
+test('a video that doesn\'t say how long it is, but turns out too long once downloaded: removed, with the reason', async () => {
+  const s = await servers({ config: { maxHours: 0.01 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } }); // 36 s; it's 42
+  await s.post('/add', { url: yt('nolen000002') });
+  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
+  assert.equal(q.error, 'Longer than 1 minute');
+  await waitFor(() => fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => f.startsWith(q.id + '-')).length === 0, 3000, 'its files deleted');
 });
 
 test('a video whose length YouTube doesn\'t say: measured from the file', async () => {

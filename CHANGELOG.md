@@ -25,6 +25,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   README.
 - **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
   someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
+- **`maxHours` in config.json**: the longest video anyone can add, 3 hours by default (`1.5` is an hour and
+  a half, `0.25` a quarter of an hour). Longer links are refused before anything downloads, with the reason
+  in the queue; searches pass over results that are too long, and playlists leave them out.
 - **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
 - **Joined / left** in the activity log, with a sound (different from the message ding, and set by the same
   volume slider and mute button).
@@ -48,7 +51,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Chat no longer stalls while video plays**: songs are sent at a steady pace, so they don't fill the
   host's upload.
 - **Titles with accents, dashes, emoji or other alphabets** display properly on Windows.
-- **Safer logins**: browsers keep a signed login, never a password.
+- **Safer logins**: browsers keep a signed login, never a password. Over `https://` (Cloudflare Tunnel, Caddy)
+  it's marked HTTPS-only, so it's never sent unencrypted; plain `http://` on a home network works as before.
 - **Names on the light theme** no longer have a black outline.
 
 ### Fixed

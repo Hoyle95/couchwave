@@ -93,7 +93,7 @@ describe('the DJ', { concurrency: true }, () => {
 
   test('always after people\'s songs: a song added later still goes ahead of the DJ\'s', async () => {
     const s = await start();
-    await aliceSong(s, 'long_000003');
+    await aliceSong(s, 'play_000003');
     await s.post('/add', { url: yt('bobs_000001') }, { as: 'Bob' });
     await say(s, 'Bob', '!dj on');
     await waitFor(() => djCount(5)(s), 20000, 'DJ songs');
@@ -156,7 +156,7 @@ describe('the DJ', { concurrency: true }, () => {
     const said = (await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on yet: add a song/.test(m.text));
     assert.equal(said.length, 1);
     assert.equal((await djSongs(s)).length, 0);
-    await aliceSong(s, 'long_000005');
+    await aliceSong(s, 'play_000005');
     await waitFor(() => djCount(1)(s), 10000, 'the DJ to start from Alice\'s song');
   });
 

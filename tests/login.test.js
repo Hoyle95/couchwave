@@ -87,6 +87,31 @@ test('own passwords are kept scrambled, never as typed', async () => {
   assert.match(acc.hash, /^[0-9a-f]{64}$/);
 });
 
+test('over https:// (a tunnel or proxy on this machine says so), cookies are marked Secure; on plain http they aren\'t', async () => {
+  const s = await start();
+  const secure = r => (r.headers['set-cookie'] || []).map(c => /;\s*Secure\b/i.test(c));
+  const body = { password: PASSWORD, name: 'Alice', own: ownPassword('Alice') };
+  let r = await join(s, body); // a home network, or localhost: Secure would make the browser drop them
+  assert.equal(r.status, 204);
+  assert.deepEqual(secure(r), [false, false], 'plain http: not Secure, or nobody could log in');
+  const plain = cookies(r).auth;
+  for (const headers of [{ 'X-Forwarded-Proto': 'https' }, { 'CF-Visitor': '{"scheme":"https"}' }]) { // Caddy/nginx, Cloudflare
+    r = await join(s, body, headers);
+    assert.deepEqual(secure(r), [true, true], `via ${Object.keys(headers)[0]}: both cookies Secure`);
+  }
+  r = await join(s, body, { 'X-Forwarded-Proto': 'http' });
+  assert.deepEqual(secure(r), [false, false], 'a proxy saying http: not Secure');
+  // A login from before (not Secure) gets Secure the next time the page is opened over https, without logging in again.
+  r = await s.req('GET', '/', { cookie: asCookie(plain, 'Alice'), headers: { 'X-Forwarded-Proto': 'https' } });
+  assert.match(String(r.headers['set-cookie']), new RegExp(`^auth=${plain};.*HttpOnly; Secure$`), 'the same login, now Secure');
+  r = await s.req('GET', '/', { cookie: asCookie(plain, 'Alice') });
+  assert.equal(r.headers['set-cookie'], undefined, 'over plain http, left alone');
+  r = await s.req('GET', '/', { cookie: asCookie('not-a-login', 'Alice'), headers: { 'X-Forwarded-Proto': 'https' } });
+  assert.equal(r.headers['set-cookie'], undefined, 'nothing handed out for a cookie that isn\'t a login');
+  r = await s.req('POST', '/logout', { cookie: asCookie(plain, 'Alice'), headers: { 'X-Forwarded-Proto': 'https' } });
+  assert.deepEqual(secure(r), [true], 'logging out over https clears the Secure cookie');
+});
+
 test('logging out ends that login only', async () => {
   const s = await start();
   await s.state('Bob');

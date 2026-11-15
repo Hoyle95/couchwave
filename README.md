@@ -38,8 +38,17 @@ Admin commands (log everyone out, delete an account, reset a password) and chat 
 Everything Couchwave saves is in `data/`: the queue, chat and history, the accounts (passwords scrambled,
 never stored as typed), the downloaded songs and the logs. **To back up, copy `data/`.**
 
-Settings are in `config.json`: the room password, the port, `votePercent` (how many of the people online
-have to vote to skip a song or remove someone else's: 60 by default, so 2 of 3 or 3 of 5), and `public`.
+Settings are in `config.json` (made on the first run; restart Couchwave after changing it):
+
+- `password`: the room password. Changing it logs everyone out.
+- `port`: 3000 by default.
+- `votePercent`: how many of the people online have to vote to skip a song or remove someone else's.
+  60 by default, so 2 of 3 or 3 of 5.
+- `maxHours`: the longest video anyone can add, since every video is downloaded in full to your computer.
+  3 by default; any number works, like `1.5` (an hour and a half) or `0.25` (15 minutes).
+- `public`: see below. Keep it `false`.
+
+A setting missing from an older `config.json` uses its default.
 
 > [!WARNING]
 > **Keep `public` set to `false`.** With `"public": true` there's no room password: anyone who finds your

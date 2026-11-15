@@ -157,9 +157,9 @@ process.on('uncaughtException', err => {
 // first run makes one with a random password, port 3000, votePercent 60 and public false; change them there.
 // Saving the file restarts the server by itself when it's run with `node --watch` (start.cmd does).
 const CONFIG = path.join(__dirname, 'config.json');
-const DEFAULT_PORT = 3000, DEFAULT_VOTE_PERCENT = 60;
+const DEFAULT_PORT = 3000, DEFAULT_VOTE_PERCENT = 60, DEFAULT_MAX_HOURS = 3;
 if (!fs.existsSync(CONFIG)) {
-  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT, public: false };
+  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT, maxHours: DEFAULT_MAX_HOURS, public: false };
   fs.writeFileSync(CONFIG, JSON.stringify(fresh, null, 2) + '\n');
   console.log(`No config.json yet: made one with the password "${fresh.password}" and port ${fresh.port}. Change them in config.json.`);
 }
@@ -182,6 +182,21 @@ const VOTE_PERCENT = (() => {
   console.log(`config.json: votePercent should be a number from 1 to 100, not ${JSON.stringify(config.votePercent)}; using ${DEFAULT_VOTE_PERCENT}`);
   return DEFAULT_VOTE_PERCENT;
 })();
+// maxHours: the longest video anyone can add, in hours (1.5 = an hour and a half, 0.25 = 15 minutes). Every
+// song is downloaded in full to this computer, so a 12-hour video would fill the disk and the upload.
+const MAX_HOURS = (() => {
+  const h = Number(config.maxHours ?? DEFAULT_MAX_HOURS);
+  if (Number.isFinite(h) && h > 0) return h;
+  console.log(`config.json: maxHours should be a number of hours above 0 (like 3, or 1.5), not ${JSON.stringify(config.maxHours)}; using ${DEFAULT_MAX_HOURS}`);
+  return DEFAULT_MAX_HOURS;
+})();
+const MAX_SECONDS = Math.round(MAX_HOURS * 3600);
+// The limit in words, for the queue and the log: "3 hours", "1 hour 30 minutes", "18 minutes".
+const MAX_LENGTH_TEXT = (() => {
+  const mins = Math.max(1, Math.round(MAX_HOURS * 60)), h = Math.floor(mins / 60), m = mins % 60;
+  return [h && `${h} hour${h === 1 ? '' : 's'}`, m && `${m} minute${m === 1 ? '' : 's'}`].filter(Boolean).join(' ');
+})();
+const tooLong = song => song.duration > MAX_SECONDS; // (0 = not known: let the download decide)
 
 // Logins: joining takes the room password (config.json: keeps strangers out) plus a nickname and that
 // nickname's own password (keeps the name yours). The first time a nickname is used, its password is
@@ -202,6 +217,17 @@ const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
 // The nickname, for the page to show (and to fill in the join screen next time). Only shown: the server
 // goes by the login cookie.
 const NAME_COOKIE = 'name=%s; Path=/; Max-Age=31536000; SameSite=Lax';
+// Visits over https:// (through a tunnel or reverse proxy on this machine, which says so in a header) get
+// cookies marked Secure: the browser then never sends them over plain http://, where anyone on the same
+// Wi-Fi could copy the login (e.g. someone typing http://, before the redirect to https://). Plain http
+// on a home network, or localhost, gets no Secure, or the browser would drop the cookie and nobody could
+// log in. The header is only believed from this machine (like the visitor address, see ipOf()).
+const fromThisMachine = req => /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
+const viaHttps = req => fromThisMachine(req) && (
+  String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https' ||
+  /"scheme"\s*:\s*"https"/.test(String(req.headers['cf-visitor'] || ''))); // Cloudflare's own header
+const cookie = (req, template, value, maxAge = 31536000) =>
+  template.replace('%s', value).replace('%d', maxAge) + (viaHttps(req) ? '; Secure' : '');
 
 // accounts.json: { "<nickname in lower case>": { name: as typed when it was claimed, salt, hash, created } }
 // (or { name, deleted: time } for a deleted one, see --delete-account).
@@ -505,10 +531,12 @@ function listSongs(target, max, cb) {
 function addPlaylist(link, who) {
   addLog(who, 'is adding a playlist…');
   const entry = log[log.length - 1];
-  listSongs(link, PLAYLIST_MAX, songs => {
+  listSongs(link, PLAYLIST_MAX, all => {
+    const songs = all.filter(s => !tooLong(s)), skipped = all.length - songs.length; // over maxHours: left out
     for (const s of songs) addSong(`https://www.youtube.com/watch?v=${s.id}`, s.title, who);
-    const name = songs.length && songs[0].playlist, n = songs.length;
-    entry.text = n ? `added playlist${name ? ` "${name}"` : ''} (${n} song${n === 1 ? '' : 's'})` : `couldn't read the playlist ${link}`;
+    const name = all.length && all[0].playlist, n = songs.length;
+    const left = skipped ? `, ${skipped} longer than ${MAX_LENGTH_TEXT} left out` : '';
+    entry.text = all.length ? `added playlist${name ? ` "${name}"` : ''} (${n} song${n === 1 ? '' : 's'}${left})` : `couldn't read the playlist ${link}`;
     logRev++;
     dirty = true;
     pump();
@@ -537,7 +565,7 @@ function bestMatch(query, songs) {
   const wanted = [...words(query)];
   let best = null, bestScore = -1;
   for (const s of songs) {
-    if (!(s.duration > 0)) continue;
+    if (!(s.duration > 0) || tooLong(s)) continue; // a livestream, or longer than maxHours
     const title = words(s.title), score = wanted.filter(w => title.has(w)).length;
     if (score > bestScore) { best = s; bestScore = score; }
   }
@@ -556,7 +584,8 @@ function search(item) {
       const i = queue.indexOf(item);
       if (i >= 0) queue.splice(i, 1);
       trash.delete(item.id);
-      if (entry) entry.text = `couldn't find anything for "${item.query}"`;
+      if (entry) entry.text = songs.some(tooLong) ? `couldn't find anything shorter than ${MAX_LENGTH_TEXT} for "${item.query}"`
+        : `couldn't find anything for "${item.query}"`;
     }
     delete item.query;
     logRev++;
@@ -619,6 +648,9 @@ function download(item) {
     '--encoding', 'utf-8',
     '--no-playlist', '--playlist-items', '1', // a playlist link: just its first video
     '--no-progress', '--match-filter', '!is_live', // a livestream would download forever
+    // Longer than maxHours: stops before downloading anything, with exit code 101. (<=?: a video that
+    // doesn't say how long it is still goes ahead; its length is checked once it's here, see below.)
+    '--break-match-filters', `duration <=? ${MAX_SECONDS}`,
     '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
     '-o', out, '--print', 'after_move:%(duration)s|%(title)s', '--', item.url,
   ]);
@@ -641,6 +673,7 @@ function download(item) {
     if (code !== 0 || i < 0) {
       // Exit code 0 with no output = filtered out by --match-filter, i.e. a livestream.
       if (code === 0) failed(item, "Livestreams aren't supported", true);
+      else if (code === 101) failed(item, `Longer than ${MAX_LENGTH_TEXT}`, true); // see --break-match-filters
       else failed(item, ...failReason(stderr));
       return pump();
     }
@@ -664,6 +697,11 @@ function download(item) {
       const isReady = () => {
         if (item.out !== out) return;
         if (!item.duration) { failed(item, "Couldn't read the video length", true); return pump(); }
+        if (tooLong(item)) { // YouTube didn't say how long it was (see --break-match-filters): it's here now, but too long
+          fs.rm(out, () => {}); if (item.audio) fs.rm(item.audio, () => {});
+          delete item.file; delete item.audio;
+          failed(item, `Longer than ${MAX_LENGTH_TEXT}`, true); return pump();
+        }
         item.status = 'ready';
         dirty = true;
         pump(); // a 'downloading' slot in the top songs just became 'ready'
@@ -958,7 +996,7 @@ const fails = new Map(); // ip -> { n, since }
 const FAIL_WINDOW = 15 * 60 * 1000, FAIL_MAX = 20;
 const ipOf = req => {
   const direct = req.socket.remoteAddress || '';
-  if (!/^(::1|127\.|::ffff:127\.)/.test(direct)) return direct;
+  if (!fromThisMachine(req)) return direct;
   const h = req.headers;
   return h['cf-connecting-ip'] || h['x-real-ip'] || String(h['x-forwarded-for'] || '').split(',')[0].trim() || direct;
 };
@@ -980,7 +1018,12 @@ http.createServer((req, res) => {
   const route = req.method + ' ' + url.pathname;
 
   if (route === 'GET /') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+    const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' };
+    // Over https://, a login from before cookies were marked Secure (or from plain http) gets Secure now:
+    // the same login, so nobody has to log in again.
+    const auth = parseCookies(req.headers.cookie).auth;
+    if (viaHttps(req) && auth && loggedIn(auth)) headers['Set-Cookie'] = cookie(req, AUTH_COOKIE, auth);
+    res.writeHead(200, headers);
     return fs.createReadStream(path.join(__dirname, 'index.html')).pipe(res);
   }
 
@@ -1055,8 +1098,8 @@ http.createServer((req, res) => {
         }
         right();
         res.writeHead(204, { 'Set-Cookie': [
-          AUTH_COOKIE.replace('%s', userToken(acc)).replace('%d', 31536000), // a year
-          NAME_COOKIE.replace('%s', encodeURIComponent(acc.name)), // as it was claimed: "matt" logs in as "Matt"
+          cookie(req, AUTH_COOKIE, userToken(acc)), // a year
+          cookie(req, NAME_COOKIE, encodeURIComponent(acc.name)), // as it was claimed: "matt" logs in as "Matt"
         ] });
         res.end();
       } catch (err) {
@@ -1071,7 +1114,7 @@ http.createServer((req, res) => {
       for (const r of listeners) if (r.who === acc.name) { listeners.delete(r); r.end(); } // their pages' instant updates too (see streamsSeen())
       delete seen[acc.name]; departed(acc.name);
     }
-    res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', '').replace('%d', 0) }); // the name cookie stays, for the join screen
+    res.writeHead(204, { 'Set-Cookie': cookie(req, AUTH_COOKIE, '', 0) }); // the name cookie stays, for the join screen
     return res.end();
   }
 
