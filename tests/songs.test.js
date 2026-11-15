@@ -46,7 +46,8 @@ test('a playlist: every playable song (private ones skipped), or just the one if
   const s = await start();
   await s.post('/add', { url: 'https://www.youtube.com/playlist?list=PLtest', playlist: true });
   await waitFor(async () => (await s.state()).queue.length === 3, 5000, '3 songs');
-  assert.deepEqual((await s.state()).queue.map(q => q.title).sort(), ['Playlist song 1', 'Playlist song 3', 'Playlist song 4']);
+  // (by video, not title: a song that finishes downloading takes the title the download reports)
+  assert.deepEqual((await s.state()).queue.map(q => q.url.slice(-11)).sort(), ['plist_00001', 'plist_00003', 'plist_00004'], 'the private one is skipped');
   assert.ok((await s.log()).includes('Alice: added playlist "Test Playlist" (3 songs)'));
   await s.post('/add', { url: yt('okay_000002') + '&list=PLtest' }); // playlist: false -> just this song
   await waitFor(async () => (await s.state()).queue.length === 4, 5000, 'one more song');
