@@ -6,6 +6,12 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 
 ### Added
 
+- **Your own nickname**: joining now takes the room password plus your nickname's own password, chosen the
+  first time you use the nickname. Nobody else can join as you (before, anyone with the room password could
+  type any name), and the login cookie can't be edited to be someone else. Nicknames ignore capitals.
+  `node server.js --forget-name <name>` frees a nickname, e.g. for a forgotten password. Everyone has to
+  log in once more after updating; whoever logs in first with an existing nickname claims it.
+
 - **Audio only**: a video button (camera icon) next to full screen turns the video off just for you, so
   only the sound plays and the video isn't downloaded (saves data). While it's on, the camera shows
   crossed out. Click it again to bring the picture back, in sync with the sound. It's remembered in your

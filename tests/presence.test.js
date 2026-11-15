@@ -56,7 +56,6 @@ test('logging out: "left" straight away', async () => {
   const s = await start();
   await s.state('Dan');
   await s.post('/logout', undefined, { as: 'Dan' });
-  s.auth = await s.login(); // logging out ended this test's login cookie too
   assert.ok((await s.log()).includes('Dan: left'));
 });
 

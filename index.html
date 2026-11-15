@@ -406,6 +406,7 @@
     .joinAv .editOv svg { width: 12px; height: 12px; }
   }
   #err { color: var(--err); min-height: 1.3em; font-size: 14px; }
+  .joinHint { font-size: 12px; margin-top: -4px; line-height: 1.4; } /* under "Your own password" */
 </style>
 </head>
 <body>
@@ -448,8 +449,10 @@
       <small class="muted">Tap your picture to change it</small>
       <!-- the picture picker (#colorPop) is moved here until you've joined -->
     </div>
-    <input id="name" placeholder="Your nickname" maxlength="30" required>
-    <input id="pw" type="password" placeholder="Password" required>
+    <input id="name" placeholder="Your nickname" maxlength="30" autocomplete="username" required>
+    <input id="pw" type="password" placeholder="Room password" autocomplete="off" required>
+    <input id="ownPw" type="password" placeholder="Your own password" autocomplete="current-password" minlength="4" required>
+    <small class="muted joinHint">New nickname? Choose your own password: it keeps the name yours, so nobody else can join as you.</small>
     <button><svg><use href="#i-play"/></svg> Join the party</button>
     <div id="err"></div>
   </form>
@@ -665,11 +668,12 @@ function previewMe() {
 
 async function join(e) {
   e.preventDefault();
-  setCookie('name', $('name').value.trim());
-  // The server checks the password and answers with a login cookie (the password itself isn't kept).
-  const r = await fetch('/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value }) }).catch(() => null);
+  // The server checks the room password and your nickname's own password (or, for a new nickname, takes
+  // it as the password from now on), and answers with a login cookie. No password is kept in the browser.
+  const r = await fetch('/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value, name: $('name').value.trim(), own: $('ownPw').value }) }).catch(() => null);
   if (!r || !r.ok) {
-    $('err').textContent = !r ? "Can't reach the server" : r.status === 429 ? 'Too many wrong tries, wait a few minutes' : 'Wrong password';
+    $('err').textContent = !r ? "Can't reach the server" : r.status === 429 ? 'Too many wrong tries, wait a few minutes'
+      : (await r.text().catch(() => '')) || 'Wrong password';
     return;
   }
   // The picture shown on the join screen is the one you get (if you've picked one: otherwise you keep

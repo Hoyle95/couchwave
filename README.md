@@ -150,11 +150,17 @@ To host it publicly, we recommend either:
 Either way, use `https://`: the password and everyone's login are sent over it, and phones only offer
 "Install app" on secure sites.
 
+**Joining**: give friends the room password (from `config.json`). The first time they join, they pick a
+nickname and their own password for it. That keeps the nickname theirs: nobody else can join as them, even
+with the room password. Nicknames ignore capitals ("matt" is "Matt"). Their browser stays logged in for a
+year, so they only type it again on a new device.
+
 ## Settings, data and backups
 
 - **`config.json`**: the password and port (3000 unless you change it). Made on the first run.
 - **`data/`**: everything Couchwave saves: the queue, chat, activity log and profile pictures
-  (`state.json`), the downloaded songs, and the logs.
+  (`state.json`), the nicknames and their (scrambled) passwords (`accounts.json`), the downloaded songs,
+  and the logs.
 
 **To back up, copy the `data/` folder.** To restore, stop Couchwave and put it back.
 
@@ -166,6 +172,13 @@ node server.js --logout-everyone
 ```
 
 Changing the password in `config.json` logs everyone out too.
+
+**Someone forgot their password** (or took a nickname that isn't theirs): free the nickname, and whoever
+joins with it next chooses its new password. They're logged out wherever they were logged in as it.
+
+```sh
+node server.js --forget-name LVJ
+```
 
 **To update**, download the new version (or `git pull`) over the old one. `config.json` and `data/` are
 kept. On Windows it restarts by itself; on Linux, restart the service.

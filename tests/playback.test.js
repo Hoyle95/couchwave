@@ -68,9 +68,10 @@ test('video and audio files: whole, in parts (seeking), and the next song early'
 
 // Bytes read from a download, with the reading paused for `stall` ms after the first `pauseAt` bytes;
 // returns how many arrived in the `window` ms after reading starts again.
-function readWithStall(s, url, { pauseAt, stall, window }) {
+async function readWithStall(s, url, { pauseAt, stall, window }) {
+  const cookie = await s.cookie('Alice');
   return new Promise((resolve, reject) => {
-    const r = http.get({ port: s.port, path: url, headers: { Cookie: `auth=${s.auth}; name=Alice` } }, res => {
+    const r = http.get({ port: s.port, path: url, headers: { Cookie: cookie } }, res => {
       let n = 0, after = 0, phase = 'start', tStart = Date.now(), tBurst = 0;
       res.on('data', c => {
         n += c.length;

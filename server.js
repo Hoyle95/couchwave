@@ -33,6 +33,29 @@ if (process.argv.includes('--logout-everyone')) {
   process.exit(0);
 }
 
+// Accounts: each nickname has its own password, set the first time someone joins with it (see "Logins").
+// `node server.js --forget-name <name>`: frees a nickname, e.g. for a forgotten password. Whoever joins with
+// it next sets its new password; anyone logged in with it is logged out. Works while the server is running.
+const ACCOUNTS = path.join(DATA, 'accounts.json');
+const readAccounts = () => { try { return JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8')); } catch { return {}; } };
+function writeAccounts(list) {
+  fs.writeFileSync(ACCOUNTS + '.tmp', JSON.stringify(list, null, 1));
+  fs.renameSync(ACCOUNTS + '.tmp', ACCOUNTS); // rename so a crash mid-write can't corrupt it
+}
+if (process.argv.includes('--forget-name')) {
+  const name = String(process.argv[process.argv.indexOf('--forget-name') + 1] || '').trim();
+  const list = readAccounts(), key = name.toLowerCase();
+  if (!name || !Object.hasOwn(list, key)) {
+    console.log(`No nickname "${name}". Taken nicknames: ${Object.values(list).map(a => a.name).join(', ') || 'none yet'}`);
+    process.exit(1);
+  }
+  const was = list[key].name;
+  delete list[key];
+  writeAccounts(list);
+  console.log(`Done: "${was}" is free. Whoever joins with it next chooses its new password.`);
+  process.exit(0);
+}
+
 // ---------- Log file ----------
 // Everything the server prints goes to server.log, with timestamps. Once it passes LOG_MAX it's trimmed to
 // the newest LOG_KEEP (oldest lines dropped), so it never grows forever. Run by hand in a terminal, it also
@@ -95,9 +118,13 @@ const PORT = process.env.PORT || config.port || DEFAULT_PORT;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
 if (!PASSWORD) fatal('No password set: put one in config.json');
 
-// Logins: the join screen sends the password once, and the server answers with a login cookie made from
-// the password and a secret key (data/login-key), so browsers never store the password itself. A new key
-// (--logout-everyone, above) or a new password makes every old login cookie stop working.
+// Logins: joining takes the room password (config.json: keeps strangers out) plus a nickname and that
+// nickname's own password (keeps the name yours). The first time a nickname is used, its password is
+// whatever that person chooses. Nicknames ignore capitals: "matt" is "Matt". Own passwords are kept
+// scrambled (scrypt, in data/accounts.json), never the passwords themselves.
+// The server answers with a login cookie that says who you are, signed with a secret key (data/login-key),
+// so it can't be edited to be someone else, and browsers never store a password. A new key
+// (--logout-everyone), a new room password, or freeing the nickname (--forget-name) ends old logins.
 let keyCache = { mtime: -1, key: '' };
 function loginKey() {
   if (!fs.existsSync(KEYFILE)) newLoginKey();
@@ -105,9 +132,38 @@ function loginKey() {
   if (mtime !== keyCache.mtime) keyCache = { mtime, key: fs.readFileSync(KEYFILE, 'utf8').trim() };
   return keyCache.key;
 }
-const loginToken = () => crypto.createHmac('sha256', loginKey()).update(PASSWORD).digest('base64url');
 const same = (a, b) => { a = Buffer.from(String(a ?? '')); b = Buffer.from(String(b)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
+// The nickname, for the page to show (and to fill in the join screen next time). Only shown: the server
+// goes by the login cookie.
+const NAME_COOKIE = 'name=%s; Path=/; Max-Age=31536000; SameSite=Lax';
+
+// accounts.json: { "<nickname in lower case>": { name: as typed when it was claimed, salt, hash, created } }
+let accCache = { mtime: -2, list: {} };
+function accounts() {
+  let mtime = -1;
+  try { mtime = fs.statSync(ACCOUNTS).mtimeMs; } catch {}
+  if (mtime !== accCache.mtime) accCache = { mtime, list: readAccounts() }; // re-read when it changes (--forget-name)
+  return accCache.list;
+}
+const nameKey = name => String(name).toLowerCase();
+const account = name => (Object.hasOwn(accounts(), nameKey(name)) ? accounts()[nameKey(name)] : null);
+// Not allowed as nicknames: the activity log's own entries, and names that would confuse object lookups.
+const RESERVED = new Set(['server', 'someone', '__proto__', 'constructor', 'prototype']);
+const scramble = (password, salt) => crypto.scryptSync(String(password), salt, 32).toString('hex');
+const MIN_OWN_PASSWORD = 4;
+
+// Login cookie: "<nickname, base64url>.<signature>". The signature covers the room password, the nickname
+// and that account's salt (new for every account), so freeing a nickname and claiming it again ends old logins.
+const userToken = acc => Buffer.from(acc.name).toString('base64url') + '.' +
+  crypto.createHmac('sha256', loginKey()).update(`${PASSWORD}\n${nameKey(acc.name)}\n${acc.salt}`).digest('base64url');
+function loggedIn(cookie) { // the account a login cookie belongs to, or null
+  cookie = String(cookie || '');
+  const dot = cookie.lastIndexOf('.');
+  if (dot < 1) return null;
+  const acc = account(Buffer.from(cookie.slice(0, dot), 'base64url').toString());
+  return acc && same(cookie, userToken(acc)) ? acc : null;
+}
 
 // ---------- State ----------
 let nextId = 1;
@@ -733,27 +789,48 @@ http.createServer((req, res) => {
     const ip = ipOf(req), f = fails.get(ip);
     if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
     else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
-    return readJson(req, 1000, ({ password }) => {
-      if (!same(password, PASSWORD)) {
+    // { password: the room password, name: nickname, own: that nickname's own password }
+    return readJson(req, 2000, ({ password, name, own }) => {
+      const wrong = msg => { // counts towards the wrong-password limit
         const g = fails.get(ip) || { n: 0, since: Date.now() }; g.n++; fails.set(ip, g);
-        res.writeHead(401); return res.end('Wrong password');
+        res.writeHead(401); res.end(msg);
+      };
+      if (!same(password, PASSWORD)) return wrong('Wrong room password');
+      name = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+      if (!name || RESERVED.has(nameKey(name))) { res.writeHead(400); return res.end('Pick a different nickname'); }
+      own = String(own || '');
+      let acc = account(name);
+      if (acc) {
+        if (!same(scramble(own, acc.salt), acc.hash)) return wrong(`"${acc.name}" is taken. If it's yours, that's not its password`);
+      } else {
+        if (own.length < MIN_OWN_PASSWORD) { res.writeHead(400); return res.end(`Choose a password for your nickname (at least ${MIN_OWN_PASSWORD} characters)`); }
+        // Someone from before accounts (or from the queue, chat...) with this name in other capitals: keep their
+        // spelling, so "lvj" claiming the name keeps LVJ's picture, songs and votes.
+        const known = [...Object.keys(colors), ...Object.keys(faces), ...here, ...queue.map(q => q.by), current && current.by]
+          .find(n => n && nameKey(n) === nameKey(name));
+        if (known) name = known;
+        const salt = crypto.randomBytes(16).toString('hex');
+        acc = { name, salt, hash: scramble(own, salt), created: Date.now() };
+        writeAccounts({ ...accounts(), [nameKey(name)]: acc });
       }
-      res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', loginToken()).replace('%d', 31536000) }); // a year
+      res.writeHead(204, { 'Set-Cookie': [
+        AUTH_COOKIE.replace('%s', userToken(acc)).replace('%d', 31536000), // a year
+        NAME_COOKIE.replace('%s', encodeURIComponent(acc.name)), // as it was claimed: "matt" logs in as "Matt"
+      ] });
       res.end();
     });
   }
   if (route === 'POST /logout') {
-    const c = parseCookies(req.headers.cookie);
-    if (same(c.auth, loginToken())) { const who = (c.name || '').trim().slice(0, 30) || 'someone'; delete seen[who]; departed(who); }
-    res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', '').replace('%d', 0) });
+    const acc = loggedIn(parseCookies(req.headers.cookie).auth);
+    if (acc) { delete seen[acc.name]; departed(acc.name); }
+    res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', '').replace('%d', 0) }); // the name cookie stays, for the join screen
     return res.end();
   }
 
-  // Everything else needs the login cookie.
-  const cookies = parseCookies(req.headers.cookie);
-  if (!same(cookies.auth, loginToken())) { res.writeHead(401); return res.end('Not logged in'); }
-  let who = (cookies.name || '').trim().slice(0, 30) || 'someone';
-  if (who === '__proto__' || who === 'constructor' || who === 'prototype') who = 'someone'; // would confuse object lookups
+  // Everything else needs the login cookie, and goes by the nickname in it.
+  const acc = loggedIn(parseCookies(req.headers.cookie).auth);
+  if (!acc) { res.writeHead(401); return res.end('Not logged in'); }
+  const who = acc.name;
 
   switch (route) {
     case 'GET /state':

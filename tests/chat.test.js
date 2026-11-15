@@ -20,9 +20,9 @@ test('messages: kept as typed (the page escapes them), trimmed, capped, empty on
 });
 
 // Opens /events as `as`; resolves each nudge's arrival time into `got`.
-function listen(s, as) {
+async function listen(s, as) {
   const got = [];
-  const req = http.get({ port: s.port, path: '/events', headers: { Cookie: `auth=${s.auth}; name=${as}` } }, res => {
+  const req = http.get({ port: s.port, path: '/events', headers: { Cookie: await s.cookie(as) } }, res => {
     got.status = res.statusCode; got.type = res.headers['content-type'];
     res.on('data', d => { for (const m of String(d).matchAll(/^data: /gm)) got.push(Date.now()); });
   });
@@ -33,7 +33,8 @@ function listen(s, as) {
 
 test('instant updates: everyone is nudged the moment someone sends a message', async () => {
   const s = await start();
-  const bob = listen(s, 'Bob'), cara = listen(s, 'Cara');
+  const bob = await listen(s, 'Bob'), cara = await listen(s, 'Cara');
+  await s.cookie('Alice'); // logged in already, so the timing below is just the message
   await sleep(300);
   assert.equal(bob.status, 200);
   assert.equal(bob.type, 'text/event-stream');
@@ -53,7 +54,8 @@ test('instant updates: everyone is nudged the moment someone sends a message', a
 
 test('nudges close together go out as one', async () => {
   const s = await start();
-  const bob = listen(s, 'Bob');
+  const bob = await listen(s, 'Bob');
+  await s.cookie('Alice');
   await sleep(300);
   const before = bob.length;
   await Promise.all([1, 2, 3, 4, 5].map(i => s.post('/chat', { text: 'msg ' + i }, { as: 'Alice' })));

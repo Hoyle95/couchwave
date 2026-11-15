@@ -5,7 +5,8 @@ const fs = require('fs'), os = require('os'), path = require('path'), http = req
 const { spawn } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const PASSWORD = 'test-password';
+const PASSWORD = 'test-password'; // the room password
+const ownPassword = name => 'own-' + name; // each test person's own password
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Wait until fn() returns something truthy (it may be async), or fail after `ms`.
@@ -51,8 +52,7 @@ class Server {
     this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: { ...process.env, PORT: '', YTP_PASSWORD: '', COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
     this.proc.stdout.on('data', d => (this.out += d));
     this.proc.stderr.on('data', d => (this.out += d));
-    await waitFor(async () => (await this.req('GET', '/manifest.json').catch(() => null)), 10000, 'the server to start');
-    if (!this.auth) this.auth = await this.login();
+    await waitFor(async () => (await this.req('GET', '/manifest.json', { cookie: '' }).catch(() => null)), 10000, 'the server to start');
     return this;
   }
   get statePath() { return path.join(this.dir, 'data', 'state.json'); }
@@ -67,19 +67,28 @@ class Server {
   async restart() { await this.stop(); await this.start(); }
   async close() { for (const t of this.timers || []) clearInterval(t); await this.stop(); if (this.dir) fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 5 }); }
 
-  // Logs in with the password; returns the login cookie's value.
-  async login(password = PASSWORD) {
-    const r = await this.req('POST', '/login', { body: { password }, cookie: '' });
-    if (r.status !== 204) throw new Error('login failed: ' + r.status);
-    return /auth=([^;]*)/.exec(r.headers['set-cookie'][0])[1];
+  // Joins as `name` (with the room password and that nickname's own password, which claims the nickname
+  // the first time); returns the login cookie's value. Throws if refused.
+  async login(name = 'Alice', { password = PASSWORD, own = ownPassword(name) } = {}) {
+    const r = await this.req('POST', '/login', { body: { password, name, own }, cookie: '' });
+    if (r.status !== 204) throw new Error(`login as ${name} failed: ${r.status} ${r.text}`);
+    return /auth=([^;]*)/.exec(r.headers['set-cookie'].find(c => c.startsWith('auth=')))[1];
   }
+  // The Cookie header for `name`, logging in the first time. forget() drops them all (e.g. after --logout-everyone).
+  async cookie(name = 'Alice') {
+    this.auths ||= {};
+    this.auths[name] ||= this.login(name);
+    try { return `auth=${await this.auths[name]}; name=${encodeURIComponent(name)}`; }
+    catch (e) { delete this.auths[name]; throw e; }
+  }
+  forget(name) { if (name) delete (this.auths || {})[name]; else this.auths = {}; }
 
-  // A request as `as` (a nickname). Returns { status, headers, body (Buffer), text, json }.
-  req(method, url, { as = 'Alice', body, cookie, headers = {} } = {}) {
+  // A request as `as` (a nickname: logged in as them). Returns { status, headers, body (Buffer), text, json }.
+  // cookie: send exactly this Cookie header instead ('' = none).
+  async req(method, url, { as = 'Alice', body, cookie, headers = {} } = {}) {
+    if (cookie === undefined) cookie = await this.cookie(as);
     return new Promise((resolve, reject) => {
-      const r = http.request({ port: this.port, path: url, method, headers: {
-        Cookie: cookie !== undefined ? cookie : `auth=${this.auth}; name=${encodeURIComponent(as)}`, ...headers,
-      } }, res => {
+      const r = http.request({ port: this.port, path: url, method, headers: { Cookie: cookie, ...headers } }, res => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => {
@@ -119,4 +128,4 @@ function useServer(t, opts) {
   return s;
 }
 
-module.exports = { Server, useServer, song, waitFor, sleep, PASSWORD, ROOT };
+module.exports = { Server, useServer, song, waitFor, sleep, PASSWORD, ownPassword, ROOT };
