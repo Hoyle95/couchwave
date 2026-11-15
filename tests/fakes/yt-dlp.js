@@ -10,7 +10,8 @@
 // L/1/2 + "daftpunk00", e.g. "1daftpunk00" for the top song); "nothing" finds nothing; anything with
 // "slow" in it takes 1.5 seconds; "a-ha Take On Me" comes back with a different a-ha song first (as YouTube
 // once did).
-// Playlists (a link with list=): four entries, one of them private.
+// Playlists (a link with list=): four entries, one of them private. A Mix (list=RD<id>, for the DJ): the
+// video, one by the same artist, two by others, and a full album and a jingle (which the DJ skips).
 // Like the real one on Windows, titles only come out right with --encoding utf-8: without it, anything
 // outside plain English letters comes out as "�".
 const fs = require('fs');
@@ -29,7 +30,17 @@ if (args.includes('--flat-playlist')) {
   const row = (id, duration, title, playlist = 'NA') => console.log(text([id, duration, title, playlist].join('\t')));
   const q = target.replace(/^ytsearch\d*:/, '');
   setTimeout(() => {
-    if (!target.startsWith('ytsearch')) {
+    const mix = /[?&]list=RD([\w-]{11})/.exec(target);
+    if (mix) { // YouTube's Mix for a video (the DJ): the video itself first, then others like it
+      // ids: a letter + a hash of the seed, so every Mix (even of a song from another Mix) has new ones
+      const seed = mix[1], hash = require('crypto').createHash('md5').update(seed).digest('hex'), id = n => (n + hash).slice(0, 11);
+      row(seed, '200', `Song ${seed}`);
+      row(id('a'), '210', `Song ${seed} - B side`);           // same "artist" as the seed
+      row(id('b'), '190', `Other Band - Fresh Pick ${seed}`);  // another artist: what the DJ prefers
+      row(id('c'), '3600', `Other Band - Full Album ${seed}`); // not a song
+      row(id('d'), '30', `Jingle - Too Short ${seed}`);        // too short
+      row(id('e'), '220', `Third Act - Another One ${seed}`);
+    } else if (!target.startsWith('ytsearch')) {
       row('plist_00001', '100', 'Playlist song 1', 'Test Playlist');
       row('plist_00002', '110', '[Private video]', 'Test Playlist');
       row('plist_00003', '120', 'Playlist song 3', 'Test Playlist');

@@ -298,6 +298,19 @@
   #log { height: 150px; overflow-y: auto; font-size: 14px; }
   #log li { display: flex; gap: 8px; padding: 4px 2px; line-height: 20px; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
   #log li:last-child { border-bottom: 0; }
+  /* History: a row of cards, newest on the left, scrolling right */
+  #history { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  #history li { flex: 0 0 168px; min-width: 0; display: flex; flex-direction: column; gap: 4px; scroll-snap-align: start; }
+  #history li.empty { flex: 1; color: var(--muted); font-size: 14px; }
+  #history .hthumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: var(--surface2); }
+  #history a:hover .hthumb { filter: brightness(1.1); }
+  #history .htitle { margin-top: 2px; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #history .hmeta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+  #history .hmeta .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #history .htime { justify-content: space-between; }
+  #history .copy { width: 26px; height: 26px; }
+  #history .copy svg { width: 13px; height: 13px; }
+  #history .avatar { width: 18px; height: 18px; font-size: 11px; flex: none; }
   #log .undo { margin-left: auto; flex: none; align-self: center; padding: 2px 10px; font-size: 12px; border-radius: 99px; }
   .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; flex: none; }
 
@@ -309,6 +322,8 @@
   #users li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 99px; background: var(--surface2); border: 1px solid var(--border); font-size: 13px; font-weight: 500; }
   #users .avatar { width: 22px; height: 22px; font-size: 13px; position: relative; }
   #users .avatar::after { content: ''; position: absolute; right: -1px; bottom: -1px; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); border: 2px solid var(--surface2); }
+  #users li.djOn { border-style: dashed; color: var(--soft); } /* the DJ, while it's on (!dj on / !dj off) */
+  #users li.djOn .avatar::after { display: none; } /* not a person: no "online" dot */
 
   /* flex-basis 0 so the chat never makes the row taller than the player; it just scrolls */
   #chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; margin-bottom: 12px; }
@@ -601,7 +616,7 @@
         <form id="chatForm" onsubmit="sendChat(event)">
           <div id="emojiPop" class="pop" hidden></div>
           <button type="button" id="emojiBtn" class="iconbtn" onclick="toggleEmoji(event)" title="Emoji" aria-label="Emoji"><svg><use href="#i-smile"/></svg></button>
-          <input id="chatText" placeholder="Say something…" maxlength="500" autocomplete="off">
+          <input id="chatText" placeholder="Message… or !dj on" title="Type !dj on for a DJ that keeps the music going, !dj off to stop it" maxlength="500" autocomplete="off">
           <button title="Send"><svg><use href="#i-send"/></svg></button>
         </form>
       </section>
@@ -611,6 +626,10 @@
       <section class="card">
         <h3>Activity</h3>
         <ul id="log"></ul>
+      </section>
+      <section class="card">
+        <h3>History <span class="count" id="historyCount">0</span></h3>
+        <ul id="history"></ul>
       </section>
       <section class="card">
         <h3>Up next <span class="count" id="queueCount">0</span></h3>
@@ -632,6 +651,7 @@ let joined = false, playingId = null, serverPaused = false, seeking = false, act
 // What's on screen, so each poll only redraws what changed. The server only sends the log / chat
 // when its change counter (rev) differs from the one we have.
 let logRev = '', chatRev = '', logList = [], chatList = [], chatDrawn = false;
+let historyRev = '', historyList = [], lastHistory = '';
 let lastQueue = '', lastUsers = '', lastColorsKey = '';
 
 const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
@@ -665,6 +685,7 @@ function rgbToHsv(r, g, b) {
 // Each nickname gets a colour: the exact one they picked (hex), or a stable one made from their name.
 // (Older picks were stored as a hue number; those still work.)
 let colors = {}, myName = '';
+const DJ_NAME = 'DJ'; // the DJ's songs (server.js / dj.js): anyone can skip or delete them
 function autoHue(name) {
   if (typeof colors[name] === 'number') return colors[name];
   let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
@@ -1213,8 +1234,9 @@ function drawSkip(s) {
   const b = $('skipBtn');
   $('skipText').textContent = voters.length ? `${voters.length} out of ${people} voted to skip` : 'Skip';
   b.setAttribute('aria-pressed', votedSkip);
-  const mySong = s.current && s.current.by === myName;
+  const mySong = s.current && s.current.by === myName, djSong = s.current && s.current.by === DJ_NAME;
   b.title = mySong ? 'Your song: skip it straight away (no vote needed)'
+    : djSong ? 'The DJ\'s song: skip it straight away (no vote needed)'
     : votedSkip ? 'You voted to skip. Click to take your vote back'
     : people > 1 ? `Vote to skip this song (skips at ${s.skip.need} out of ${people})` : 'Skip this song';
   if (voters.length) b.title += '\nVoted: ' + voters.join(', ');
@@ -1309,6 +1331,7 @@ $('log').onclick = e => {
   if (b && Date.now() - (undoSeen[b.dataset.undo] || 0) < 1500) return;
   if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(poll); }
 };
+$('history').onclick = e => { const copy = e.target.closest('.copy'); if (copy) copyLink(copy.dataset.url, copy); };
 $('queue').onclick = e => {
   const copy = e.target.closest('.copy');
   if (copy) return copyLink(copy.dataset.url, copy);
@@ -1427,6 +1450,27 @@ function ding() {
 
 const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+// History: the last 100 songs played, newest on the left. A card each: thumbnail (opens it on YouTube),
+// title, who asked for it and when it played.
+function whenPlayed(t) {
+  const d = new Date(t), today = new Date();
+  const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
+  return days === 0 ? hhmm(t) : days === 1 ? 'Yesterday ' + hhmm(t)
+    : d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + hhmm(t);
+}
+const ytThumbSmall = url => ytThumb(url).replace('/hqdefault.', '/mqdefault.'); // 16:9, no black bars
+function drawHistory() {
+  $('historyCount').textContent = historyList.length;
+  const html = historyList.map(h => `
+    <li>
+      <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
+      <span class="htitle" title="${esc(h.title)}">${esc(h.title)}</span>
+      <span class="hmeta">${avatar(h.by)} <span class="nm" style="color:${nameColor(h.by)}">${esc(h.by)}</span></span>
+      <span class="hmeta htime">${whenPlayed(h.t)}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button></span>
+    </li>`).join('') || '<li class="empty">Nothing played yet</li>';
+  if (html !== lastHistory) { $('history').innerHTML = html; lastHistory = html; }
+}
+
 function drawLog() {
   $('log').innerHTML = logList.slice().reverse().map(e =>
     `<li><span class="time">${hhmm(e.t)}</span><span><b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
@@ -1454,7 +1498,7 @@ async function poll() {
   const seq = ++pollSeq, asked = Date.now();
   let s;
   try {
-    const r = await fetch(`/state?log=${logRev}&chat=${chatRev}`);
+    const r = await fetch(`/state?log=${logRev}&chat=${chatRev}&history=${historyRev}`);
     if (r.status === 401) return location.reload(); // logged out (new password, or everyone was logged out): back to the join screen
     if (!r.ok) return;
     s = await r.json();
@@ -1506,7 +1550,7 @@ async function poll() {
       ${q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
         : `<span class="badge ${esc(q.status)}">${QUEUE_BADGE[q.status] || esc(q.status)}</span>`}
       ${q.status === 'failed' && !q.retrying ? `<button class="ghost retry" title="Try downloading again" aria-label="Try downloading again">${icon('retry')}</button>` : ''}
-      ${q.by === myName ? `<button class="ghost del" title="Remove from the queue" aria-label="Remove from the queue">${icon('trash')}</button>`
+      ${q.by === myName || q.by === DJ_NAME ? `<button class="ghost del" title="Remove from the queue" aria-label="Remove from the queue">${icon('trash')}</button>`
         : '<span class="delgap" aria-hidden="true"></span>'}<!-- only whoever added it can remove it; the gap keeps rows lined up -->
     </li>`).join('') || '<li class="empty">Queue is empty — add something!</li>';
   // Only redraw when it changes, so a "copied" tick isn't wiped by the next refresh.
@@ -1516,9 +1560,14 @@ async function poll() {
   if (s.log) { logList = s.log; logRev = s.logRev; }
   if (s.log || recolor) drawLog();
 
+  // History (only sent when it changed, like the log)
+  if (s.history) { historyList = s.history; historyRev = s.historyRev; }
+  if (s.history || recolor) drawHistory();
+
   // Users
   $('userCount').textContent = s.users.length;
-  const usersHtml = s.users.map(u => `<li>${avatar(u)} <span class="nm" style="color:${nameColor(u)}">${esc(u)}</span></li>`).join('');
+  const usersHtml = s.users.map(u => `<li>${avatar(u)} <span class="nm" style="color:${nameColor(u)}">${esc(u)}</span></li>`).join('')
+    + (s.dj ? `<li class="djOn" title="The DJ is on: when the queue runs out, it plays something like what you've been asking for. Type !dj off in the chat to stop it.">${avatar(DJ_NAME)} <span class="nm">DJ</span></li>` : ''); // (not counted as a person)
   if (usersHtml !== lastUsers) { $('users').innerHTML = usersHtml; lastUsers = usersHtml; }
   drawSkip(s);
 

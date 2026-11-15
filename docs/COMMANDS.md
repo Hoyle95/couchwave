@@ -54,6 +54,19 @@ and nobody else can take the nickname in the meantime.
 
 The new password ends up in your terminal's history; that's fine for a temporary one they'll be told.
 
+## Chat commands
+
+Anyone in the room can type these in the chat (they aren't posted as messages):
+
+| Command | What it does |
+|---|---|
+| `!dj on` | Turns the DJ on: it keeps up to 10 songs queued, like what people have been asking for (from YouTube's Mix of recent requests, other artists first). Its songs always go after everyone else's, and anyone can skip or delete them straight away. |
+| `!dj off` | Turns it off, and takes its songs out of the queue. |
+| `!dj` | Says whether the DJ is on. |
+
+The DJ is off until someone turns it on, and stays on or off when Couchwave restarts. Its songs show as
+"DJ" 🎧, a nickname nobody can take. It lives in `dj.js`.
+
 ## Run the tests
 
 ```sh

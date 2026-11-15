@@ -216,10 +216,14 @@ function addAccount(acc) {
   accCache = { mtime, list, broken: null }; // what was just written (not left to the mtime, which can be coarse)
   return true;
 }
-const account = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) && isAccount(list[key]) ? list[key] : null; };
+// (A reserved nickname never has an account, even one made before it was reserved: nobody can log in as "DJ".)
+const account = name => { const list = accounts(), key = nameKey(name); return !RESERVED.has(key) && Object.hasOwn(list, key) && isAccount(list[key]) ? list[key] : null; };
 const wasDeleted = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) && !!list[key].deleted; };
-// Not allowed as nicknames: the activity log's own entries, and names that would confuse object lookups.
-const RESERVED = new Set(['server', 'someone', '__proto__', 'constructor', 'prototype']);
+// Not allowed as nicknames: the activity log's own entries, the DJ's name, and names that would confuse object lookups.
+const RESERVED = new Set(['server', 'someone', 'dj', '__proto__', 'constructor', 'prototype']);
+let dj = null; // the DJ (dj.js), started further down (see "The DJ")
+const DJ_NAME = 'DJ'; // its songs go in under this name (reserved above): anyone can skip or delete them
+const isDjSong = item => !!item && item.by === DJ_NAME;
 // Scrambling a password takes a moment (that's the point: it makes guessing slow), so it runs in the
 // background rather than holding up everyone's video and chat.
 const scramble = (password, salt) => new Promise((ok, fail) =>
@@ -246,6 +250,8 @@ let paused = false;
 let pausedAt = 0;      // position in seconds while paused
 let log = [];          // { t, by, text, id } newest last, capped at 200
 let chat = [];         // { t, by, text } newest last, capped at 200
+let history = [];      // songs played: { url, title, by, t: when it started } newest FIRST, the last HISTORY_MAX
+const HISTORY_MAX = 100;
 let colors = {};       // nickname -> '#rrggbb' they picked (older entries may be a hue number)
 let faces = {};        // nickname -> the emoji they picked for their profile picture (pages make one up otherwise)
 
@@ -282,14 +288,14 @@ let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n 
 let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
 // Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
 // changed: most polls are then tiny. Start from the clock so a restart never matches an old value.
-let logRev = Date.now(), chatRev = Date.now();
+let logRev = Date.now(), chatRev = Date.now(), historyRev = Date.now();
 const running = new Map(); // id -> yt-dlp process, for songs downloading right now
 // Deleted songs can be undone for 10 minutes (from the Activity log). Their files are kept until then.
 const trash = new Map();   // id -> { item, index }  (index = where it was in the queue)
 const UNDO_MS = 10 * 60 * 1000;
 
 try {
-  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null } =
+  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], history = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null } =
     JSON.parse(fs.readFileSync(STATE, 'utf8')));
 } catch {}
 for (const e of log) delete e.undo; // the trash does not survive a restart
@@ -310,7 +316,7 @@ function save() {
     // can tell a quick restart from the server having been off). skip: the votes on the current song.
     const herePlus = Object.fromEntries([...here].map(n => [n, seen[n] || 0]));
     const skip = current ? { song: current.id, voters: [...skipVotes] } : null;
-    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: herePlus, skip }));
+    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, history, colors, faces, here: herePlus, skip }));
   } catch (err) {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
     console.error('save failed:', err.message);
@@ -416,12 +422,18 @@ function stopDownload(item) {
 // round 1, their 2nd round 2...): after every song from the same or an earlier round, so it never jumps ahead
 // of anyone who's waited longer, and one big playlist can't keep everyone else waiting. The song playing now
 // counts as its person's turn. Dragging songs around still works as before; new songs fit in around it.
+// The DJ's songs (see "The DJ") don't take turns: they go at the very end, and people's songs go ahead of them.
 function fairIndex(who) {
+  if (who === DJ_NAME) return queue.length;
   const count = {};
-  if (current) count[current.by] = 1;
+  if (current && !isDjSong(current)) count[current.by] = 1;
   const round = queue.reduce((n, q) => n + (q.by === who), count[who] || 0) + 1; // the new song's round
   let at = 0;
-  queue.forEach((q, i) => { count[q.by] = (count[q.by] || 0) + 1; if (count[q.by] <= round) at = i + 1; });
+  queue.forEach((q, i) => {
+    if (isDjSong(q)) return;
+    count[q.by] = (count[q.by] || 0) + 1;
+    if (count[q.by] <= round) at = i + 1;
+  });
   return at;
 }
 
@@ -672,6 +684,10 @@ function advance(headStart = 0) {
   if (idx >= 0) {
     current = queue.splice(idx, 1)[0];
     startedAt = Date.now() - headStart * 1000;
+    // History (the panel under Activity, and the DJ's ideas): newest first, the last HISTORY_MAX.
+    history.unshift({ url: current.url, title: current.title, by: current.by, t: Date.now() });
+    history.length = Math.min(history.length, HISTORY_MAX);
+    historyRev++;
   }
   dirty = true;
   pump(); // one fewer song ready ahead: room to download another
@@ -705,6 +721,32 @@ setInterval(() => {
   cleanup();
   for (const [ip, f] of fails) if (Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
 }, 60 * 1000);
+
+// ---------- The DJ ----------
+// dj.js: plays something like what people have been asking for when the queue runs out, if someone has
+// typed "!dj on" in the chat. This is everything it can use. Its songs are queued as "DJ" (the name can't
+// be taken as a nickname), and anyone can skip or delete them straight away.
+dj = require('./dj')({
+  dataDir: DATA,
+  writeAtomic,
+  faces,
+  queue: () => queue,
+  current: () => current,
+  history: () => history, // newest first
+  // YouTube's Mix (radio playlist) for a video: [{ id, duration, title }]
+  mix: id => new Promise(ok => listSongs(`https://www.youtube.com/watch?v=${id}&list=RD${id}`, 30, ok)),
+  addSong: (url, title, by, logText) => { addSong(url, title, by); addLog(by, logText); pump(); dirty = true; },
+  // Takes the DJ's songs out of the queue (when it's turned off); returns how many.
+  removeDjSongs: () => {
+    const mine = queue.filter(isDjSong);
+    for (const item of mine) { item.removed = true; if (running.has(item.id)) stopDownload(item); } // cleanup() takes the files
+    queue = queue.filter(q => !isDjSong(q));
+    if (mine.length) { dirty = true; pump(); }
+    return mine.length;
+  },
+  log: (who, text) => { addLog(who, text); dirty = true; },
+  say: (by, text) => { chat.push({ t: Date.now(), by, text }); if (chat.length > 200) chat.shift(); chatRev++; dirty = true; },
+});
 
 // ---------- Keeping yt-dlp up to date ----------
 // YouTube changes things often and an old yt-dlp is the usual reason downloads start failing (e.g. 403 errors).
@@ -751,11 +793,13 @@ function state(q) {
     reactions: reactions.filter(r => now - r.t < 6000),
     users,
     skip: { voters: users.filter(n => skipVotes.has(n)), need: skipNeeded(users.length) }, // vote to skip
-    logRev, chatRev,
+    dj: !!(dj && dj.isOn()),
+    logRev, chatRev, historyRev,
   };
   // `undo` (a song id) shows an Undo button on a "removed" entry, while that song can still be brought back.
   if (q.get('log') !== String(logRev)) s.log = log.map(({ t, by, text, undo }) => ({ t, by, text, undo: trash.has(undo) ? undo : undefined }));
   if (q.get('chat') !== String(chatRev)) s.chat = chat;
+  if (q.get('history') !== String(historyRev)) s.history = history;
   return s;
 }
 
@@ -1002,8 +1046,8 @@ http.createServer((req, res) => {
         arrived(who);
         if (current && id === undefined) { id = current.id; vote = !skipVotes.has(who); } // a page from before votes said which song
         if (current && id === current.id) { // a vote for a song that has already ended does nothing
-          if (vote !== false && current.by === who) { // your own song: skipped straight away, no vote
-            addLog(who, `skipped their song "${current.title}"`);
+          if (vote !== false && (current.by === who || isDjSong(current))) { // your own song, or the DJ's: skipped straight away, no vote
+            addLog(who, `skipped ${isDjSong(current) ? 'the DJ\'s' : 'their'} song "${current.title}"`);
             advance();
           } else {
             if (vote === false) skipVotes.delete(who); else skipVotes.add(who);
@@ -1044,15 +1088,15 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /remove': // delete a song from the queue: { id }. Only whoever added it can.
+    case 'POST /remove': // delete a song from the queue: { id }. Only whoever added it can (anyone, for the DJ's).
       return readJson(req, 200, ({ id }) => {
         const i = queue.findIndex(q => q.id === id);
-        if (i >= 0 && queue[i].by !== who) { res.writeHead(403); return res.end('Only whoever added a song can remove it'); }
+        if (i >= 0 && queue[i].by !== who && !isDjSong(queue[i])) { res.writeHead(403); return res.end('Only whoever added a song can remove it'); }
         if (i >= 0) {
           const [item] = queue.splice(i, 1);
           item.removed = true;
           if (running.has(item.id)) stopDownload(item); // still downloading: stop it, free its slot now
-          trash.set(item.id, { item, index: i, t: Date.now() }); // files kept for 10 minutes, in case of undo
+          trash.set(item.id, { item, index: i, t: Date.now(), by: who }); // files kept for 10 minutes, in case of undo
           addLog(who, `removed "${item.title}"`);
           log[log.length - 1].undo = item.id;
           pump(); // its download slot is free for the next waiting song
@@ -1060,10 +1104,10 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /undo': // bring back a deleted song: { id }. Only whoever added it (and so deleted it) can.
+    case 'POST /undo': // bring back a deleted song: { id }. Only whoever deleted it can.
       return readJson(req, 200, ({ id }) => {
         const entry = trash.get(id);
-        if (entry && entry.item.by !== who) { res.writeHead(403); return res.end('Only whoever added a song can bring it back'); }
+        if (entry && entry.item.by !== who && entry.by !== who) { res.writeHead(403); return res.end('Only whoever deleted a song can bring it back'); }
         if (entry) {
           const { item, index } = entry;
           trash.delete(id);
@@ -1091,6 +1135,7 @@ http.createServer((req, res) => {
     case 'POST /chat':
       return readJson(req, 2000, ({ text }) => {
         text = String(text || '').trim().slice(0, 500);
+        if (text && dj && dj.command(who, text)) return done(res); // "!dj on" etc.: for the DJ, not posted
         if (text) {
           chat.push({ t: Date.now(), by: who, text });
           if (chat.length > 200) chat.shift();

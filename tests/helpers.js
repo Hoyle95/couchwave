@@ -36,7 +36,7 @@ class Server {
   async start() {
     if (!this.dir) {
       this.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-test-'));
-      for (const f of ['server.js', 'index.html']) fs.copyFileSync(path.join(ROOT, f), path.join(this.dir, f));
+      for (const f of ['server.js', 'dj.js', 'index.html']) fs.copyFileSync(path.join(ROOT, f), path.join(this.dir, f));
       for (const d of ['icons', 'fonts']) fs.cpSync(path.join(ROOT, d), path.join(this.dir, d), { recursive: true });
       fs.mkdirSync(path.join(this.dir, 'data', 'downloads'), { recursive: true });
       this.port = await freePort();
