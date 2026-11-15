@@ -1114,8 +1114,11 @@ http.createServer((req, res) => {
       if (paused) { startedAt = Date.now() - pausedAt * 1000; paused = false; addLog(who, 'resumed'); }
       return done(res);
 
+    // { t }: move through the song. Only whoever added it can: anyone else could jump to the end, which skips it
+    // without a vote. (The DJ's songs: nobody.)
     case 'POST /seek':
       return readJson(req, 200, ({ t }) => {
+        if (current && current.by !== who) { res.writeHead(403); return res.end('Only whoever added the song can move it'); }
         if (current) {
           t = Math.max(0, Math.min(Number(t) || 0, current.duration));
           if (paused) pausedAt = t; else startedAt = Date.now() - t * 1000;

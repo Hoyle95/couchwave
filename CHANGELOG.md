@@ -32,6 +32,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ### Changed
 
+- **Moving through a song** (the time bar): only whoever added it can, so nobody can skip a song without a
+  vote by jumping to the end. On the DJ's songs, nobody can.
 - **Full screen, like Twitch**: video edge to edge with the controls over it (they fade when the mouse is
   still), and the chat down the right, which you can hide.
 - **Song names keep their place** in the queue while they're searched for, and the best-matching result is

@@ -31,6 +31,21 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   for (const line of ['Alice: paused at 0:20', 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);
 });
 
+test('only whoever added the song can move through it (jumping to the end would skip it without a vote)', async () => {
+  const s = await start({ initial: { current: song(1, 'Alice\'s song', 'Alice', { duration: 300 }), startedAt: Date.now() - 20000,
+    queue: [song(2, 'The DJ\'s song', 'DJ', { duration: 300 })] } });
+  const r = await s.post('/seek', { t: 299 }, { as: 'Bob' });
+  assert.equal(r.status, 403, 'Bob is refused');
+  const at = (await s.state()).elapsed;
+  assert.ok(at >= 19 && at < 25, 'still around 0:20: ' + at);
+  assert.ok(!(await s.log()).some(l => /jumped/.test(l)), 'nothing logged');
+  assert.equal((await s.post('/seek', { t: 100 }, { as: 'Alice' })).status, 204, 'Alice can');
+  assert.ok((await s.state()).elapsed >= 100);
+  await s.post('/skip', { id: 1 }, { as: 'Alice' }); // Alice skips her song: the DJ's plays
+  await waitFor(async () => (await s.state()).current?.by === 'DJ', 3000, 'the DJ\'s song to play');
+  for (const who of ['Alice', 'Bob']) assert.equal((await s.post('/seek', { t: 299 }, { as: who })).status, 403, `nobody moves the DJ's song (${who})`);
+});
+
 test('when a song ends, the next one plays and the old files are deleted', async () => {
   const s = await start({ initial: { current: song(1, 'Short song', 'Alice', { duration: 1 }), queue: [song(2, 'Next song', 'Bob')] } });
   const oldFile = path.join(s.dir, 'data', 'downloads', JSON.parse(fs.readFileSync(s.statePath)).current.file);

@@ -251,6 +251,7 @@
   #pp svg { width: 22px; height: 22px; }
   #time { font-variant-numeric: tabular-nums; color: var(--soft); font-size: 13px; min-width: 84px; }
   #seek { flex: 1 1 220px; }
+  #seek:disabled { opacity: .55; cursor: not-allowed; } /* someone else's song: only they can move through it */
   .vol { display: flex; align-items: center; gap: 8px; color: var(--soft); }
   #vol { width: 96px; }
   .iconbtn { background: none; color: var(--soft); padding: 6px; border-radius: 8px; }
@@ -614,7 +615,7 @@
         <div class="controls">
           <button id="pp" onclick="togglePause()" title="Pause / play for everyone"></button>
           <span id="time">0:00 / 0:00</span>
-          <input id="seek" type="range" min="0" max="0" step="0.1" value="0" title="Seek (for everyone)">
+          <input id="seek" type="range" min="0" max="0" step="0.1" value="0" disabled title="Only whoever added the song can move through it">
           <button id="skipBtn" class="ghost" onclick="skip()" aria-pressed="false" title="Vote to skip this song"><svg><use href="#i-skip"/></svg> <span id="skipText">Skip</span></button>
           <div class="vol" title="Your volume only">
             <button id="muteBtn" class="iconbtn" onclick="toggleMute()" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
@@ -1626,9 +1627,16 @@ async function poll() {
       if (!a.paused && !heldLocally) playSilence(); else clearPlayer();
     }
     seek.max = 0; seek.value = 0; showTime(0); paint(seek);
+    seek.disabled = true;
     return;
   }
   seek.max = s.current.duration;
+  // Only whoever added the song can move through it (anyone else could jump to the end: a skip without a vote).
+  const mySong = s.current.by === myName;
+  if (seek.disabled === mySong) {
+    seek.disabled = !mySong;
+    seek.title = mySong ? 'Move through your song (for everyone)' : 'Only whoever added the song can move through it';
+  }
 
   if (s.current.id !== playingId || a.error) { // new song, or the sound's connection dropped (e.g. server restart)
     heldLocally = false; // a new song starts playing for everyone again

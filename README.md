@@ -20,7 +20,8 @@ yt-dlp and ffmpeg (no database, no npm packages).
 ## What it does
 
 - **Shared queue**: links, playlists or song names. People take turns, so one big playlist doesn't hog it.
-- **In sync** for everyone, with **votes** to skip or remove a song (your own go straight away).
+- **In sync** for everyone, with **votes** to skip or remove a song (yours go straight away, and only you
+  can move through your song).
 - **Chat, reactions and who's online**, all instant, with emoji profile pictures.
 - **A DJ** (`!dj on` in the chat) that keeps the music going with songs like the ones you've played.
 - **History** of the last 100 songs played, and a **Twitch-style full screen** with the chat alongside.
