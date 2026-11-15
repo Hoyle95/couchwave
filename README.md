@@ -8,7 +8,7 @@ Everyone opens the same page, adds YouTube links or song names to a shared queue
 sync for everybody, with chat and reactions on the side. You host it yourself; it needs only Node.js,
 yt-dlp and ffmpeg (no database, no npm packages).
 
-![Couchwave in a browser: a video playing with emoji reactions floating over it, the chat and online friends on the right, the activity log and queue below](docs/screenshot.png)
+![Couchwave in a browser: a video playing with emoji reactions floating over it, a skip vote in progress, the chat and online friends on the right, and below them the activity log, the history of songs played with thumbnails, and the queue](docs/screenshot.png)
 
 <details>
 <summary>On a phone</summary>
@@ -57,8 +57,8 @@ Ideas, bugs, or just saying hi: join our [Discord](https://discord.com/invite/pN
 
 ## Credits
 
-Vibe coded by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5. The screenshot shows
-[Big Buck Bunny](https://peach.blender.org/) © Blender Foundation, CC BY 3.0. The font is
+Vibe coded by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5. The screenshots show
+[Big Buck Bunny](https://peach.blender.org/) and other [Blender open movies](https://studio.blender.org/films/), © Blender Foundation, CC BY. The font is
 [Inter](https://rsms.me/inter/) (SIL Open Font License, `fonts/OFL.txt`), included so the site never loads
 anything from Google.
 
