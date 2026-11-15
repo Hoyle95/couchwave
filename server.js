@@ -19,7 +19,7 @@ const DL = path.join(DATA, 'downloads');
 const STATE = path.join(DATA, 'state.json');
 const MAX_DOWNLOADS = 3; // at the same time; the rest wait their turn (in queue order)
 const PREFETCH = 20;     // the top this-many songs of the queue get downloaded ahead (so a big playlist doesn't
-                         // fill the disk). A song dragged into the top 20 is downloaded whatever is ready below.
+                         // fill the disk).
 const PLAYLIST_MAX = 100; // songs taken from one playlist
 const GRACE = 2;         // seconds after a song ends before the server moves on (see the timer below)
 fs.mkdirSync(DL, { recursive: true });
@@ -385,7 +385,7 @@ function cleanup() {
 
 // Downloads: the top PREFETCH songs of the queue get downloaded (so the disk doesn't fill up with a whole
 // playlist), MAX_DOWNLOADS at a time, highest in the queue first. If both slots are busy with songs lower
-// down than a waiting one (e.g. someone dragged a song to the top), the lowest is stopped and restarted
+// down than a waiting one (e.g. a song that went in ahead of them), the lowest is stopped and restarted
 // later, so the song nearer the top goes first. Called whenever a download finishes, a song is played,
 // or the queue changes.
 function pump() {
@@ -421,7 +421,7 @@ function stopDownload(item) {
 // Fair queue: people take turns. Someone's new song goes in their next "round" (their 1st song in the queue is
 // round 1, their 2nd round 2...): after every song from the same or an earlier round, so it never jumps ahead
 // of anyone who's waited longer, and one big playlist can't keep everyone else waiting. The song playing now
-// counts as its person's turn. Dragging songs around still works as before; new songs fit in around it.
+// counts as its person's turn. (The queue can't be reordered by hand.)
 // The DJ's songs (see "The DJ") don't take turns: they go at the very end, and people's songs go ahead of them.
 function fairIndex(who) {
   if (who === DJ_NAME) return queue.length;
@@ -488,7 +488,7 @@ function addPlaylist(link, who) {
 // (no length), which can't be played.
 // A "Searching for …" stand-in goes into the queue straight away, in its fair place, so songs stay in the
 // order they were asked for however long each search takes (and people see their request went in). It
-// turns into the song when the search is done, or goes if nothing was found. It can be dragged and deleted
+// turns into the song when the search is done, or goes if nothing was found. It can be deleted
 // like any song meanwhile; a search cut short by a restart starts again (see the startup code).
 function addSearch(query, who) {
   const item = addSong(null, `Searching for "${query}"…`, who);
@@ -1071,19 +1071,6 @@ http.createServer((req, res) => {
           t = Math.max(0, Math.min(Number(t) || 0, current.duration));
           if (paused) pausedAt = t; else startedAt = Date.now() - t * 1000;
           addLog(who, `jumped to ${fmt(t)}`);
-        }
-        done(res);
-      });
-
-    case 'POST /move': // drag-to-reorder the queue: { id, to } (to = new 0-based index)
-      return readJson(req, 200, ({ id, to }) => {
-        const from = queue.findIndex(q => q.id === id);
-        to = Math.max(0, Math.min(Math.round(Number(to)) || 0, queue.length - 1));
-        if (from >= 0 && to !== from) {
-          const [item] = queue.splice(from, 1);
-          queue.splice(to, 0, item);
-          addLog(who, `moved "${item.title}" to #${to + 1}`);
-          pump(); // a waiting song moved up may now be next to download
         }
         done(res);
       });

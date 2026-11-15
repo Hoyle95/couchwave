@@ -49,6 +49,9 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 
 ### Changed
 
+- **No more drag-to-reorder**: the queue can't be rearranged by hand any more (it wasn't clear who should be
+  allowed to move whose songs). Songs go in by the fair queue's turns, and the DJ's after everyone's.
+
 - **Song names keep their place**: typing a song name puts "Searching for …" in the queue straight away, in
   its turn, and it becomes the song once found. Before, several names added in a row went in whenever each
   search finished, so they could end up out of order. A search cut short by a restart starts again.

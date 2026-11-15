@@ -172,14 +172,13 @@ test('only whoever added a song can delete it, or undo deleting it', async () =>
   assert.ok(await inQueue(s, x => x.id === q.id), 'Alice can');
 });
 
-test('drag to reorder', async () => {
+test('the queue can\'t be reordered by hand', async () => {
   const s = await start();
   for (const id of ['okay_000003', 'okay_000004', 'okay_000005']) await s.post('/add', { url: yt(id) }, { as: 'Bob' });
-  let ids = (await s.state()).queue.map(q => q.id);
-  await s.post('/move', { id: ids[2], to: 0 }, { as: 'Bob' });
-  const now = (await s.state()).queue.map(q => q.id);
-  assert.deepEqual(now, [ids[2], ids[0], ids[1]]);
-  assert.ok((await s.log()).some(l => /Bob: moved .* to #1/.test(l)));
+  const ids = (await s.state()).queue.map(q => q.id);
+  assert.equal((await s.post('/move', { id: ids[2], to: 0 }, { as: 'Bob' })).status, 404, 'there\'s no way to move a song');
+  assert.deepEqual((await s.state()).queue.map(q => q.id), ids, 'still in the order they were added');
+  assert.ok(!(await s.log()).some(l => /moved/.test(l)));
 });
 
 test('fair queue: one person\'s pile of songs doesn\'t keep everyone else waiting', async () => {
