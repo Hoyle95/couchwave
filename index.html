@@ -1036,7 +1036,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---- Controls ----
-// Volume is personal (saved in this browser). Pause / seek / skip affect everyone.
+// Volume is personal (saved in this browser). Pause / seek affect everyone; skip is a vote (see voteSkip).
 const paint = el => el.style.setProperty('--p', ((+el.value / (+el.max || 1)) * 100) + '%'); // slider fill
 try { vol.value = localStorage.getItem('vol') ?? 1; } catch { vol.value = 1; }
 a.volume = vol.value; paint(vol);
@@ -1130,16 +1130,24 @@ if ('mediaSession' in navigator) {
   const handlers = {
     play: () => { heldLocally = false; if (!serverPaused) tryPlay(); },
     pause: () => { heldLocally = true; pauseBoth(); },
-    nexttrack: () => { if (!votedSkip) skip(); },
+    nexttrack: () => voteSkip(true, playingId), // the song playing here, even if the screen's been locked a while
   };
   for (const [action, fn] of Object.entries(handlers)) { try { ms.setActionHandler(action, fn); } catch {} }
 }
 // Skip is a vote: the song is skipped once more than half of the people online have voted.
 // Clicking again takes your vote back. The server sends who has voted with each update (drawSkip).
-let votedSkip = false;
-function skip() { post('/skip').then(poll); }
+// Each vote says which song it's for and which way, so a click just as the song changes can't vote on the
+// next one, and a double-click can't undo itself.
+let votedSkip = false, skipSongId = null;
+function skip() { voteSkip(!votedSkip); }
+function voteSkip(vote, id = skipSongId) {
+  if (id == null) return;
+  if (id === skipSongId) { votedSkip = vote; $('skipBtn').setAttribute('aria-pressed', vote); } // show it straight away
+  post('/skip', { id, vote }).then(poll);
+}
 function drawSkip(s) {
   const voters = s.current ? s.skip.voters : [], people = s.users.length;
+  skipSongId = s.current ? s.current.id : null;
   votedSkip = voters.includes(myName);
   const b = $('skipBtn');
   $('skipText').textContent = voters.length ? `${voters.length} out of ${people} voted to skip` : 'Skip';

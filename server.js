@@ -125,15 +125,26 @@ const seen = {};       // nickname -> last time their page checked in
 // rest of the state, so a restart neither forgets people (and misses their "left") nor re-announces them.
 const here = new Set();
 const LEAVE_AFTER = 60000, CLOSED_AFTER = 10000;
-let QUIET_UNTIL = Date.now() + 15000; // state saved before "here" was: don't announce pages already open
+const closed = {};     // nickname -> when their page said it was closing (POST /bye)
+let quietUntil = Date.now() + 15000; // state saved before "here" was: don't announce pages already open
 function arrived(who) {
   if (here.has(who)) return;
   here.add(who);
-  if (Date.now() > QUIET_UNTIL) { addLog(who, 'joined'); dirty = true; }
+  dirty = true;
+  if (Date.now() > quietUntil) addLog(who, 'joined');
 }
-function departed(who) { if (here.delete(who)) { addLog(who, 'left'); dirty = true; } }
-setInterval(() => { for (const who of here) if (Date.now() - (seen[who] || 0) > LEAVE_AFTER) departed(who); }, 5000);
-let wasHere = null;    // who was here when the server last stopped (loaded below)
+// t: when they left, if not now (someone last seen before the server was switched off).
+function departed(who, t) { delete closed[who]; if (here.delete(who)) { addLog(who, 'left', undefined, t); dirty = true; } }
+// Gone: no check-in for a minute, or their page said it was closing and hasn't checked in since (a reload
+// checks in again within a second or two, so it doesn't count; neither does closing one of two tabs).
+const gone = (who, now) => now - (seen[who] || 0) > LEAVE_AFTER || (closed[who] > (seen[who] || 0) && now - closed[who] > CLOSED_AFTER);
+setInterval(() => {
+  const now = Date.now();
+  for (const who of here) if (gone(who, now)) departed(who);
+  if (here.size && now - savedAt > 30000) dirty = true; // keeps the saved last-seen times fresh (see save())
+}, 5000);
+let wasHere = null;    // who was here when the server last stopped, and when each was last seen (loaded below)
+let savedSkip = null;  // skip votes when the server last stopped (loaded below, see "Vote to skip")
 let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n = clicks in the bundle, cid = sending page
 let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
 // Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
@@ -145,15 +156,9 @@ const trash = new Map();   // id -> { item, index }  (index = where it was in th
 const UNDO_MS = 10 * 60 * 1000;
 
 try {
-  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {}, here: wasHere = null } =
+  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null } =
     JSON.parse(fs.readFileSync(STATE, 'utf8')));
 } catch {}
-// People here before the restart: shown as offline until their page checks in again, and "left" if it
-// doesn't within the minute.
-if (Array.isArray(wasHere)) {
-  QUIET_UNTIL = 0;
-  for (const who of wasHere) if (typeof who === 'string') { here.add(who); seen[who] = Date.now() - 10000; }
-}
 for (const e of log) delete e.undo; // the trash does not survive a restart
 // Song files are found by name in data/downloads, wherever the data folder has been copied/moved to.
 for (const item of [current, ...queue]) {
@@ -163,11 +168,16 @@ for (const item of [current, ...queue]) {
 
 // Saving: changes people make are saved straight away (so a restart never loses a click);
 // background changes (downloads finishing, songs advancing) mark the state dirty and the 1s timer saves it.
-let dirty = false;
+let dirty = false, savedAt = 0;
 function save() {
   dirty = false;
+  savedAt = Date.now();
   try {
-    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: [...here] }));
+    // here: who's here and when each was last seen (saved at least every 30s while anyone is, so a restart
+    // can tell a quick restart from the server having been off). skip: the votes on the current song.
+    const herePlus = Object.fromEntries([...here].map(n => [n, seen[n] || 0]));
+    const skip = current ? { song: current.id, voters: [...skipVotes] } : null;
+    fs.writeFileSync(STATE + '.tmp', JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, colors, faces, here: herePlus, skip }));
     fs.renameSync(STATE + '.tmp', STATE); // rename so a crash mid-write can't corrupt state.json
   } catch (err) {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
@@ -175,11 +185,28 @@ function save() {
   }
 }
 
+// People here before the restart, with when each was last seen. Back within the minute (e.g. --watch
+// restarting the server): carries on as if nothing happened. Gone longer (the server was off): "left",
+// at the time they were last seen. (Saves from before last-seen times were kept are just a list of names.)
+if (wasHere && typeof wasHere === 'object') {
+  quietUntil = 0;
+  const now = Date.now();
+  const list = Array.isArray(wasHere) ? Object.fromEntries(wasHere.map(n => [n, now - 10000])) : wasHere;
+  for (const [who, t] of Object.entries(list)) {
+    if (typeof t !== 'number' || who === '__proto__' || who === 'constructor' || who === 'prototype') continue;
+    here.add(who);
+    seen[who] = Math.min(t, now);
+    if (now - seen[who] > LEAVE_AFTER) departed(who, seen[who]);
+  }
+}
+
 const elapsed = () => (paused ? pausedAt : (Date.now() - startedAt) / 1000);
 const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
 
-function addLog(by, text, id) {
-  log.push({ t: Date.now(), by, text, id });
+function addLog(by, text, id, t = Date.now()) {
+  let i = log.length;
+  while (i > 0 && log[i - 1].t > t) i--; // an entry for earlier (see departed()): in its place, not at the end
+  log.splice(i, 0, { t, by, text, id });
   if (log.length > 200) log.shift();
   logRev++;
 }
@@ -431,6 +458,10 @@ function download(item) {
 // own, one click skips). Clicking again takes your vote back. Votes are for the current song only, and
 // only count while the voter is online, so someone leaving can tip the vote over.
 const skipVotes = new Set(); // nicknames, in the order they voted
+// Votes from before a restart, if the same song is still playing.
+if (savedSkip && current && savedSkip.song === current.id && Array.isArray(savedSkip.voters)) {
+  for (const n of savedSkip.voters) if (typeof n === 'string') skipVotes.add(n);
+}
 const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < 10000); };
 const skipNeeded = people => Math.floor(people / 2) + 1;
 function checkSkip() {
@@ -551,18 +582,24 @@ function state(q) {
 // grows the whole time), and never less than PACE_MIN bytes a second.
 const PACE_BURST = 20, PACE_SPEEDUP = 3, PACE_MIN = 256 * 1024; // 256 KB/s = 2 Mbit/s
 
-// Pipe a file stream to the response: `burst` bytes straight away, then `rate` bytes a second.
+// Pipe a file stream to the response: `burst` bytes straight away, then `rate` bytes a second. Time
+// spent waiting on the viewer (their buffer is full, they paused, a slow phone) only banks up one second
+// of sending, so a download that stalled doesn't then make up for it in one full-speed rush.
 async function paced(stream, res, rate, burst) {
-  const t0 = Date.now();
-  let sent = 0;
+  let credit = burst, last = Date.now(); // bytes that may go out right now
   res.on('close', () => stream.destroy()); // the viewer went away (closed, seeked, next song): stop reading
+  const drained = () => new Promise(r => {
+    const go = () => { res.off('drain', go); res.off('close', go); r(); };
+    res.on('drain', go); res.on('close', go);
+  });
   try {
     for await (const chunk of stream) {
       if (res.destroyed) break;
-      if (!res.write(chunk)) await new Promise(r => { res.once('drain', r); res.once('close', r); });
-      sent += chunk.length;
-      const wait = (sent - burst) / rate * 1000 - (Date.now() - t0);
-      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      if (!res.write(chunk)) await drained();
+      const now = Date.now();
+      credit = Math.min(credit + (now - last) / 1000 * rate, Math.max(credit, rate)) - chunk.length;
+      last = now;
+      if (credit < 0) await new Promise(r => setTimeout(r, -credit / rate * 1000));
     }
     res.end();
   } catch { res.destroy(); }
@@ -705,8 +742,8 @@ http.createServer((req, res) => {
       arrived(who);
       return sendJson(res, state(url.searchParams));
 
-    case 'POST /bye': // the page was closed (or is reloading): offline now, "left" soon unless it checks in again
-      if (seen[who]) seen[who] = Math.min(seen[who], Date.now() - LEAVE_AFTER + CLOSED_AFTER);
+    case 'POST /bye': // the page was closed (or is reloading): "left" soon, unless it checks in again (see gone())
+      if (here.has(who)) closed[who] = Date.now();
       res.writeHead(204); return res.end();
 
     case 'POST /add': // { url: a YouTube link or a song name to search for, playlist: true = queue the whole playlist }
@@ -724,13 +761,18 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /skip': // vote to skip the current song, or take the vote back (see checkSkip)
-      seen[who] = Date.now(); // counts as online, e.g. the lock-screen "next" button on a phone whose page has gone quiet
-      if (current) {
-        if (skipVotes.has(who)) skipVotes.delete(who); else skipVotes.add(who);
-        checkSkip();
-      }
-      return done(res);
+    case 'POST /skip': // { id: the song, vote: true = vote to skip it / false = take the vote back } (see checkSkip)
+      return readJson(req, 200, ({ id, vote }) => {
+        // Counts as here and online, e.g. the lock-screen "next" button on a phone whose page has gone quiet.
+        seen[who] = Date.now();
+        arrived(who);
+        if (current && id === undefined) { id = current.id; vote = !skipVotes.has(who); } // a page from before votes said which song
+        if (current && id === current.id) { // a vote for a song that has already ended does nothing
+          if (vote === false) skipVotes.delete(who); else skipVotes.add(who);
+          checkSkip();
+        }
+        done(res);
+      });
 
     case 'POST /pause':
       if (current && !paused) { pausedAt = elapsed(); paused = true; addLog(who, `paused at ${fmt(pausedAt)}`); }

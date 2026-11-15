@@ -22,7 +22,8 @@ but Node.js, yt-dlp and ffmpeg. No accounts, no database, no npm packages.
 
 - **Shared queue**: paste a link, a playlist, or a song name. People take turns: one person's 100-song
   playlist doesn't drown out everyone else. Drag to reorder, delete (with undo), copy links.
-- **In sync**: play, pause, seek and skip for everyone. Your own volume stays yours, and so does
+- **In sync**: play, pause and seek for everyone, and vote to skip (more than half of the people online
+  skips the song). Your own volume stays yours, and so does
   **audio-only** mode: turn the video off to just listen (and save data).
 - **Chat, reactions and who's online**, with emoji profile pictures and colours.
 - **Keeps playing on a locked phone**, and can be installed as an app ("Add to Home screen").
