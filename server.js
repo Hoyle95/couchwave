@@ -11,6 +11,10 @@ const { spawn } = require('child_process');
 // them in a split second, without YouTube: COUCHWAVE_FAKE_TOOLS = a folder with a <name>.js for each.
 const FAKE_TOOLS = process.env.COUCHWAVE_FAKE_TOOLS;
 const run = (name, args) => (FAKE_TOOLS ? spawn(process.execPath, [path.join(FAKE_TOOLS, name + '.js'), ...args]) : spawn(name, args));
+// The tests also run the clock faster: COUCHWAVE_TIME_SCALE=0.25 makes "10 seconds" last 2.5. It only changes
+// timings about people (online, leaving, joining, votes, reactions, the DJ's checks), never songs. Normally 1.
+const TIME_SCALE = Number(process.env.COUCHWAVE_TIME_SCALE) > 0 ? Number(process.env.COUCHWAVE_TIME_SCALE) : 1;
+const secs = n => n * 1000 * TIME_SCALE; // n seconds, in milliseconds
 
 // Everything the server saves goes in data/: the queue/chat/log (state.json), downloaded songs, log files.
 // Back it up by copying the folder. It's not in git.
@@ -263,9 +267,10 @@ const seen = {};       // nickname -> last time their page checked in
 // comes back sooner, so isn't logged), or straight away when they log out. Who's here is saved with the
 // rest of the state, so a restart neither forgets people (and misses their "left") nor re-announces them.
 const here = new Set();
-const LEAVE_AFTER = 60000, CLOSED_AFTER = 10000;
+const LEAVE_AFTER = secs(60), CLOSED_AFTER = secs(10);
+const ONLINE_FOR = secs(10); // "online": checked in within the last 10 seconds (pages do every 2)
 const closed = {};     // nickname -> when their page said it was closing (POST /bye)
-let quietUntil = Date.now() + 15000; // state saved before "here" was: don't announce pages already open
+let quietUntil = Date.now() + secs(15); // state saved before "here" was: don't announce pages already open
 function arrived(who) {
   if (here.has(who)) return;
   here.add(who);
@@ -280,8 +285,8 @@ const gone = (who, now) => now - (seen[who] || 0) > LEAVE_AFTER || (closed[who] 
 setInterval(() => {
   const now = Date.now();
   for (const who of here) if (gone(who, now)) departed(who);
-  if (here.size && now - savedAt > 30000) dirty = true; // keeps the saved last-seen times fresh (see save())
-}, 5000);
+  if (here.size && now - savedAt > secs(30)) dirty = true; // keeps the saved last-seen times fresh (see save())
+}, secs(5));
 let wasHere = null;    // who was here when the server last stopped, and when each was last seen (loaded below)
 let savedSkip = null;  // skip votes when the server last stopped (loaded below, see "Vote to skip")
 let savedRemove = null; // votes to remove queued songs, the same (see "Vote to remove")
@@ -345,7 +350,7 @@ setInterval(() => { for (const res of listeners) res.write(': still here\n\n'); 
 if (wasHere && typeof wasHere === 'object') {
   quietUntil = 0;
   const now = Date.now();
-  const list = Array.isArray(wasHere) ? Object.fromEntries(wasHere.map(n => [n, now - 10000])) : wasHere;
+  const list = Array.isArray(wasHere) ? Object.fromEntries(wasHere.map(n => [n, now - ONLINE_FOR])) : wasHere;
   for (const [who, t] of Object.entries(list)) {
     if (typeof t !== 'number' || who === '__proto__' || who === 'constructor' || who === 'prototype') continue;
     here.add(who);
@@ -660,7 +665,7 @@ const skipVotes = new Set(); // nicknames, in the order they voted
 if (savedSkip && current && savedSkip.song === current.id && Array.isArray(savedSkip.voters)) {
   for (const n of savedSkip.voters) if (typeof n === 'string') skipVotes.add(n);
 }
-const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < 10000); };
+const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
 const skipNeeded = people => Math.floor(people / 2) + 1;
 function checkSkip() {
   if (!current) return;
@@ -749,7 +754,7 @@ setInterval(() => {
   for (const q of due) { q.status = 'waiting'; q.retryAt = null; dirty = true; }
   if (due.length) pump();
   if (dirty) save();
-}, 1000);
+}, secs(1));
 
 // After a restart: downloads that were cut off start again.
 for (const q of queue) if (q.status === 'downloading' || q.status === 'waiting') q.status = 'waiting';
@@ -824,7 +829,7 @@ function state(q) {
     queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt,
       removeVoters: removeVotes.has(id) ? users.filter(n => removeVotes.get(id).has(n)) : [] })),
     colors, faces,
-    reactions: reactions.filter(r => now - r.t < 6000),
+    reactions: reactions.filter(r => now - r.t < secs(6)),
     users,
     skip: { voters: users.filter(n => skipVotes.has(n)), need: skipNeeded(users.length) }, // vote to skip
     dj: !!(dj && dj.isOn()),
@@ -1196,7 +1201,7 @@ http.createServer((req, res) => {
         if (e.length <= 16 && /\p{Extended_Pictographic}/u.test(e) && !/[<>&"']/.test(e)) {
           const now = Date.now();
           reactions.push({ id: ++reactId, t: now, e, n: Math.max(1, Math.min(50, Math.round(Number(r.n)) || 1)), cid: String(r.cid || '').slice(0, 20) });
-          reactions = reactions.filter(x => now - x.t < 8000).slice(-300);
+          reactions = reactions.filter(x => now - x.t < secs(8)).slice(-300);
           nudge();
         }
         res.writeHead(204); res.end();

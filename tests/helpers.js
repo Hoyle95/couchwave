@@ -1,12 +1,18 @@
-// Shared by the tests: starts a throwaway Couchwave in a temporary folder (its own copy of server.js and
-// index.html, its own data/ and password, a free port), with stand-ins for yt-dlp / ffmpeg / ffprobe (fakes/).
-// Your real server, songs and chat are never touched.
+// Shared by the tests: starts a throwaway Couchwave in a temporary folder (its own copy of server.js, dj.js
+// and index.html, its own data/ and password, a free port), with stand-ins for yt-dlp / ffmpeg / ffprobe
+// (fakes/). Your real server, songs and chat are never touched.
+//
+// The clock runs 4x faster (COUCHWAVE_TIME_SCALE = TIME): "online" means checked in within 2.5s instead of
+// 10, "left" comes 2.5s after closing a page, the DJ checks every 0.75s, and so on. secs(n) is n of the
+// server's seconds, in real milliseconds. Song lengths and download speeds are real time.
 const fs = require('fs'), os = require('os'), path = require('path'), http = require('http'), net = require('net');
 const { spawn } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const PASSWORD = 'test-password'; // the room password
 const ownPassword = name => 'own-' + name; // each test person's own password
+const TIME = 0.25;
+const secs = n => n * 1000 * TIME;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Wait until fn() returns something truthy (it may be async), or fail after `ms`.
@@ -16,22 +22,24 @@ async function waitFor(fn, ms = 5000, what = 'condition') {
     const v = await fn();
     if (v) return v;
     if (Date.now() > end) throw new Error(`timed out after ${ms}ms waiting for: ${what}`);
-    await sleep(100);
+    await sleep(50);
   }
 }
 
 const freePort = () => new Promise(r => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
+const yt = id => `https://www.youtube.com/watch?v=${id}`;
 
 // A pretend song (as it's saved in state.json), for setting up a server with a queue already in it.
 let fileNo = 0;
 function song(id, title, by = 'Alice', extra = {}) {
-  return { id, url: `https://www.youtube.com/watch?v=song${String(id).padStart(7, '0')}`, title, by, status: 'ready', duration: 200, file: `test-${id}-${++fileNo}.mp4`, ...extra };
+  return { id, url: yt(`song${String(id).padStart(7, '0')}`), title, by, status: 'ready', duration: 200, file: `test-${id}-${++fileNo}.mp4`, ...extra };
 }
 
 class Server {
   // initial: what to put in data/state.json first (songs from song() get files made for them).
   // files: { 'name.mp4': Buffer } extra files for data/downloads.
-  constructor({ initial, files } = {}) { this.initial = initial; this.files = files || {}; }
+  // expectProblems: a pattern for errors the test means to cause (anything else in the log fails the test).
+  constructor({ initial, files, expectProblems } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; }
 
   async start() {
     if (!this.dir) {
@@ -49,14 +57,16 @@ class Server {
       for (const [name, data] of Object.entries(this.files)) fs.writeFileSync(path.join(this.dir, 'data', 'downloads', name), data);
     }
     this.out = '';
-    this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: { ...process.env, PORT: '', YTP_PASSWORD: '', COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
+    this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: {
+      ...process.env, PORT: '', YTP_PASSWORD: '', COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME),
+    } });
     this.proc.stdout.on('data', d => (this.out += d));
     this.proc.stderr.on('data', d => (this.out += d));
     await waitFor(async () => (await this.req('GET', '/manifest.json', { cookie: '' }).catch(() => null)), 10000, 'the server to start');
     return this;
   }
   get statePath() { return path.join(this.dir, 'data', 'state.json'); }
-  get url() { return `http://localhost:${this.port}`; }
+  get logFile() { return path.join(this.dir, 'data', 'server.log'); }
 
   async stop() {
     if (!this.proc || this.proc.exitCode !== null) return;
@@ -65,7 +75,14 @@ class Server {
     await exited;
   }
   async restart() { await this.stop(); await this.start(); }
-  async close() { for (const t of this.timers || []) clearInterval(t); await this.stop(); if (this.dir) fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 5 }); }
+  // Stops it and deletes its folder. Fails if the server logged a crash or an error the test didn't expect.
+  async close() {
+    for (const t of this.timers || []) clearInterval(t);
+    await this.stop();
+    const problems = this.dir ? this.problems() : [];
+    if (this.dir) fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 5 });
+    if (problems.length) throw new Error('the server logged problems:\n' + problems.join('\n'));
+  }
 
   // Joins as `name` (with the room password and that nickname's own password, which claims the nickname
   // the first time); returns the login cookie's value. Throws if refused.
@@ -105,27 +122,38 @@ class Server {
   get(url, opts) { return this.req('GET', url, opts); }
   post(url, body, opts = {}) { return this.req('POST', url, { ...opts, body }); }
   async state(as = 'Alice') { return (await this.get('/state', { as })).json; }
-
-  // Keeps these people "online": checks in every second, like an open page (which does every 2s).
-  // Stops by itself when the server is closed (so a failed test can't leave it running).
-  keepOnline(...names) {
-    const t = setInterval(() => { for (const n of names) this.state(n).catch(() => {}); }, 1000);
-    t.unref(); // never keeps the test run going on its own
-    (this.timers ||= []).push(t);
-    return () => clearInterval(t);
-  }
+  async queued(pred = () => true, as) { return (await this.state(as)).queue.find(pred); }
   // Activity log as "Name: text" lines.
   async log(as = 'Alice') { return (await this.state(as)).log.map(e => `${e.by}: ${e.text}`); }
-  // Things the server printed that look like crashes or warnings.
-  problems() { return this.out.split('\n').filter(l => /Error|Warning|at .*server\.js/.test(l) && !/yt-dlp|ERROR: \[youtube\]|HTTP Error/.test(l)); }
+
+  // Keeps these people "online", checking in like an open page. Stops by itself when the server is closed.
+  keepOnline(...names) {
+    const check = () => { for (const n of names) this.state(n).catch(() => {}); };
+    const t = setInterval(check, secs(2));
+    t.unref(); // never keeps the test run going on its own
+    (this.timers ||= []).push(t);
+    return Promise.all(names.map(n => this.state(n))).then(() => () => clearInterval(t));
+  }
+
+  // Crashes and errors the server printed or logged (yt-dlp's own download errors are expected).
+  problems() {
+    let logged = '';
+    try { logged = fs.readFileSync(this.logFile, 'utf8'); } catch {}
+    return (this.out + '\n' + logged).split('\n')
+      .filter(l => /CRASH|Error|Warning|at .*server\.js/.test(l) && !/yt-dlp|ERROR: \[youtube\]|ERROR: unable to download|HTTP Error/.test(l))
+      .filter(l => !(this.expectProblems && this.expectProblems.test(l)));
+  }
 }
 
-// A server for one test file: started before its tests, cleaned up after.
-function useServer(t, opts) {
-  const s = new Server(opts);
-  t.before(() => s.start());
-  t.after(() => s.close());
-  return s;
+// The servers of one test file: start(opts) starts one; they're all closed (and checked) after the file's tests.
+function testServers({ after }) {
+  const all = [];
+  after(async () => {
+    const failed = [];
+    for (const s of all) { try { await s.close(); } catch (e) { failed.push(e.message); } }
+    if (failed.length) throw new Error(failed.join('\n'));
+  });
+  return async (opts) => { const s = new Server(opts); all.push(s); return s.start(); };
 }
 
-module.exports = { Server, useServer, song, waitFor, sleep, PASSWORD, ownPassword, ROOT };
+module.exports = { Server, testServers, song, yt, waitFor, sleep, secs, TIME, PASSWORD, ownPassword, ROOT };

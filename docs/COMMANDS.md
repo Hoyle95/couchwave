@@ -10,7 +10,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --logout-everyone` | Everyone has to log in again. Accounts and passwords are kept. |
 | `node server.js --set-password <name> <password>` | For a forgotten password (4+ characters). Logs them out everywhere; send them the new one. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
-| `node --test` | After changing the code: checks nothing broke (about 25 seconds). |
+| `node --test` | After changing the code: checks nothing broke (under 10 seconds). |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
 also logs everyone out.
@@ -34,4 +34,5 @@ until someone turns it on, and stays on or off across restarts. It lives in `dj.
 
 `node --test` runs each test against its own throwaway Couchwave (temporary folder, password and port), so
 your real server and data are never touched, even while it's running. Instead of yt-dlp and ffmpeg it uses
-stand-ins in `tests/fakes/`, so it needs no internet.
+stand-ins in `tests/fakes/`, so it needs no internet. The test servers run their clock 4x faster
+(`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10.

@@ -2,7 +2,7 @@
 // on the video id in the link (an id is 11 characters):
 //   fail_perm.. -> "Video unavailable" (a permanent failure)    fail_temp.. -> "HTTP Error 403" (temporary)
 //   live_...... -> a livestream (filtered out: exits 0, prints nothing)
-//   slow_...... -> takes 5 seconds                               shrt_...... -> a 3-second song
+//   slow_...... -> takes 1.5 seconds                             shrt_...... -> a 3-second song
 //   nolen...... -> YouTube doesn't say how long it is (the server asks ffprobe)
 //   uni_....... -> a title with characters from outside English ("Café – Déjà Vu 🎵")
 //   anything else -> a 200-second song called "Song <id>"
@@ -70,5 +70,5 @@ if (args.includes('--flat-playlist')) {
     console.log(text(`${duration}|${id.startsWith('uni_') ? 'Café – Déjà Vu 🎵' : `Song ${id}`}`));
     process.exit(0);
   };
-  setTimeout(finish, id.startsWith('slow_') ? 5000 : 50);
+  setTimeout(finish, id.startsWith('slow_') ? 1500 : 50);
 }

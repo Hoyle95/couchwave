@@ -5,12 +5,11 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { Server, song, waitFor, sleep, PASSWORD, ownPassword } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, secs, PASSWORD, ownPassword } = require('./helpers');
 
-const servers = [];
-after(() => Promise.all(servers.map(s => s.close())));
-async function start(initial = { here: {} }) { const s = new Server({ initial }); servers.push(s); return s.start(); }
-const yt = id => `https://www.youtube.com/watch?v=${id}`;
+const servers = testServers({ after });
+const start = (initial = { here: {} }) => servers({ initial });
+const CHECKS = secs(5); // long enough for the DJ to have checked (every 3 server seconds) at least once
 const vid = q => (/v=([\w-]{11})/.exec(q.url || '') || [])[1];
 const say = (s, as, text) => s.post('/chat', { text }, { as });
 const djSongs = async s => (await s.state()).queue.filter(q => q.by === 'DJ');
@@ -23,9 +22,9 @@ async function aliceSong(s, id) {
 
 describe('the DJ', { concurrency: true }, () => {
   test('off by default: an empty queue stays empty', async () => {
-    const s = await start();
-    await aliceSong(s, 'shrt_000001');
-    await sleep(7000);
+    // Something to go on (Alice's song, played), nothing playing or queued
+    const s = await start({ here: {}, history: [{ url: yt('alic_000001'), title: 'Song alic_000001', by: 'Alice', t: Date.now() }] });
+    await sleep(CHECKS);
     const st = await s.state();
     assert.equal(st.dj, false);
     assert.equal(st.queue.length, 0);
@@ -69,7 +68,7 @@ describe('the DJ', { concurrency: true }, () => {
     const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
     assert.equal(picks.length, 10);
     assert.ok(picks.every(l => /\(like "Song (play|hist)_00000\d", from (Alice|Bob)\)$/.test(l)), 'every pick is like a song a person asked for:\n' + picks.join('\n'));
-    await sleep(4000);
+    await sleep(CHECKS);
     assert.equal((await djSongs(s)).length, 10, 'and no more');
   });
 
@@ -83,13 +82,13 @@ describe('the DJ', { concurrency: true }, () => {
     ] });
     await say(s, 'Bob', '!dj on');
     await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /run out of new songs/.test(m.text)), 8000, 'the DJ to ask');
-    await sleep(4000);
+    await sleep(CHECKS);
     assert.equal((await s.state()).chat.filter(m => /run out of new songs/.test(m.text)).length, 1, 'once');
     assert.equal((await djSongs(s)).length, 0, 'and it doesn\'t pick from its own songs instead');
     const t = Date.now();
     await s.post('/add', { url: yt('bobs_000009') }, { as: 'Bob' });
-    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like ".+", from Bob\)$/.test(l)), 10000, 'the DJ to carry on from Bob\'s song');
-    assert.ok(Date.now() - t < 10000, `picked up in ${((Date.now() - t) / 1000).toFixed(1)}s, not 30`);
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like ".+", from Bob\)$/.test(l)), secs(60), 'the DJ to carry on from Bob\'s song');
+    assert.ok(Date.now() - t < secs(20), `picked up in ${((Date.now() - t) / secs(1)).toFixed(1)} (server) seconds, not after its 30-second wait`);
   });
 
   test('always after people\'s songs: a song added later still goes ahead of the DJ\'s', async () => {
@@ -107,10 +106,10 @@ describe('the DJ', { concurrency: true }, () => {
   });
 
   test('the DJ\'s songs: removing one from the queue, or skipping the one playing, is a vote; !dj off leaves the rest queued', async () => {
-    const s = await start();
-    await aliceSong(s, 'shrt_000004'); // 3 seconds: a DJ song plays next
-    const stop = s.keepOnline('Alice', 'Bob', 'Cara', 'Dan'); // 4 people online: 3 votes needed
-    for (const n of ['Bob', 'Cara', 'Dan']) await s.state(n);
+    // Alice's 1-second song playing (and so in the History): a DJ song plays next
+    const s = await start({ here: {}, current: song(1, 'Song alic_000004', 'Alice', { duration: 1, url: yt('alic_000004') }),
+      history: [{ url: yt('alic_000004'), title: 'Song alic_000004', by: 'Alice', t: Date.now() }] });
+    const stop = await s.keepOnline('Alice', 'Bob', 'Cara', 'Dan'); // 4 people online: 3 votes needed
     await say(s, 'Bob', '!dj on');
     const [first] = await waitFor(async () => { const d = await djSongs(s); return d.length && d; }, 8000, 'a DJ song');
     await s.post('/remove', { id: first.id, vote: true }, { as: 'Cara' });
@@ -131,7 +130,7 @@ describe('the DJ', { concurrency: true }, () => {
     await say(s, 'Bob', '!dj off');
     assert.equal((await djSongs(s)).length, before, 'off: what it queued stays, until it\'s voted out');
     assert.match((await s.state()).chat.at(-1).text, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(you can vote them out of the queue\)/);
-    await sleep(4000);
+    await sleep(CHECKS);
     assert.equal((await djSongs(s)).length, before, '...and it doesn\'t add any more');
     stop();
   });
@@ -149,7 +148,7 @@ describe('the DJ', { concurrency: true }, () => {
   test('nothing played or queued yet: asks for a song (once), and starts as soon as there is one', async () => {
     const s = await start();
     await say(s, 'Bob', '!dj on');
-    await sleep(4000);
+    await sleep(CHECKS);
     const said = (await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on yet: add a song/.test(m.text));
     assert.equal(said.length, 1);
     assert.equal((await djSongs(s)).length, 0);
@@ -176,8 +175,4 @@ describe('the DJ', { concurrency: true }, () => {
     assert.deepEqual(st.users, ['Bob'], 'and the DJ isn\'t counted as a person online');
     assert.equal(st.skip.need, 1);
   });
-});
-
-test('no crashes or warnings from the server', () => {
-  for (const s of servers) assert.deepEqual(s.problems(), []);
 });

@@ -2,9 +2,11 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { useServer, ROOT, PASSWORD } = require('./helpers');
+const { testServers, ROOT, PASSWORD } = require('./helpers');
 
-const s = useServer({ before, after });
+const start = testServers({ after });
+let s; // one server for the whole file
+before(async () => { s = await start(); });
 
 test('the page has no JavaScript syntax errors', () => {
   // A broken script stops the whole page working (no chat, no users, no buttons), so check every one parses.
@@ -14,8 +16,10 @@ test('the page has no JavaScript syntax errors', () => {
   scripts.forEach((code, i) => assert.doesNotThrow(() => new Function(code), `script ${i + 1} parses`));
 });
 
-test('server.js has no syntax errors', () => {
-  assert.doesNotThrow(() => new Function(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8').replace(/^#!.*/, '')));
+test('server.js and dj.js have no syntax errors', () => {
+  for (const f of ['server.js', 'dj.js']) {
+    assert.doesNotThrow(() => new Function(fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/^#!.*/, '')), f);
+  }
 });
 
 test('the page is served, always re-checked by the browser', async () => {

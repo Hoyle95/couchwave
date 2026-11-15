@@ -1,18 +1,18 @@
 // Logging in: the room password, nicknames with their own passwords, the login cookie, logging out,
 // the wrong-password limit, --logout-everyone, --delete-account and --set-password.
-const { test, after } = require('node:test');
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { Server, PASSWORD, ownPassword, sleep } = require('./helpers');
+const { testServers, waitFor, PASSWORD, ownPassword } = require('./helpers');
 
-const servers = [];
-after(() => Promise.all(servers.map(s => s.close())));
-const start = async () => { const s = new Server(); servers.push(s); return s.start(); };
+const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
 const cookies = r => Object.fromEntries((r.headers['set-cookie'] || []).map(c => { const [kv] = c.split(';'); const i = kv.indexOf('='); return [kv.slice(0, i), decodeURIComponent(kv.slice(i + 1))]; }));
 const asCookie = (auth, name = 'whatever') => `auth=${auth}; name=${encodeURIComponent(name)}`;
 
+// Each test has its own server, so they run at the same time.
+describe('logging in', { concurrency: true }, () => {
 test('without the login cookie, nothing works', async () => {
   const s = await start();
   for (const [method, url] of [['GET', '/state'], ['POST', '/chat'], ['POST', '/skip'], ['GET', '/video/1'], ['GET', '/events']]) {
@@ -49,8 +49,7 @@ test('a taken nickname needs its own password; capitals don\'t matter', async ()
 });
 
 test('claiming a name someone already had before accounts keeps its spelling (and their picture and songs)', async () => {
-  const s = new Server({ initial: { colors: { LVJ: '#26549e' }, faces: { LVJ: '🐸' }, queue: [], current: null } });
-  servers.push(s); await s.start();
+  const s = await start({ initial: { colors: { LVJ: '#26549e' }, faces: { LVJ: '🐸' }, queue: [], current: null } });
   const r = await join(s, { password: PASSWORD, name: 'lvj', own: 'secret1' });
   assert.equal(r.status, 204);
   assert.equal(cookies(r).name, 'LVJ');
@@ -132,7 +131,7 @@ test('--delete-account while the server is off works too', async () => {
   const s = await start();
   const caras = await s.cookie('Cara');
   await s.post('/face', { face: '🦊' }, { as: 'Cara' });
-  await sleep(1200); // saved
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('🦊'), 3000, 'Cara\'s picture to be saved');
   await s.stop();
   assert.equal(admin(s, '--delete-account', 'Cara').status, 0);
   await s.start();
@@ -191,7 +190,7 @@ test('two people claiming the same new nickname at once: only one gets it', asyn
 });
 
 test('a broken or locked accounts file pauses logins, instead of letting anyone take any nickname', async () => {
-  const s = await start();
+  const s = await start({ expectProblems: /Can't read .*accounts\.json/ }); // the error this test causes on purpose
   const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
   const file = path.join(s.dir, 'data', 'accounts.json');
   const good = fs.readFileSync(file, 'utf8');
@@ -236,4 +235,5 @@ test('20 wrong passwords (room or own): that address is locked out, other visito
   for (let i = 0; i < 10; i++) assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'guess' + i }, from('1.2.3.4'))).status, 401, 'guessing Alice\'s password');
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from('1.2.3.4'))).status, 429, 'locked out, even with the right passwords');
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from('5.6.7.8'))).status, 204, 'Alice herself, elsewhere, can still log in');
+});
 });

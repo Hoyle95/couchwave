@@ -1,21 +1,18 @@
-// Adding songs (links, searches, playlists), downloads, failures and retries, deleting with undo,
-// reordering and the fair queue. yt-dlp is a stand-in (fakes/yt-dlp.js): the video id decides what happens.
-const { test, after } = require('node:test');
+// Adding songs (links, searches, playlists), downloads, failures and retries, removing (yours straight away,
+// anyone's by vote) with undo, and the fair queue. yt-dlp is a stand-in (fakes/yt-dlp.js): the video id
+// decides what happens.
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { Server, song, waitFor } = require('./helpers');
+const { testServers, song, yt, waitFor, secs } = require('./helpers');
 
-const servers = [];
-after(() => Promise.all(servers.map(s => s.close())));
+const servers = testServers({ after });
 // A server with a long song already playing, so added songs stay in the queue.
-async function start() {
-  const s = new Server({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
-  servers.push(s);
-  return s.start();
-}
-const yt = id => `https://www.youtube.com/watch?v=${id}`;
+const start = () => servers({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
 const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
 
+// Each test has its own server, so they run at the same time.
+describe('songs', { concurrency: true }, () => {
 test('a link: queued, downloaded, and its real title replaces the link', async () => {
   const s = await start();
   assert.equal((await s.post('/add', { url: yt('okay_000001') })).status, 204);
@@ -70,7 +67,7 @@ test('a "Searching" stand-in can be deleted (and undone) like any song', async (
   await s.post('/add', { url: 'slow gone' });
   const q = await inQueue(s, () => true);
   await s.post('/remove', { id: q.id });
-  await new Promise(r => setTimeout(r, 2500)); // the search finishes meanwhile
+  await waitFor(async () => (await s.log()).includes('Alice: added "slow gone - top result"'), 5000, 'the search to finish meanwhile');
   assert.equal((await s.state()).queue.length, 0, 'it doesn\'t come back by itself');
   await s.post('/undo', { id: q.id });
   await waitFor(() => inQueue(s, x => x.id === q.id && found(x, 'slow gone')), 5000, 'undo: back, as the song found');
@@ -79,7 +76,7 @@ test('a "Searching" stand-in can be deleted (and undone) like any song', async (
 test('a search cut short by a restart starts again', async () => {
   const s = await start();
   await s.post('/add', { url: 'slow restart' });
-  await new Promise(r => setTimeout(r, 300)); // saved
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"searching"'), 3000, 'the search to be saved');
   await s.restart();
   const q = (await s.state()).queue[0];
   assert.equal(q.status, 'searching');
@@ -133,7 +130,7 @@ test('a livestream is refused', async () => {
 });
 
 test('a video whose length YouTube doesn\'t say: measured from the file', async () => {
-  const s = new Server(); servers.push(s); await s.start(); // nothing playing: it plays as soon as it's ready
+  const s = await servers(); // nothing playing: it plays as soon as it's ready
   await s.post('/add', { url: yt('nolen000001') });
   const st = await waitFor(async () => { const x = await s.state(); return x.current && x; }, 5000, 'it to play');
   assert.equal(st.current.duration, 42, 'from ffprobe');
@@ -169,8 +166,7 @@ test('your own song: removed straight away, and only you (or the deciding voter)
 
 test('anyone else\'s song: a vote to remove it, shown to everyone; more than half of the people online removes it', async () => {
   const s = await start();
-  for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n); // 3 people online: 2 votes needed
-  const stop = s.keepOnline('Alice', 'Bob', 'Cara');
+  const stop = await s.keepOnline('Alice', 'Bob', 'Cara'); // 3 people online: 2 votes needed
   await s.post('/add', { url: yt('vote_000001') }, { as: 'Alice' });
   const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
   await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' });
@@ -190,6 +186,20 @@ test('anyone else\'s song: a vote to remove it, shown to everyone; more than hal
   assert.ok(x, 'back');
   assert.deepEqual(x.removeVoters, [], 'with no votes');
   stop();
+});
+
+test('people leaving can tip a vote to remove (votes only count while online)', async () => {
+  const s = await start();
+  await s.post('/add', { url: yt('vote_000003') }, { as: 'Alice' }); // Alice adds it, then isn't around
+  const q = await waitFor(() => s.queued(() => true, 'Bob'), 5000, 'the song'); // (checking as Bob: Alice stays away)
+  const stopAll = await s.keepOnline('Bob', 'Cara', 'Dan');
+  await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' }); // 1 of 3, once Alice has gone quiet
+  await waitFor(async () => (await s.state('Bob')).users.join() === 'Bob,Cara,Dan', secs(15), 'Alice to drop off');
+  assert.ok(await s.queued(y => y.id === q.id, 'Bob'), '1 of 3: still there');
+  stopAll(); const stopBob = await s.keepOnline('Bob'); // Cara and Dan leave: Bob's vote is now 1 of 1
+  await waitFor(async () => !(await s.queued(y => y.id === q.id, 'Bob')), secs(20), 'the song to be removed once they\'ve gone');
+  assert.ok((await s.log('Bob')).some(l => /^Bob: removed "/.test(l)), 'by Bob\'s vote');
+  stopBob();
 });
 
 test('votes to remove survive a restart', async () => {
@@ -219,7 +229,4 @@ test('fair queue: one person\'s pile of songs doesn\'t keep everyone else waitin
   const by = (await s.state()).queue.map(q => q.by);
   assert.deepEqual(by, ['Alice', 'Bob', 'Alice', 'Alice'], 'Bob goes second, not last');
 });
-
-test('no crashes or warnings from the server', () => {
-  for (const s of servers) assert.deepEqual(s.problems(), []);
 });

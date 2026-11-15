@@ -24,7 +24,7 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Audio only**: turn the video off just for you, to listen and save data.
 - **Loading spinner** while the video loads.
 - **Join screen**: eye buttons to show what you typed, and password managers can now fill in your login.
-- **Tests**: `node --test` checks the whole app in about 25 seconds, without internet or your real data.
+- **Tests**: `node --test` checks the whole app in under 10 seconds, without internet or your real data.
 - **Docs**: installing is in [docs/INSTALL.md](docs/INSTALL.md), commands in
   [docs/COMMANDS.md](docs/COMMANDS.md).
 

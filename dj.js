@@ -23,7 +23,9 @@ const MIN_SECONDS = 90, MAX_SECONDS = 600; // a song, not a jingle or an hour-lo
 const NOT_A_SONG = /full album|\bhours?\b|compilation|\bmix\b|playlist|\blive\b|non-?stop|megamix/i;
 const IDEAS_FROM = 10;                     // starting points: the last this-many songs people asked for
 const FROM_ONE_MIX = 3;                    // songs taken from one Mix at most, for variety
-const CHECK_EVERY = 3000, RETRY_AFTER = 30000;
+// (COUCHWAVE_TIME_SCALE: the tests run the clock faster, see server.js)
+const TIME_SCALE = Number(process.env.COUCHWAVE_TIME_SCALE) > 0 ? Number(process.env.COUCHWAVE_TIME_SCALE) : 1;
+const CHECK_EVERY = 3000 * TIME_SCALE, RETRY_AFTER = 30000 * TIME_SCALE;
 
 const idOf = url => (/[?&]v=([\w-]{11})/.exec(url || '') || /youtu\.be\/([\w-]{11})/.exec(url || '') || [])[1];
 const artist = title => String(title).split(/\s[-–—|:]\s/)[0].trim().toLowerCase(); // "Queen - Don't Stop Me Now" -> "queen"
