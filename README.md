@@ -22,7 +22,8 @@ but Node.js, yt-dlp and ffmpeg. No accounts, no database, no npm packages.
 
 - **Shared queue**: paste a link, a playlist, or a song name. People take turns: one person's 100-song
   playlist doesn't drown out everyone else. Drag to reorder, delete (with undo), copy links.
-- **In sync**: play, pause, seek and skip for everyone. Your own volume stays yours.
+- **In sync**: play, pause, seek and skip for everyone. Your own volume stays yours, and so does
+  **audio only** mode: turn the video off to just listen (and save data).
 - **Chat, reactions and who's online**, with emoji profile pictures and colours.
 - **Keeps playing on a locked phone**, and can be installed as an app ("Add to Home screen").
 - **Remembers everything** across restarts: the queue, what was playing and where, the chat and the activity log.
@@ -165,6 +166,10 @@ kept. On Windows it restarts by itself; on Linux, restart the service.
 - **Won't start**: look at `data/server.log` and `data/server-console.log`. A broken `config.json` is the
   usual cause; the log says what's wrong.
 
+## Feedback
+
+Got an idea, found a bug, or just want to say hi? Join our [Discord](https://discord.com/invite/pNtyzNkch6).
+
 ## Licence
 
 Copyright 2026 Hoyle95. The code is open source under the [Apache License 2.0](LICENSE): you can use,
@@ -179,3 +184,5 @@ different name and logo. Saying it's "based on Couchwave" is fine.
 Only queue videos you're allowed to watch and share. Screenshot shows
 [Big Buck Bunny](https://peach.blender.org/) © Blender Foundation, CC BY 3.0. The font is [Inter](https://rsms.me/inter/)
 (SIL Open Font License, see `fonts/OFL.txt`), included so the site never loads anything from Google.
+
+Vibe coded by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5.
