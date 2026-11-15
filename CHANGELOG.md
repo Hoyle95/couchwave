@@ -1,84 +1,41 @@
 # Changelog
 
-Changes to Couchwave. The newest are at the top; "Unreleased" is what's been added since the last release.
+Changes to Couchwave, newest first. "Unreleased" is what's been added since the last release.
 
 ## Unreleased
 
 ### Added
 
-- **DJ**: type `!dj on` in the chat, and a DJ keeps up to 10 songs queued, like what people have been asking
-  for (from YouTube's Mix of songs people requested or played, other artists first, no repeats, no albums
-  or hour-long mixes). Its ideas only come from people's songs, never its own picks, so it doesn't feed on
-  itself; with nothing to go on, it asks in the chat for a song and starts as soon as there is one. Its songs
-  always go after everyone else's, and removing or skipping them is a vote, like any song. `!dj off` stops it
-  adding songs (what it queued stays); `!dj` says whether it's on. Off by default. The nickname "DJ" is
-  reserved. It's a separate file (`dj.js`).
-- **History**: a row of the last 100 songs played under Activity, newest on the left: thumbnail (opens it
-  on YouTube), title, who asked for it, when it played, and a button to copy its link.
-
-- **Your own nickname**: joining now takes the room password plus your nickname's own password, chosen the
-  first time you use the nickname. Nobody else can join as you (before, anyone with the room password could
-  type any name), and the login cookie can't be edited to be someone else. Nicknames ignore capitals, and
-  look-alikes (invisible characters, mixed alphabets) are refused. Everyone has to log in once more after
-  updating; whoever logs in first with an existing nickname claims it.
-- **Admin commands**: `node server.js --delete-account <name>` deletes an account (whoever takes the
-  nickname next starts fresh), and `node server.js --set-password <name> <password>` sets a new password,
-  e.g. a forgotten one. Both log the account out everywhere, and work while Couchwave is running.
-- **Docs**: installing is now in `docs/INSTALL.md` and the server commands in `docs/COMMANDS.md`, to keep
-  the README short.
-
-- **Audio only**: a video button (camera icon) next to full screen turns the video off just for you, so
-  only the sound plays and the video isn't downloaded (saves data). While it's on, the camera shows
-  crossed out. Click it again to bring the picture back, in sync with the sound. It's remembered in your
-  browser.
-- **Loading spinner** on the video while the picture loads (after turning audio only off, when a song
-  starts, or while it buffers), instead of a plain black screen.
-- **Joined / left in the activity log**: shows when someone opens the site and when they leave (after a
-  minute without their page checking in, or straight away when they log out). Reloading the page or a
-  short drop-out isn't logged, and people already there aren't re-announced when the server restarts.
-- **Vote to skip**: Skip is now a vote. Once someone clicks it, the button shows e.g. "1 out of 3 voted
-  to skip" for everyone, and the song is skipped when more than half of the people online have voted (on
-  your own, one click still skips). Click it again to take your vote back; hover over it to see who voted.
-  Votes start over with each song, only count while the voter is online, and survive a server restart.
-  The lock-screen "next" button votes too. Whoever added the song can skip it straight away, no vote.
-- **Instant updates**: chat messages, votes, songs changing, people joining and reactions now show up for
-  everyone the moment they happen, instead of within 2 seconds. Your own messages appear as soon as you
-  press send (faded until the server has them).
-- **Tests**: `node --test` checks the whole app in about 25 seconds, using stand-ins for yt-dlp and ffmpeg
-  so it needs no internet and never touches your real server. See "Running the tests" in the README.
-- **Log everyone out**: `node server.js --logout-everyone` makes everyone enter the password again,
-  without changing it. Works while Couchwave is running.
+- **Accounts**: joining takes the room password plus your nickname's own password, chosen the first time
+  you use it, so nobody can join as you. Look-alike nicknames are refused, and "DJ" is reserved.
+  Everyone logs in once more after updating; whoever logs in first with an existing nickname claims it.
+- **Admin commands**: `--set-password`, `--delete-account` and `--logout-everyone`
+  (see [docs/COMMANDS.md](docs/COMMANDS.md)). They work while Couchwave is running.
+- **DJ**: `!dj on` in the chat keeps up to 10 songs queued, picked from YouTube's Mix of songs people asked
+  for (never its own picks), always after people's songs. It asks in the chat when it has nothing to go on.
+  Off by default; `!dj off` stops it.
+- **History**: the last 100 songs played, under Activity, with thumbnails, who asked, when, and a copy link.
+- **Vote to remove**: a bin on every queued song. Your own go straight away; anyone else's, and the DJ's,
+  go once more than half of the people online vote. The vote count shows on the button.
+- **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"), more than half of the people online
+  skips. Whoever added the song can skip it straight away.
+- **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
+- **Joined / left** in the activity log.
+- **Audio only**: turn the video off just for you, to listen and save data.
+- **Loading spinner** while the video loads.
+- **Join screen**: eye buttons to show what you typed, and password managers can now fill in your login.
+- **Tests**: `node --test` checks the whole app in about 25 seconds, without internet or your real data.
+- **Docs**: installing is in [docs/INSTALL.md](docs/INSTALL.md), commands in
+  [docs/COMMANDS.md](docs/COMMANDS.md).
 
 ### Changed
 
-- **Full screen, like Twitch**: the video fills the screen edge to edge, with the song's title and the
-  controls over it (they fade away after a few seconds without moving the mouse), and the chat down the
-  right, full height. The chat button (or the arrows in the chat's header) hides the chat so the video takes
-  the whole screen; a dot on the button says a message came in meanwhile. Remembered in your browser. On a
-  phone held upright: video on top, chat underneath.
-- **No more drag-to-reorder**: the queue can't be rearranged by hand any more (it wasn't clear who should be
-  allowed to move whose songs). Songs go in by the fair queue's turns, and the DJ's after everyone's.
-
-- **Song names keep their place**: typing a song name puts "Searching for …" in the queue straight away, in
-  its turn, and it becomes the song once found. Before, several names added in a row went in whenever each
-  search finished, so they could end up out of order. A search cut short by a restart starts again.
-- **Better search matches**: of YouTube's top 3 results, the one whose title has the most of the words you
-  typed is queued, not just the first (YouTube's order varies, and "a-ha Take On Me" once gave a different
-  a-ha song).
-- **Titles with accents, dashes, emoji or other alphabets** now come through right on Windows, instead of
-  turning into "�".
-- **Vote to remove**: every queued song has a bin button for everyone. Your own songs go straight away;
-  anyone else's (and the DJ's) is a vote, removed once more than half of the people online have voted, like
-  skipping. The button shows the count (e.g. "1/3") for everyone, and hovering says who voted. Click again
-  to take your vote back. The log says how many voted; the deciding voter or the song's owner can Undo.
-- **Chat and page loads no longer stall while video plays**: songs are now sent to each viewer at a steady
-  pace (the first 20 seconds at full speed, so songs and seeks still start straight away, then 3× what the
-  video needs) instead of as fast as the connection allows. Several browsers grabbing video at full speed
-  filled the host's upload, and through a Cloudflare Tunnel that made chat messages and page loads hang for
-  10+ seconds.
-- **"Left" in the activity log** now shows about 10 seconds after someone closes the page (it was a
-  minute; a reload or closing one of two tabs doesn't count), and is no longer lost when the server
-  restarts: who's here is now saved with everything else. If the server was off for a while, people are
-  logged as leaving at the time they were last seen.
-- **Safer logins**: the join screen now sends the password once, and the server answers with a login
-  cookie, so browsers no longer keep the password itself. Everyone has to log in once more after updating.
+- **Full screen, like Twitch**: video edge to edge with the controls over it (they fade when the mouse is
+  still), and the chat down the right, which you can hide.
+- **Song names keep their place** in the queue while they're searched for, and the best-matching result is
+  picked, not just YouTube's first.
+- **No drag-to-reorder**: the queue's order comes from people taking turns.
+- **Chat no longer stalls while video plays**: songs are sent at a steady pace, so they don't fill the
+  host's upload.
+- **Titles with accents, dashes, emoji or other alphabets** display properly on Windows.
+- **Safer logins**: browsers keep a signed login, never a password.

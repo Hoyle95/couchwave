@@ -71,9 +71,11 @@ Register-ScheduledTask -TaskName Couchwave -Action $action -Trigger (New-Schedul
   -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U) -Settings $settings -Force
 ```
 
-It then starts at boot (no need to log in) and restarts itself if it ever crashes. Stop or start it with
-`Stop-ScheduledTask Couchwave` / `Start-ScheduledTask Couchwave`. If you move the Couchwave folder, run
-the same commands again from its new place.
+It then starts at boot (no need to log in) and restarts itself if it ever crashes. If you move the
+Couchwave folder, run the same commands again from its new place.
+
+To stop it: `Stop-ScheduledTask Couchwave`, then end the leftover **Node.js** process in Task Manager
+(stopping the task alone can leave the server running). To start it again: `Start-ScheduledTask Couchwave`.
 
 ### Linux: run as a service
 
@@ -122,10 +124,11 @@ To host it publicly, we recommend either:
 Either way, use `https://`: the passwords and everyone's login are sent over it, and phones only offer
 "Install app" on secure sites.
 
-Then give your friends the address and the room password. How joining works is in the
-[README](../README.md#joining).
+Then send your friends the address and the room password. The first time they join, they pick a nickname
+and a password for it.
 
 ## Updating
 
-Download the new version (or `git pull`) over the old one. `config.json` and `data/` are kept. On
-Windows it restarts by itself; on Linux, restart the service.
+Download the new version (or `git pull`) over the old one. `config.json` and `data/` are kept. On Windows
+it restarts by itself (if the page doesn't come back, stop and start it as above); on Linux,
+`sudo systemctl restart couchwave`. Everyone just needs to refresh the page.
