@@ -1,10 +1,10 @@
 // Logging in: the room password, nicknames with their own passwords, the login cookie, logging out,
-// the wrong-password limit, --logout-everyone and --forget-name.
+// the wrong-password limit, --logout-everyone, --delete-account and --set-password.
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { Server, PASSWORD, ownPassword } = require('./helpers');
+const { Server, PASSWORD, ownPassword, sleep } = require('./helpers');
 
 const servers = [];
 after(() => Promise.all(servers.map(s => s.close())));
@@ -107,18 +107,55 @@ test('--logout-everyone: old logins stop working, the passwords still work', asy
   assert.equal((await s.get('/state')).status, 200, 'logging in again works');
 });
 
-test('--forget-name: frees a nickname (a forgotten password); its old logins stop working', async () => {
+const admin = (s, ...args) => spawnSync(process.execPath, ['server.js', ...args], { cwd: s.dir, encoding: 'utf8' });
+
+test('--delete-account: logged out at once, and whoever takes the nickname next starts fresh', async () => {
   const s = await start();
   const bobsOld = await s.cookie('Bob');
-  assert.equal((await s.get('/state', { cookie: bobsOld })).status, 200);
-  const out = execFileSync(process.execPath, ['server.js', '--forget-name', 'bob'], { cwd: s.dir, encoding: 'utf8' });
-  assert.match(out, /"Bob" is free/);
+  await s.post('/face', { face: '🐸' }, { as: 'Bob' });
+  await s.post('/chat', { text: 'old message' }, { as: 'Bob' });
+  let r = admin(s, '--delete-account', 'bob');
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /"Bob" is deleted/);
   assert.equal((await s.get('/state', { cookie: bobsOld })).status, 401, 'logged out (while the server keeps running)');
-  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'new-password' })).status, 204, 'claimed again with a new password');
-  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: ownPassword('Bob') })).status, 401, 'the old password doesn\'t work');
-  const r = spawnSync(process.execPath, ['server.js', '--forget-name', 'nobody'], { cwd: s.dir, encoding: 'utf8' });
+  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'new-owner-pw' })).status, 204, 'the nickname is free');
+  s.forget('Bob');
+  const st = await s.state('Cara');
+  assert.equal(st.faces.Bob, undefined, 'the new Bob doesn\'t get the old one\'s picture');
+  assert.equal(st.chat.at(-1).text, 'old message', 'chat history stays');
+  r = admin(s, '--delete-account', 'nobody');
   assert.equal(r.status, 1);
-  assert.match(r.stdout, /No nickname "nobody". Taken nicknames: .*Bob/);
+  assert.match(r.stdout, /No account "nobody". Accounts: .*Bob/);
+});
+
+test('--delete-account while the server is off works too', async () => {
+  const s = await start();
+  const caras = await s.cookie('Cara');
+  await s.post('/face', { face: '🦊' }, { as: 'Cara' });
+  await sleep(1200); // saved
+  await s.stop();
+  assert.equal(admin(s, '--delete-account', 'Cara').status, 0);
+  await s.start();
+  assert.equal((await s.get('/state', { cookie: caras })).status, 401);
+  assert.equal((await join(s, { password: PASSWORD, name: 'cara', own: 'someone-new' })).status, 204);
+  assert.equal((await s.state('Alice')).faces.Cara, undefined, 'starts fresh');
+  assert.equal(admin(s, '--delete-account', 'Zoe').status, 1, 'deleting a deleted (or unknown) account says so');
+});
+
+test('--set-password: for a forgotten password. Old logins and password stop working, the account is kept', async () => {
+  const s = await start();
+  const bobsOld = await s.cookie('Bob');
+  await s.post('/face', { face: '🐸' }, { as: 'Bob' });
+  assert.equal(admin(s, '--set-password', 'Bob', 'abc').status, 1, 'too short');
+  const r = admin(s, '--set-password', 'BOB', 'brand-new-pw');
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /"Bob" has a new password/);
+  assert.equal((await s.get('/state', { cookie: bobsOld })).status, 401, 'logged out everywhere');
+  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: ownPassword('Bob') })).status, 401, 'the old password doesn\'t work');
+  const back = await join(s, { password: PASSWORD, name: 'Bob', own: 'brand-new-pw' });
+  assert.equal(back.status, 204, 'the new one does');
+  assert.equal((await s.state('Alice')).faces.Bob, '🐸', 'picture kept');
+  assert.equal(admin(s, '--set-password', 'nobody', 'whatever').status, 1);
 });
 
 test('the page is told who you are by the server, not by the name cookie', async () => {
@@ -175,11 +212,11 @@ test('a broken or locked accounts file pauses logins, instead of letting anyone 
   assert.match(fs.readFileSync(path.join(s.dir, 'data', 'server.log'), 'utf8'), /Can't read .*accounts\.json/, 'the problem is in the server log');
 });
 
-test('--forget-name tidies up the name the same way joining does', async () => {
+test('the admin commands tidy up the name the same way joining does', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Big   Al', own: 'secret1' });
-  const out = execFileSync(process.execPath, ['server.js', '--forget-name', '  big al  '], { cwd: s.dir, encoding: 'utf8' });
-  assert.match(out, /"Big Al" is free/);
+  assert.match(admin(s, '--set-password', ' big  al ', 'new-pw-1').stdout, /"Big Al" has a new password/);
+  assert.match(admin(s, '--delete-account', '  big al  ').stdout, /"Big Al" is deleted/);
 });
 
 test('many wrong guesses sent all at once still count towards the limit', async () => {

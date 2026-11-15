@@ -34,12 +34,11 @@ if (process.argv.includes('--logout-everyone')) {
 }
 
 // Accounts: each nickname has its own password, set the first time someone joins with it (see "Logins").
-// `node server.js --forget-name <name>`: frees a nickname, e.g. for a forgotten password. Whoever joins with
-// it next sets its new password; anyone logged in with it is logged out. Works while the server is running.
+// The admin commands --delete-account and --set-password are below.
 const ACCOUNTS = path.join(DATA, 'accounts.json');
 
 // Write a file safely: to a temporary file, then renamed over the real one, so a crash mid-write can't leave
-// it half-written. The temporary name is unique, so two writers (the server, --forget-name) can't clash.
+// it half-written. The temporary name is unique, so two writers (the server, an admin command) can't clash.
 // Throws if it fails (e.g. antivirus locking the file for a moment on Windows).
 function writeAtomic(file, text) {
   const tmp = `${file}.${process.pid}-${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -66,19 +65,43 @@ const nameKey = name => String(name).toLowerCase(); // nicknames ignore capitals
 // Letters from more than one alphabet (a Cyrillic "А" in "Alice") would also make a look-alike.
 const mixedAlphabets = name => [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u].filter(r => r.test(name)).length > 1;
 
-if (process.argv.includes('--forget-name')) {
-  const name = cleanName(process.argv[process.argv.indexOf('--forget-name') + 1]);
+// Admin commands for accounts (they work while the server is running: it notices accounts.json changing).
+//   node server.js --delete-account <name>              an account nobody wants any more: logged out
+//       everywhere, and the nickname is free. Whoever takes it next starts fresh (their own picture). Their
+//       chat messages and activity stay, as history; songs they queued stay in the queue.
+//   node server.js --set-password <name> <new password> a forgotten password: logged out everywhere, and
+//       the new password works from now on. The account (picture, songs...) is kept.
+// A deleted account is kept as a marker ({ name, deleted: time }), so that "starts fresh" works even if the
+// server was off at the time.
+const MIN_OWN_PASSWORD = 4;
+const isAccount = a => a && !a.deleted;
+const adminCommand = ['--delete-account', '--set-password'].find(c => process.argv.includes(c));
+if (adminCommand) {
+  const at = process.argv.indexOf(adminCommand);
+  const name = cleanName(process.argv[at + 1]);
   let list;
   try { list = readAccounts(); } catch (err) { console.log(`Can't read ${ACCOUNTS}: ${err.message}`); process.exit(1); }
-  const key = nameKey(name);
-  if (!name || !Object.hasOwn(list, key)) {
-    console.log(`No nickname "${name}". Taken nicknames: ${Object.values(list).map(a => a.name).join(', ') || 'none yet'}`);
+  const acc = Object.hasOwn(list, nameKey(name)) ? list[nameKey(name)] : null;
+  if (!name || !isAccount(acc)) {
+    const names = Object.values(list).filter(isAccount).map(a => a.name);
+    console.log(`No account "${name}". Accounts: ${names.join(', ') || 'none yet'}`);
     process.exit(1);
   }
-  const was = list[key].name;
-  delete list[key];
-  writeAccounts(list);
-  console.log(`Done: "${was}" is free. Whoever joins with it next chooses its new password.`);
+  if (adminCommand === '--delete-account') {
+    list[nameKey(name)] = { name: acc.name, deleted: Date.now() };
+    writeAccounts(list);
+    console.log(`Done: "${acc.name}" is deleted and logged out. Whoever joins with that nickname next starts fresh.`);
+  } else {
+    const password = String(process.argv[at + 2] || '');
+    if (password.length < MIN_OWN_PASSWORD) {
+      console.log(`Usage: node server.js --set-password ${acc.name} <new password>   (at least ${MIN_OWN_PASSWORD} characters)`);
+      process.exit(1);
+    }
+    const salt = crypto.randomBytes(16).toString('hex'); // a new salt also ends their old logins (see userToken)
+    list[nameKey(name)] = { ...acc, salt, hash: crypto.scryptSync(password, salt, 32).toString('hex') };
+    writeAccounts(list);
+    console.log(`Done: "${acc.name}" has a new password and is logged out everywhere. Send them the new password.`);
+  }
   process.exit(0);
 }
 
@@ -150,7 +173,7 @@ if (!PASSWORD) fatal('No password set: put one in config.json');
 // scrambled (scrypt, in data/accounts.json), never the passwords themselves.
 // The server answers with a login cookie that says who you are, signed with a secret key (data/login-key),
 // so it can't be edited to be someone else, and browsers never store a password. A new key
-// (--logout-everyone), a new room password, or freeing the nickname (--forget-name) ends old logins.
+// (--logout-everyone), a new room password, or --delete-account / --set-password for one account ends old logins.
 let keyCache = { mtime: -1, key: '' };
 function loginKey() {
   if (!fs.existsSync(KEYFILE)) newLoginKey();
@@ -165,7 +188,8 @@ const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
 const NAME_COOKIE = 'name=%s; Path=/; Max-Age=31536000; SameSite=Lax';
 
 // accounts.json: { "<nickname in lower case>": { name: as typed when it was claimed, salt, hash, created } }
-// Kept in memory, and re-read when the file changes (--forget-name). If it can't be read, the last good copy
+// (or { name, deleted: time } for a deleted one, see --delete-account).
+// Kept in memory, and re-read when the file changes (admin commands). If it can't be read, the last good copy
 // is kept and `broken` says why: nobody can claim a nickname until it reads again (see readAccounts()).
 let accCache = { mtime: -2, list: {}, broken: null };
 function accounts() {
@@ -181,10 +205,10 @@ function accounts() {
   return accCache.list;
 }
 // Saves the accounts with one added, re-reading the file first so nothing written meanwhile is lost
-// (e.g. --forget-name). Returns false if someone claimed that nickname in the meantime. Throws if it can't save.
+// (e.g. by an admin command). Returns false if someone claimed that nickname in the meantime. Throws if it can't save.
 function addAccount(acc) {
   const list = readAccounts(), key = nameKey(acc.name);
-  if (Object.hasOwn(list, key)) return false;
+  if (Object.hasOwn(list, key) && isAccount(list[key])) return false;
   list[key] = acc;
   writeAccounts(list);
   let mtime = -1;
@@ -192,14 +216,14 @@ function addAccount(acc) {
   accCache = { mtime, list, broken: null }; // what was just written (not left to the mtime, which can be coarse)
   return true;
 }
-const account = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) ? list[key] : null; };
+const account = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) && isAccount(list[key]) ? list[key] : null; };
+const wasDeleted = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) && !!list[key].deleted; };
 // Not allowed as nicknames: the activity log's own entries, and names that would confuse object lookups.
 const RESERVED = new Set(['server', 'someone', '__proto__', 'constructor', 'prototype']);
 // Scrambling a password takes a moment (that's the point: it makes guessing slow), so it runs in the
 // background rather than holding up everyone's video and chat.
 const scramble = (password, salt) => new Promise((ok, fail) =>
   crypto.scrypt(String(password), salt, 32, (err, key) => (err ? fail(err) : ok(key.toString('hex')))));
-const MIN_OWN_PASSWORD = 4;
 
 // Login cookie: "<nickname, base64url>.<signature>". The signature covers the room password, the nickname
 // and that account's salt (new for every account), so freeing a nickname and claiming it again ends old logins.
@@ -858,6 +882,11 @@ http.createServer((req, res) => {
         } else {
           right();
           if (own.length < MIN_OWN_PASSWORD) return say(400, `Choose a password for your nickname (at least ${MIN_OWN_PASSWORD} characters)`);
+          // A deleted account's nickname: the new owner starts fresh, without the old one's picture.
+          if (wasDeleted(name)) {
+            for (const list of [colors, faces]) for (const n of Object.keys(list)) if (nameKey(n) === nameKey(name)) delete list[n];
+            dirty = true;
+          }
           // Someone from before accounts (or from the queue, chat...) with this name in other capitals: keep their
           // spelling, so "lvj" claiming the name keeps LVJ's picture, songs and votes.
           const known = [...Object.keys(colors), ...Object.keys(faces), ...here, ...queue.map(q => q.by), current && current.by]

@@ -7,7 +7,7 @@
 Everyone opens the same page, pastes YouTube links (or just types a song name) into a shared queue, and
 the videos play in sync for everybody, with chat and emoji reactions on the side. It's like sitting on
 the same couch, wherever you are. You host it yourself, it's password-protected, and it needs nothing
-but Node.js, yt-dlp and ffmpeg. No accounts, no database, no npm packages.
+but Node.js, yt-dlp and ffmpeg. No sign-up emails, no database, no npm packages.
 
 ![Couchwave in a browser: a video playing with emoji reactions floating over it, the chat and online friends on the right, the activity log and queue below](docs/screenshot.png)
 
@@ -27,161 +27,43 @@ but Node.js, yt-dlp and ffmpeg. No accounts, no database, no npm packages.
   **audio-only** mode: turn the video off to just listen (and save data).
 - **Chat, reactions and who's online**, with emoji profile pictures and colours. Messages, votes and
   songs changing show up for everyone instantly.
+- **Your own nickname**, with its own password, so nobody else can join as you.
 - **Keeps playing on a locked phone**, and can be installed as an app ("Add to Home screen").
 - **Remembers everything** across restarts: the queue, what was playing and where, the chat and the activity log.
 
 Songs are downloaded to your computer with [yt-dlp](https://github.com/yt-dlp/yt-dlp) a few at a time
 ahead of when they play, and deleted after they've played.
 
-## Setup
+## Getting started
 
-You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
+1. Install Node.js, yt-dlp and ffmpeg, then start Couchwave. Step-by-step for Windows and Linux, starting
+   it with the computer, and letting friends in from outside your home: **[docs/INSTALL.md](docs/INSTALL.md)**.
+2. Open <http://localhost:3000>. The room password is in **`config.json`**, made the first time it runs.
+3. Give your friends the address and the room password.
 
-### Windows
+Logging everyone out, deleting an account or resetting a forgotten password are one command each:
+**[docs/COMMANDS.md](docs/COMMANDS.md)**.
 
-1. Install the tools. Open PowerShell and run:
+## Joining
 
-   ```powershell
-   winget install OpenJS.NodeJS.LTS
-   winget install yt-dlp.yt-dlp
-   ```
+Joining takes two things:
 
-   (The yt-dlp package brings ffmpeg with it.) Close and reopen PowerShell afterwards.
+- **The room password**: the same for everyone, from `config.json`. It keeps strangers out.
+- **A nickname and its own password**: chosen the first time someone joins with that nickname. It keeps
+  the nickname theirs, so nobody else can join as them, even with the room password. Nicknames ignore
+  capitals ("matt" is "Matt").
 
-2. Get Couchwave: download it from GitHub (**Code → Download ZIP**, then unzip it), or
-   `git clone https://github.com/Hoyle95/couchwave.git`.
-
-3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
-
-4. Open <http://localhost:3000>. The password is in **`config.json`**, which is created the first time
-   it runs. Change the password or the port there; the server restarts by itself when you save.
-
-### Linux (Debian, Ubuntu, Raspberry Pi OS)
-
-1. Install the tools:
-
-   ```sh
-   sudo apt update
-   sudo apt install -y nodejs ffmpeg python3 git curl
-   node --version    # needs v18 or newer
-   mkdir -p ~/.local/bin
-   curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
-   chmod +x ~/.local/bin/yt-dlp
-   export PATH="$HOME/.local/bin:$PATH"
-   ```
-
-   yt-dlp is installed from its own release rather than `apt` so that Couchwave can keep it up to date
-   (YouTube changes often, and old versions stop working). If `node --version` is older than 18, install a
-   newer Node from [nodejs.org](https://nodejs.org/en/download). On other distros, install the same
-   things with your package manager.
-
-2. Get Couchwave and start it:
-
-   ```sh
-   git clone https://github.com/Hoyle95/couchwave.git
-   cd couchwave
-   node server.js
-   ```
-
-3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The password
-   is printed on the first run and saved in **`config.json`**. Change the password or the port there and restart.
-
-## Keep it running
-
-### Windows: start with the PC
-
-Open PowerShell **as administrator** in the Couchwave folder and run:
-
-```powershell
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c start.cmd' -WorkingDirectory "$PWD"
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName Couchwave -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) `
-  -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U) -Settings $settings -Force
-```
-
-It then starts at boot (no need to log in) and restarts itself if it ever crashes. Stop or start it with
-`Stop-ScheduledTask Couchwave` / `Start-ScheduledTask Couchwave`. If you move the Couchwave folder, run
-the same commands again from its new place.
-
-### Linux: run as a service
-
-From the Couchwave folder:
-
-```sh
-sudo tee /etc/systemd/system/couchwave.service > /dev/null <<EOF
-[Unit]
-Description=Couchwave
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=$USER
-WorkingDirectory=$PWD
-Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/env node server.js
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-sudo systemctl enable --now couchwave
-```
-
-Restart it after changing `config.json` or updating: `sudo systemctl restart couchwave`.
-
-## Letting friends in
-
-On your home network, friends open `http://<this machine's IP>:3000` (or the port you set in
-`config.json`).
-
-To host it publicly, we recommend either:
-
-- **[Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/)**: free, gives you an `https://`
-  address, and needs no ports opened on your router.
-- **[Caddy](https://caddyserver.com/docs/quick-starts/reverse-proxy)**: a web server that gets an
-  `https://` certificate for your domain automatically. This Caddyfile is all it needs:
-
-  ```
-  couch.example.com {
-      reverse_proxy localhost:3000
-  }
-  ```
-
-Either way, use `https://`: the password and everyone's login are sent over it, and phones only offer
-"Install app" on secure sites.
-
-**Joining**: give friends the room password (from `config.json`). The first time they join, they pick a
-nickname and their own password for it. That keeps the nickname theirs: nobody else can join as them, even
-with the room password. Nicknames ignore capitals ("matt" is "Matt"). Their browser stays logged in for a
-year, so they only type it again on a new device.
+Browsers stay logged in for a year, so people only type them again on a new device. Forgotten password?
+The admin can set a new one with [`--set-password`](docs/COMMANDS.md#set-a-new-password).
 
 ## Settings, data and backups
 
-- **`config.json`**: the password and port (3000 unless you change it). Made on the first run.
+- **`config.json`**: the room password and port (3000 unless you change it). Made on the first run.
 - **`data/`**: everything Couchwave saves: the queue, chat, activity log and profile pictures
-  (`state.json`), the nicknames and their (scrambled) passwords (`accounts.json`), the downloaded songs,
-  and the logs.
+  (`state.json`), the accounts with their passwords scrambled, never as typed (`accounts.json`), the
+  downloaded songs, and the logs.
 
 **To back up, copy the `data/` folder.** To restore, stop Couchwave and put it back.
-
-**To log everyone out** (they'll need to enter the password again), run this in the Couchwave folder,
-while it's running or not:
-
-```sh
-node server.js --logout-everyone
-```
-
-Changing the password in `config.json` logs everyone out too.
-
-**Someone forgot their password** (or took a nickname that isn't theirs): free the nickname, and whoever
-joins with it next chooses its new password. They're logged out wherever they were logged in as it.
-
-```sh
-node server.js --forget-name LVJ
-```
-
-**To update**, download the new version (or `git pull`) over the old one. `config.json` and `data/` are
-kept. On Windows it restarts by itself; on Linux, restart the service.
 
 ## Troubleshooting
 
@@ -189,23 +71,8 @@ kept. On Windows it restarts by itself; on Linux, restart the service.
   sometimes changes faster. Run `yt-dlp -U` and press the retry button on the song.
 - **Won't start**: look at `data/server.log` and `data/server-console.log`. A broken `config.json` is the
   usual cause; the log says what's wrong.
-
-## Running the tests
-
-After changing the code, check nothing broke:
-
-```
-node --test
-```
-
-It takes about 25 seconds and needs nothing installed. Each test starts its own throwaway Couchwave in a
-temporary folder, with its own password and port, so your real server, songs and chat are never touched
-(it can run while Couchwave is running). Instead of yt-dlp and ffmpeg it uses stand-ins in `tests/fakes/`
-that act like them in a split second, without YouTube, including failures, livestreams and playlists.
-
-The tests cover logging in, adding songs (links, searches, playlists), downloads failing and retrying,
-deleting with undo, the fair queue, pause/seek/skip, voting to skip, who's online and joined/left, chat
-and instant updates, the video files and their pacing, and that the page's scripts have no syntax errors.
+- **"Logins are paused"** on the join screen: Couchwave can't read `data/accounts.json`, e.g. it was
+  edited by hand and broken. People already logged in carry on; the log says what's wrong.
 
 ## Feedback
 
