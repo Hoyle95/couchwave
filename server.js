@@ -7,6 +7,11 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
+// The programs Couchwave runs (yt-dlp, ffmpeg, ffprobe). The tests (tests/) swap in stand-ins that act like
+// them in a split second, without YouTube: COUCHWAVE_FAKE_TOOLS = a folder with a <name>.js for each.
+const FAKE_TOOLS = process.env.COUCHWAVE_FAKE_TOOLS;
+const run = (name, args) => (FAKE_TOOLS ? spawn(process.execPath, [path.join(FAKE_TOOLS, name + '.js'), ...args]) : spawn(name, args));
+
 // Everything the server saves goes in data/: the queue/chat/log (state.json), downloaded songs, log files.
 // Back it up by copying the folder. It's not in git.
 const DATA = path.join(__dirname, 'data');
@@ -183,7 +188,21 @@ function save() {
     dirty = true; // e.g. antivirus briefly locking the file on Windows: try again next second
     console.error('save failed:', err.message);
   }
+  nudge(); // something changed: pages fetch it now (see "Instant updates")
 }
+
+// ---------- Instant updates ----------
+// Each page keeps a /events connection open. When anything changes (a chat message, a song starting, a
+// vote, someone joining: everything that gets saved, plus reactions), every page gets a nudge and fetches
+// /state straight away, instead of on its next 2-second check. Nudges close together are sent as one.
+const listeners = new Set(); // open /events responses
+let nudgeTimer = null;
+function nudge() {
+  if (nudgeTimer) return;
+  nudgeTimer = setTimeout(() => { nudgeTimer = null; for (const res of listeners) res.write('data: changed\n\n'); }, 30);
+}
+// Cloudflare closes a connection that's been silent for 100 seconds: say something every 25.
+setInterval(() => { for (const res of listeners) res.write(': still here\n\n'); }, 25000);
 
 // People here before the restart, with when each was last seen. Back within the minute (e.g. --watch
 // restarting the server): carries on as if nothing happened. Gone longer (the server was off): "left",
@@ -288,7 +307,7 @@ function addSong(url, title, who) {
 // Read songs from YouTube without downloading anything (takes a few seconds): a playlist's songs, or
 // search results ("ytsearch3:daft punk"). Calls back with [{ id, duration, title, playlist }], playable ones only.
 function listSongs(target, max, cb) {
-  const p = spawn('yt-dlp', [
+  const p = run('yt-dlp', [
     '--flat-playlist', '--yes-playlist', '--playlist-end', String(max),
     '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', '--', target, // tab-separated: titles can contain anything else
   ]);
@@ -370,7 +389,7 @@ function failed(item, reason, permanent) {
 // Length of a downloaded file in seconds (0 if it can't be read). For the odd video whose length
 // YouTube doesn't report: without one, the server would move on 2 seconds into the song.
 function probeDuration(file, cb) {
-  const p = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]);
+  const p = run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]);
   let out = '', fin = false;
   const end = () => { if (fin) return; fin = true; cb(parseFloat(out) || 0); };
   p.stdout.on('data', d => (out += d));
@@ -390,7 +409,7 @@ function download(item) {
   item.out = out;
   item.status = 'downloading';
   dirty = true;
-  const p = spawn('yt-dlp', [
+  const p = run('yt-dlp', [
     '--no-playlist', '--playlist-items', '1', // a playlist link: just its first video
     '--no-progress', '--match-filter', '!is_live', // a livestream would download forever
     '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
@@ -426,7 +445,7 @@ function download(item) {
     // Copy the audio track into its own small file (no re-encoding, takes a second or two).
     // Phones pause <video> when the screen locks but keep <audio> playing, so pages play sound from this.
     const audio = out.replace(/\.mp4$/, '.m4a');
-    const f = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-vn', '-c:a', 'copy', audio]);
+    const f = run('ffmpeg', ['-y', '-loglevel', 'error', '-i', out, '-vn', '-c:a', 'copy', audio]);
     let fDone = false;
     const ready = ok => {
       if (fDone) return;
@@ -527,7 +546,7 @@ setInterval(() => {
 let ytdlpVersion = '';
 function updateYtdlp() {
   if (running.size) return setTimeout(updateYtdlp, 5 * 60 * 1000); // busy: try again in 5 minutes
-  const p = spawn('yt-dlp', ['-U']);
+  const p = run('yt-dlp', ['-U']);
   let out = '', fin = false;
   p.stdout.on('data', d => (out += d));
   p.stderr.on('data', d => (out += d));
@@ -742,6 +761,13 @@ http.createServer((req, res) => {
       arrived(who);
       return sendJson(res, state(url.searchParams));
 
+    case 'GET /events': // instant updates (see nudge())
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
+      res.write('retry: 3000\n\n'); // after a drop-out, the browser reconnects in 3 seconds
+      listeners.add(res);
+      req.on('close', () => listeners.delete(res));
+      return;
+
     case 'POST /bye': // the page was closed (or is reloading): "left" soon, unless it checks in again (see gone())
       if (here.has(who)) closed[who] = Date.now();
       res.writeHead(204); return res.end();
@@ -768,8 +794,13 @@ http.createServer((req, res) => {
         arrived(who);
         if (current && id === undefined) { id = current.id; vote = !skipVotes.has(who); } // a page from before votes said which song
         if (current && id === current.id) { // a vote for a song that has already ended does nothing
-          if (vote === false) skipVotes.delete(who); else skipVotes.add(who);
-          checkSkip();
+          if (vote !== false && current.by === who) { // your own song: skipped straight away, no vote
+            addLog(who, `skipped their song "${current.title}"`);
+            advance();
+          } else {
+            if (vote === false) skipVotes.delete(who); else skipVotes.add(who);
+            checkSkip();
+          }
         }
         done(res);
       });
@@ -805,9 +836,10 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /remove': // delete a song from the queue: { id }
+    case 'POST /remove': // delete a song from the queue: { id }. Only whoever added it can.
       return readJson(req, 200, ({ id }) => {
         const i = queue.findIndex(q => q.id === id);
+        if (i >= 0 && queue[i].by !== who) { res.writeHead(403); return res.end('Only whoever added a song can remove it'); }
         if (i >= 0) {
           const [item] = queue.splice(i, 1);
           item.removed = true;
@@ -820,9 +852,10 @@ http.createServer((req, res) => {
         done(res);
       });
 
-    case 'POST /undo': // bring back a deleted song: { id }
+    case 'POST /undo': // bring back a deleted song: { id }. Only whoever added it (and so deleted it) can.
       return readJson(req, 200, ({ id }) => {
         const entry = trash.get(id);
+        if (entry && entry.item.by !== who) { res.writeHead(403); return res.end('Only whoever added a song can bring it back'); }
         if (entry) {
           const { item, index } = entry;
           trash.delete(id);
@@ -886,6 +919,7 @@ http.createServer((req, res) => {
           const now = Date.now();
           reactions.push({ id: ++reactId, t: now, e, n: Math.max(1, Math.min(50, Math.round(Number(r.n)) || 1)), cid: String(r.cid || '').slice(0, 20) });
           reactions = reactions.filter(x => now - x.t < 8000).slice(-300);
+          nudge();
         }
         res.writeHead(204); res.end();
       });

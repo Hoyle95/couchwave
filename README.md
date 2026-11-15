@@ -21,11 +21,12 @@ but Node.js, yt-dlp and ffmpeg. No accounts, no database, no npm packages.
 ## What it does
 
 - **Shared queue**: paste a link, a playlist, or a song name. People take turns: one person's 100-song
-  playlist doesn't drown out everyone else. Drag to reorder, delete (with undo), copy links.
+  playlist doesn't drown out everyone else. Drag to reorder, delete your own songs (with undo), copy links.
 - **In sync**: play, pause and seek for everyone, and vote to skip (more than half of the people online
-  skips the song). Your own volume stays yours, and so does
+  skips the song; whoever added it can skip it straight away). Your own volume stays yours, and so does
   **audio-only** mode: turn the video off to just listen (and save data).
-- **Chat, reactions and who's online**, with emoji profile pictures and colours.
+- **Chat, reactions and who's online**, with emoji profile pictures and colours. Messages, votes and
+  songs changing show up for everyone instantly.
 - **Keeps playing on a locked phone**, and can be installed as an app ("Add to Home screen").
 - **Remembers everything** across restarts: the queue, what was playing and where, the chat and the activity log.
 
@@ -175,6 +176,23 @@ kept. On Windows it restarts by itself; on Linux, restart the service.
   sometimes changes faster. Run `yt-dlp -U` and press the retry button on the song.
 - **Won't start**: look at `data/server.log` and `data/server-console.log`. A broken `config.json` is the
   usual cause; the log says what's wrong.
+
+## Running the tests
+
+After changing the code, check nothing broke:
+
+```
+node --test
+```
+
+It takes about 25 seconds and needs nothing installed. Each test starts its own throwaway Couchwave in a
+temporary folder, with its own password and port, so your real server, songs and chat are never touched
+(it can run while Couchwave is running). Instead of yt-dlp and ffmpeg it uses stand-ins in `tests/fakes/`
+that act like them in a split second, without YouTube, including failures, livestreams and playlists.
+
+The tests cover logging in, adding songs (links, searches, playlists), downloads failing and retrying,
+deleting with undo, the fair queue, pause/seek/skip, voting to skip, who's online and joined/left, chat
+and instant updates, the video files and their pacing, and that the page's scripts have no syntax errors.
 
 ## Feedback
 

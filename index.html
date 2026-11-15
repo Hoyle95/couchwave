@@ -241,6 +241,7 @@
   .del svg { width: 15px; height: 15px; }
   .del:hover { color: var(--err); border-color: var(--err); }
   .del.armed { color: #fff; background: var(--err); border-color: var(--err); }
+  .delgap { width: 28px; flex: none; } /* where the delete button would be, on other people's songs */
 
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 10px; }
   #pp { width: 46px; height: 46px; padding: 0; border-radius: 50%; box-shadow: 0 6px 16px var(--glow1); }
@@ -336,6 +337,7 @@
   .chatSound svg { width: 16px; height: 16px; }
   #chatVol { width: 72px; }
   .msg { display: flex; gap: 10px; }
+  .msg.pending { opacity: .55; } /* your message, on its way to the server */
   .msg .body { min-width: 0; }
   .msg .head { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
   .msg .head b { font-weight: 700; }
@@ -682,6 +684,7 @@ async function join(e) {
 
 function enter() {
   joined = true;
+  listen();
   myName = getCookie('name') || 'someone';
   $('me').textContent = myName;
   $('me').after($('colorPop')); // the picker belongs in the header from now on
@@ -1136,6 +1139,7 @@ if ('mediaSession' in navigator) {
 }
 // Skip is a vote: the song is skipped once more than half of the people online have voted.
 // Clicking again takes your vote back. The server sends who has voted with each update (drawSkip).
+// Whoever added the song can skip it straight away, without a vote.
 // Each vote says which song it's for and which way, so a click just as the song changes can't vote on the
 // next one, and a double-click can't undo itself.
 let votedSkip = false, skipSongId = null;
@@ -1152,7 +1156,9 @@ function drawSkip(s) {
   const b = $('skipBtn');
   $('skipText').textContent = voters.length ? `${voters.length} out of ${people} voted to skip` : 'Skip';
   b.setAttribute('aria-pressed', votedSkip);
-  b.title = votedSkip ? 'You voted to skip. Click to take your vote back'
+  const mySong = s.current && s.current.by === myName;
+  b.title = mySong ? 'Your song: skip it straight away (no vote needed)'
+    : votedSkip ? 'You voted to skip. Click to take your vote back'
     : people > 1 ? `Vote to skip this song (skips at ${s.skip.need} out of ${people})` : 'Skip this song';
   if (voters.length) b.title += '\nVoted: ' + voters.join(', ');
 }
@@ -1202,14 +1208,19 @@ async function add(e) {
   } finally { adding = false; }
 }
 
+// Your message shows straight away (faded, until the server has it), then the real one takes its place.
+let pendingChat = [];
 async function sendChat(e) {
   e.preventDefault();
   const input = $('chatText'), text = input.value;
   if (!text.trim()) return;
   input.value = ''; // clear now, so anything typed while it sends isn't wiped
+  const mine = { t: Date.now(), by: myName, text: text.trim().slice(0, 500), pending: true };
+  pendingChat.push(mine); drawChat();
   const r = await fetch('/chat', { method: 'POST', body: JSON.stringify({ text }) }).catch(() => null);
-  if (!r || !r.ok) { if (!input.value) input.value = text; return; } // didn't send: put it back
-  poll();
+  if (r && r.ok) await poll(); // fetch the real message before taking the stand-in away
+  pendingChat = pendingChat.filter(m => m !== mine); drawChat();
+  if (!r || !r.ok) { if (!input.value) input.value = text; } // didn't send: put it back
 }
 
 // Copy a YouTube link (the playing video, or any song in the queue).
@@ -1258,7 +1269,7 @@ $('queue').onclick = e => {
   if (Date.now() - del._armedAt < 350) return; // part of a double-tap: needs a separate, deliberate second tap
   const li = del.closest('li');
   li.style.opacity = '.4'; // feedback while it goes
-  post('/remove', { id: +li.dataset.id }).then(poll);
+  post('/remove', { id: +li.dataset.id }).then(r => { if (!r || !r.ok) li.style.opacity = ''; poll(); }); // refused: it stays
 };
 
 // ---- Drag to reorder the queue (pointer events, so it works with mouse and touch) ----
@@ -1361,14 +1372,14 @@ const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: 
 
 function drawLog() {
   $('log').innerHTML = logList.slice().reverse().map(e =>
-    `<li><span class="time">${hhmm(e.t)}</span><span><b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ${esc(e.text)}</span>${e.undo ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
+    `<li><span class="time">${hhmm(e.t)}</span><span><b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
   ).join('') || '<li class="empty">Nothing yet</li>';
 }
 function drawChat() {
   const c = $('chat');
   const atBottom = !chatDrawn || c.scrollHeight - c.scrollTop - c.clientHeight < 40;
-  c.innerHTML = chatList.map(m => `
-    <div class="msg">
+  c.innerHTML = [...chatList, ...pendingChat].map(m => `
+    <div class="msg${m.pending ? ' pending' : ''}">
       ${avatar(m.by)}
       <div class="body">
         <div class="head"><b class="nm" style="color:${nameColor(m.by)}">${esc(m.by)}</b><span class="time">${hhmm(m.t)}</span></div>
@@ -1428,7 +1439,8 @@ async function poll() {
       ${q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
         : `<span class="badge ${esc(q.status)}">${QUEUE_BADGE[q.status] || esc(q.status)}</span>`}
       ${q.status === 'failed' && !q.retrying ? `<button class="ghost retry" title="Try downloading again" aria-label="Try downloading again">${icon('retry')}</button>` : ''}
-      <button class="ghost del" title="Remove from the queue" aria-label="Remove from the queue">${icon('trash')}</button>
+      ${q.by === myName ? `<button class="ghost del" title="Remove from the queue" aria-label="Remove from the queue">${icon('trash')}</button>`
+        : '<span class="delgap" aria-hidden="true"></span>'}<!-- only whoever added it can remove it; the gap keeps rows lined up -->
     </li>`).join('') || '<li class="empty">Queue is empty — add something!</li>';
   // Only redraw when it changes, so a "copied" tick isn't wiped by the next refresh.
   if (!drag && queueHtml !== lastQueue) { $('queue').innerHTML = queueHtml; lastQueue = queueHtml; } // never redraw mid-drag
@@ -1492,6 +1504,16 @@ async function poll() {
   else if (!audioOnly && v.paused && !v.ended) playVideo();
 }
 setInterval(poll, 2000);
+
+// Instant updates: the server nudges this page the moment anything changes (a chat message, a song
+// starting, a vote...), and it checks in straight away. The 2-second timer above is the backup, e.g. while
+// the connection is down (the browser reconnects by itself).
+let events = null;
+function listen() {
+  if (events || !('EventSource' in window)) return;
+  events = new EventSource('/events');
+  events.onmessage = () => poll();
+}
 </script>
 </body>
 </html>

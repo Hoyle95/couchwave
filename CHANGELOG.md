@@ -19,12 +19,19 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
   to skip" for everyone, and the song is skipped when more than half of the people online have voted (on
   your own, one click still skips). Click it again to take your vote back; hover over it to see who voted.
   Votes start over with each song, only count while the voter is online, and survive a server restart.
-  The lock-screen "next" button votes too.
+  The lock-screen "next" button votes too. Whoever added the song can skip it straight away, no vote.
+- **Instant updates**: chat messages, votes, songs changing, people joining and reactions now show up for
+  everyone the moment they happen, instead of within 2 seconds. Your own messages appear as soon as you
+  press send (faded until the server has them).
+- **Tests**: `node --test` checks the whole app in about 25 seconds, using stand-ins for yt-dlp and ffmpeg
+  so it needs no internet and never touches your real server. See "Running the tests" in the README.
 - **Log everyone out**: `node server.js --logout-everyone` makes everyone enter the password again,
   without changing it. Works while Couchwave is running.
 
 ### Changed
 
+- **Only whoever added a song can delete it** from the queue (and undo deleting it). Other people's songs
+  have no delete button, and the server refuses it too.
 - **Chat and page loads no longer stall while video plays**: songs are now sent to each viewer at a steady
   pace (the first 20 seconds at full speed, so songs and seeks still start straight away, then 3× what the
   video needs) instead of as fast as the connection allows. Several browsers grabbing video at full speed
