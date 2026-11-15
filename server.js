@@ -517,11 +517,17 @@ function parseCookies(header) {
   }));
 }
 
-// Wrong-password limit: 20 tries per 15 minutes per address. Behind the Cloudflare tunnel every request
-// comes from localhost, so use the visitor address Cloudflare passes along.
+// Wrong-password limit: 20 tries per 15 minutes per address. Behind a tunnel or reverse proxy on this
+// machine every request comes from localhost, so then use the visitor address it passes along. Those
+// headers are only trusted from localhost: anyone else could fake them to dodge the limit.
 const fails = new Map(); // ip -> { n, since }
 const FAIL_WINDOW = 15 * 60 * 1000, FAIL_MAX = 20;
-const ipOf = req => req.headers['cf-connecting-ip'] || req.socket.remoteAddress;
+const ipOf = req => {
+  const direct = req.socket.remoteAddress || '';
+  if (!/^(::1|127\.|::ffff:127\.)/.test(direct)) return direct;
+  const h = req.headers;
+  return h['cf-connecting-ip'] || h['x-real-ip'] || String(h['x-forwarded-for'] || '').split(',')[0].trim() || direct;
+};
 
 // Installing the site as a phone/desktop app. Icons are in icons/ (made from icons/icon.svg).
 const MANIFEST = JSON.stringify({

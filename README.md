@@ -128,15 +128,10 @@ Restart it after changing `config.json` or updating: `sudo systemctl restart cou
 
 ## Letting friends in
 
-Couchwave runs on port 3000 on your machine (or whichever port you set in `config.json`). To reach it
-from outside your home network, the easiest way is a free [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/): it gives you an
-`https://` address on your own domain without opening any ports on your router. To try it out first, a
-[quick tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)
-needs no account: `cloudflared tunnel --url http://localhost:3000` prints a temporary public address
-(a new one each time).
-
-Use `https://` when it's on the internet: the password is sent with every request, and phones only
-offer "Install app" on secure sites.
+On your home network, friends open `http://<this machine's IP>:3000` (or the port you set in
+`config.json`). To let friends in from anywhere, make that address reachable from the internet, for
+example with a reverse proxy or a tunnel service. Give it an `https://` address when you do: the password
+is sent with every request, and phones only offer "Install app" on secure sites.
 
 ## Settings, data and backups
 
