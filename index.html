@@ -448,13 +448,13 @@
     <div class="logo"><svg><use href="#i-logo"/></svg></div>
     <h1>Couchwave</h1>
     <p class="muted">Queue up videos and watch together.</p>
-    <div class="joinAv" id="joinAvWrap">
-      <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="joinAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
-      <small class="muted">Tap your picture to change it</small>
-      <!-- the picture picker (#colorPop) is moved here until you've joined -->
-    </div>
     <fieldset class="joinGroup">
       <legend>You</legend>
+      <div class="joinAv" id="joinAvWrap">
+        <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="joinAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+        <small class="muted">Tap your picture to change it</small>
+        <!-- the picture picker (#colorPop) is moved here until you've joined -->
+      </div>
       <input id="name" placeholder="Nickname" maxlength="30" autocomplete="username" required aria-label="Nickname">
       <input id="ownPw" type="password" placeholder="Your password" autocomplete="current-password" minlength="4" required aria-label="Your password">
       <small class="muted joinHint">New user? Choose a password, but don't forget it!</small>
