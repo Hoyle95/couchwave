@@ -129,9 +129,23 @@ Restart it after changing `config.json` or updating: `sudo systemctl restart cou
 ## Letting friends in
 
 On your home network, friends open `http://<this machine's IP>:3000` (or the port you set in
-`config.json`). To let friends in from anywhere, make that address reachable from the internet, for
-example with a reverse proxy or a tunnel service. Give it an `https://` address when you do: the password
-is sent with every request, and phones only offer "Install app" on secure sites.
+`config.json`).
+
+To host it publicly, we recommend either:
+
+- **[Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/)**: free, gives you an `https://`
+  address, and needs no ports opened on your router.
+- **[Caddy](https://caddyserver.com/docs/quick-starts/reverse-proxy)**: a web server that gets an
+  `https://` certificate for your domain automatically. This Caddyfile is all it needs:
+
+  ```
+  couch.example.com {
+      reverse_proxy localhost:3000
+  }
+  ```
+
+Either way, use `https://`: the password is sent with every request, and phones only offer "Install app"
+on secure sites.
 
 ## Settings, data and backups
 
