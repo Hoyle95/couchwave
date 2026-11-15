@@ -57,7 +57,7 @@ Ideas, bugs, or just saying hi: join our [Discord](https://discord.com/invite/pN
 
 ## Credits
 
-Vibe coded by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5. The screenshots show
+Designed by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5. The screenshots show
 [Big Buck Bunny](https://peach.blender.org/) and other [Blender open movies](https://studio.blender.org/films/), © Blender Foundation, CC BY. The font is
 [Inter](https://rsms.me/inter/) (SIL Open Font License, `fonts/OFL.txt`), included so the site never loads
 anything from Google.
