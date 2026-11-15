@@ -406,7 +406,11 @@
     .joinAv .editOv svg { width: 12px; height: 12px; }
   }
   #err { color: var(--err); min-height: 1.3em; font-size: 14px; }
-  .joinHint { font-size: 12px; margin-top: -4px; line-height: 1.4; } /* under "Your own password" */
+  /* The two parts of joining: you (nickname + its password) and the room's password */
+  .joinGroup { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 10px 12px 12px; text-align: left;
+    border: 1px solid var(--border); border-radius: 14px; min-width: 0; }
+  .joinGroup legend { padding: 0 6px; margin-left: -4px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--soft); }
+  .joinHint { font-size: 12px; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -449,10 +453,17 @@
       <small class="muted">Tap your picture to change it</small>
       <!-- the picture picker (#colorPop) is moved here until you've joined -->
     </div>
-    <input id="name" placeholder="Your nickname" maxlength="30" autocomplete="username" required>
-    <input id="pw" type="password" placeholder="Room password" autocomplete="off" required>
-    <input id="ownPw" type="password" placeholder="Your own password" autocomplete="current-password" minlength="4" required>
-    <small class="muted joinHint">New nickname? Choose your own password: it keeps the name yours, so nobody else can join as you.</small>
+    <fieldset class="joinGroup">
+      <legend>You</legend>
+      <input id="name" placeholder="Nickname" maxlength="30" autocomplete="username" required aria-label="Nickname">
+      <input id="ownPw" type="password" placeholder="Your password" autocomplete="current-password" minlength="4" required aria-label="Your password">
+      <small class="muted joinHint">New nickname? Choose a password for it. It keeps the name yours, so nobody else can join as you.</small>
+    </fieldset>
+    <fieldset class="joinGroup">
+      <legend>Room password</legend>
+      <input id="pw" type="password" placeholder="Room password" autocomplete="off" required aria-label="Room password">
+      <small class="muted joinHint">The same for everyone. Ask whoever runs this Couchwave.</small>
+    </fieldset>
     <button><svg><use href="#i-play"/></svg> Join the party</button>
     <div id="err"></div>
   </form>
