@@ -106,9 +106,11 @@ describe('the DJ', { concurrency: true }, () => {
   });
 
   test('the DJ\'s songs: removing one from the queue, or skipping the one playing, is a vote; !dj off leaves the rest queued', async () => {
-    // Alice's 1-second song playing (and so in the History): a DJ song plays next
+    // Alice's 1-second song playing (and so in the History), and one of Bob's played before: a DJ song plays
+    // next. (Two songs to go on: each Mix has 3 the DJ can use, and this test uses up 3 of them.)
     const s = await start({ here: {}, current: song(1, 'Song alic_000004', 'Alice', { duration: 1, url: yt('alic_000004') }),
-      history: [{ url: yt('alic_000004'), title: 'Song alic_000004', by: 'Alice', t: Date.now() }] });
+      history: [{ url: yt('alic_000004'), title: 'Song alic_000004', by: 'Alice', t: Date.now() },
+        { url: yt('bobs_000004'), title: 'Song bobs_000004', by: 'Bob', t: Date.now() - 60000 }] });
     const stop = await s.keepOnline('Alice', 'Bob', 'Cara', 'Dan'); // 4 people online: 3 votes needed
     await say(s, 'Bob', '!dj on');
     const [first] = await waitFor(async () => { const d = await djSongs(s); return d.length && d; }, 8000, 'a DJ song');
@@ -125,13 +127,15 @@ describe('the DJ', { concurrency: true }, () => {
     for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who }); // a majority of the people online
     assert.notEqual((await s.state()).current?.id, playing.id, 'skipped by the vote');
     assert.ok((await s.log()).some(l => /: skipped ".+" \(\d of \d voted\)$/.test(l)), 'logged as a vote');
-    const before = (await djSongs(s)).length;
-    assert.ok(before > 0, 'it has songs queued');
+    // (Counted after turning it off: while on, it may add another at any moment.)
     await say(s, 'Bob', '!dj off');
-    assert.equal((await djSongs(s)).length, before, 'off: what it queued stays, until it\'s voted out');
-    assert.match((await s.state()).chat.at(-1).text, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(you can vote them out of the queue\)/);
+    const kept = (await djSongs(s)).length;
+    assert.ok(kept > 0, 'off: what it queued stays, until it\'s voted out');
+    const said = (await s.state()).chat.at(-1).text;
+    assert.match(said, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(you can vote them out of the queue\)/);
+    assert.equal(Number(/My (\d+) song/.exec(said)[1]), kept, 'it says how many it left');
     await sleep(CHECKS);
-    assert.equal((await djSongs(s)).length, before, '...and it doesn\'t add any more');
+    assert.equal((await djSongs(s)).length, kept, '...and it doesn\'t add any more');
     stop();
   });
 

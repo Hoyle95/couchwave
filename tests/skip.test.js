@@ -1,14 +1,16 @@
-// Vote to skip: more than half of the people online, votes per song, taking a vote back, the song's owner
-// skipping without a vote, and votes surviving a restart. Timings are the server's (secs() in helpers.js).
+// Vote to skip (and how many votes it takes, which removing someone else's song shares): votePercent of the
+// people online (config.json, 60 by default), votes per song, taking a vote back, the song's owner skipping
+// without a vote, and votes surviving a restart. Timings are the server's (secs() in helpers.js).
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const { testServers, song, waitFor, sleep, secs } = require('./helpers');
 
 const servers = testServers({ after });
 // Zed's songs playing and queued, so Alice / Bob / Cara are never the owner (unless a test says so);
-// Alice, Bob and Cara online.
-async function start(extra = {}) {
-  const s = await servers({ initial: {
+// Alice, Bob and Cara online. config: extra config.json settings (votePercent).
+async function start(extra = {}, config) {
+  const s = await servers({ config, initial: {
     current: song(1, 'Song A', 'Zed', { duration: 10000 }),
     queue: [song(2, 'Song B', 'Zed', { duration: 10000 }), song(3, 'Song C', 'Zed', { duration: 10000 })], ...extra,
   } });
@@ -20,7 +22,7 @@ const vote = (s, as, id, v = true) => s.post('/skip', { id, vote: v }, { as });
 
 // Each test has its own server, so they run at the same time.
 describe('vote to skip', { concurrency: true }, () => {
-  test('the count everyone sees, and more than half skips', async () => {
+  test('the count everyone sees, and 2 of 3 skips', async () => {
     const s = await start();
     let st = await s.state();
     assert.deepEqual(st.skip, { voters: [], need: 2 }, '3 online: needs 2');
@@ -94,5 +96,52 @@ describe('vote to skip', { concurrency: true }, () => {
     await s.restart();
     for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n);
     assert.deepEqual((await s.state()).skip.voters, ['Alice']);
+  });
+
+  test('votes needed: 60% of the people online by default, rounded up (2 of 3, 3 of 4, 5 of 7, 6 of 9)', async () => {
+    const s = await servers({ initial: { current: song(1, 'Song A', 'Zed', { duration: 10000 }) } });
+    const people = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9'], needs = [];
+    for (let n = 1; n <= people.length; n++) {
+      for (const p of people.slice(0, n)) await s.state(p); // n people online
+      needs.push((await s.state('P1')).skip.need);
+    }
+    assert.deepEqual(needs, [1, 2, 2, 3, 3, 4, 5, 5, 6]); // ("more than half" would be 4 of 7 and 5 of 9)
+  });
+
+  test('votePercent 100 in config.json: everyone online has to vote, to skip and to remove someone else\'s song', async () => {
+    const s = await start({}, { votePercent: 100 });
+    assert.equal((await s.state()).skip.need, 3);
+    await vote(s, 'Alice', 1); await vote(s, 'Bob', 1);
+    assert.equal(await title(s), 'Song A', '2 of 3 isn\'t enough');
+    await vote(s, 'Cara', 1);
+    assert.equal(await title(s), 'Song B', '3 of 3 skips');
+    for (const who of ['Alice', 'Bob']) await s.post('/remove', { id: 3, vote: true }, { as: who });
+    assert.ok((await s.state()).queue.some(q => q.id === 3), 'remove: 2 of 3 isn\'t enough either');
+    await s.post('/remove', { id: 3, vote: true }, { as: 'Cara' });
+    assert.ok(!(await s.state()).queue.some(q => q.id === 3), '3 of 3 removes it');
+  });
+
+  test('votePercent 30: one vote of 3 is enough', async () => {
+    const s = await start({}, { votePercent: 30 });
+    assert.equal((await s.state()).skip.need, 1);
+    await vote(s, 'Alice', 1);
+    assert.equal(await title(s), 'Song B');
+  });
+
+  test('a votePercent that isn\'t 1 to 100 falls back to 60, and the log says so', async () => {
+    const s = await start({}, { votePercent: 'lots' });
+    assert.equal((await s.state()).skip.need, 2, '60% of 3');
+    assert.match(fs.readFileSync(s.logFile, 'utf8'), /votePercent should be a number from 1 to 100, not "lots"; using 60/);
+  });
+
+  test('the DJ isn\'t counted: 2 people online and the DJ on still need 2 votes, not 3 of 3', async () => {
+    const s = await servers({ initial: { current: song(1, 'Song A', 'Zed', { duration: 10000 }) } });
+    const stop = await s.keepOnline('Alice', 'Bob');
+    await s.post('/chat', { text: '!dj on' }, { as: 'Bob' });
+    const st = await s.state();
+    assert.equal(st.dj, true);
+    assert.deepEqual(st.users, ['Alice', 'Bob']);
+    assert.equal(st.skip.need, 2);
+    stop();
   });
 });

@@ -1278,7 +1278,8 @@ if ('mediaSession' in navigator) {
   };
   for (const [action, fn] of Object.entries(handlers)) { try { ms.setActionHandler(action, fn); } catch {} }
 }
-// Skip is a vote: the song is skipped once more than half of the people online have voted.
+// Skip is a vote: the song is skipped once enough of the people online have voted (votePercent in config.json,
+// 60% by default; the server sends how many: s.skip.need).
 // Clicking again takes your vote back. The server sends who has voted with each update (drawSkip).
 // Whoever added the song can skip it straight away, without a vote.
 // Each vote says which song it's for and which way, so a click just as the song changes can't vote on the
@@ -1395,7 +1396,7 @@ $('log').onclick = e => {
 };
 $('history').onclick = e => { const copy = e.target.closest('.copy'); if (copy) copyLink(copy.dataset.url, copy); };
 // The bin button on every queued song. Yours: removes it (two clicks). Anyone else's, and the DJ's: a vote to
-// remove it, removed once more than half of the people online have voted (like skipping). The count of
+// remove it, removed once enough of the people online have voted (like skipping: s.skip.need). The count of
 // votes shows on the button for everyone; hovering says who.
 function delButton(q, s) {
   const voters = q.removeVoters || [], people = s.users.length, mine = q.by === myName, voted = voters.includes(myName);

@@ -153,13 +153,13 @@ process.on('uncaughtException', err => {
 });
 
 // ---------- Settings ----------
-// config.json holds the password and port. It's not in git. The first run makes one with a random
-// password and port 3000; change either there. Saving the file restarts the server by itself when
-// it's run with `node --watch` (start.cmd does).
+// config.json holds the room password, the port, and votePercent (see below). It's not in git. The first
+// run makes one with a random password, port 3000 and votePercent 60; change them there. Saving the file
+// restarts the server by itself when it's run with `node --watch` (start.cmd does).
 const CONFIG = path.join(__dirname, 'config.json');
-const DEFAULT_PORT = 3000;
+const DEFAULT_PORT = 3000, DEFAULT_VOTE_PERCENT = 60;
 if (!fs.existsSync(CONFIG)) {
-  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT };
+  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT };
   fs.writeFileSync(CONFIG, JSON.stringify(fresh, null, 2) + '\n');
   console.log(`No config.json yet: made one with the password "${fresh.password}" and port ${fresh.port}. Change them in config.json.`);
 }
@@ -170,6 +170,14 @@ try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' 
 const PORT = process.env.PORT || config.port || DEFAULT_PORT;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
 if (!PASSWORD) fatal('No password set: put one in config.json');
+// votePercent: how many of the people online (as a percentage, rounded up) have to vote to skip the song
+// playing, or to remove someone else's song from the queue. The DJ isn't a person, so it never counts.
+const VOTE_PERCENT = (() => {
+  const p = Number(config.votePercent ?? DEFAULT_VOTE_PERCENT);
+  if (p > 0 && p <= 100) return p;
+  console.log(`config.json: votePercent should be a number from 1 to 100, not ${JSON.stringify(config.votePercent)}; using ${DEFAULT_VOTE_PERCENT}`);
+  return DEFAULT_VOTE_PERCENT;
+})();
 
 // Logins: joining takes the room password (config.json: keeps strangers out) plus a nickname and that
 // nickname's own password (keeps the name yours). The first time a nickname is used, its password is
@@ -657,20 +665,22 @@ function download(item) {
 }
 
 // ---------- Vote to skip ----------
-// Skip is a vote: the song is skipped once more than half of the people online have voted (so on your
-// own, one click skips). Clicking again takes your vote back. Votes are for the current song only, and
-// only count while the voter is online, so someone leaving can tip the vote over.
+// Skip is a vote: the song is skipped once votePercent of the people online have voted (config.json, 60 by
+// default, rounded up: 2 of 3, 3 of 4, 3 of 5, 4 of 6; on your own, one click skips). Clicking again takes
+// your vote back. Votes are for the current song only, and only count while the voter is online, so someone
+// leaving can tip the vote over. Only people count: the DJ never checks in, so it's never online.
 const skipVotes = new Set(); // nicknames, in the order they voted
 // Votes from before a restart, if the same song is still playing.
 if (savedSkip && current && savedSkip.song === current.id && Array.isArray(savedSkip.voters)) {
   for (const n of savedSkip.voters) if (typeof n === 'string') skipVotes.add(n);
 }
 const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
-const skipNeeded = people => Math.floor(people / 2) + 1;
+// Votes needed (to skip, or to remove someone else's song) with this many people online: never fewer than 1.
+const votesNeeded = people => Math.max(1, Math.ceil(people * VOTE_PERCENT / 100 - 1e-9));
 function checkSkip() {
   if (!current) return;
   const people = online(), voters = people.filter(n => skipVotes.has(n));
-  if (!voters.length || voters.length < skipNeeded(people.length)) return;
+  if (!voters.length || voters.length < votesNeeded(people.length)) return;
   const last = [...skipVotes].filter(n => voters.includes(n)).pop(); // the vote that tipped it
   addLog(last, people.length === 1
     ? `skipped "${current.title}"`
@@ -680,7 +690,7 @@ function checkSkip() {
 
 // ---------- Vote to remove ----------
 // Every queued song has a bin button. Whoever added a song removes it straight away; anyone else's (the
-// DJ's too) is a vote: it goes once more than half of the people online have voted, as for skipping.
+// DJ's too) is a vote: it goes once votePercent of the people online have voted, as for skipping.
 // Clicking again takes the vote back; votes only count while the voter is online, and survive a restart.
 const removeVotes = new Map(); // song id -> Set of nicknames, in the order they voted
 if (savedRemove && typeof savedRemove === 'object') {
@@ -708,7 +718,7 @@ function checkRemoves() {
     const item = queue.find(q => q.id === id);
     if (!item) { removeVotes.delete(id); continue; }
     const voters = people.filter(n => votes.has(n));
-    if (!voters.length || voters.length < skipNeeded(people.length)) continue;
+    if (!voters.length || voters.length < votesNeeded(people.length)) continue;
     const last = [...votes].filter(n => voters.includes(n)).pop(); // the vote that tipped it
     removeFromQueue(item, last, people.length === 1 ? `removed "${item.title}"` : `removed "${item.title}" (${voters.length} of ${people.length} voted)`);
   }
@@ -831,7 +841,7 @@ function state(q) {
     colors, faces,
     reactions: reactions.filter(r => now - r.t < secs(6)),
     users,
-    skip: { voters: users.filter(n => skipVotes.has(n)), need: skipNeeded(users.length) }, // vote to skip
+    skip: { voters: users.filter(n => skipVotes.has(n)), need: votesNeeded(users.length) }, // vote to skip
     dj: !!(dj && dj.isOn()),
     logRev, chatRev, historyRev,
   };

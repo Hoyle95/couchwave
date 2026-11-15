@@ -39,7 +39,8 @@ class Server {
   // initial: what to put in data/state.json first (songs from song() get files made for them).
   // files: { 'name.mp4': Buffer } extra files for data/downloads.
   // expectProblems: a pattern for errors the test means to cause (anything else in the log fails the test).
-  constructor({ initial, files, expectProblems } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; }
+  // config: extra settings for config.json (e.g. { votePercent: 100 }).
+  constructor({ initial, files, expectProblems, config } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; this.config = config; }
 
   async start() {
     if (!this.dir) {
@@ -48,7 +49,7 @@ class Server {
       for (const d of ['icons', 'fonts']) fs.cpSync(path.join(ROOT, d), path.join(this.dir, d), { recursive: true });
       fs.mkdirSync(path.join(this.dir, 'data', 'downloads'), { recursive: true });
       this.port = await freePort();
-      fs.writeFileSync(path.join(this.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: this.port }));
+      fs.writeFileSync(path.join(this.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: this.port, ...this.config }));
       if (this.initial) {
         const s = { nextId: 100, queue: [], current: null, startedAt: Date.now(), paused: false, pausedAt: 0, log: [], chat: [], colors: {}, faces: {}, ...this.initial };
         for (const q of [s.current, ...s.queue]) if (q && q.file && !this.files[q.file]) this.files[q.file] = Buffer.alloc(64 * 1024, q.id % 256);

@@ -25,7 +25,8 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
 
 4. Open <http://localhost:3000>. The room password is in **`config.json`**, which is created the first
-   time it runs. Change the password or the port there; the server restarts by itself when you save.
+   time it runs. Change the password, the port or the vote percentage there; the server restarts by itself
+   when you save.
 
 ## Linux (Debian, Ubuntu, Raspberry Pi OS)
 
@@ -55,8 +56,8 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
    ```
 
 3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The room
-   password is printed on the first run and saved in **`config.json`**. Change the password or the port
-   there and restart.
+   password is printed on the first run and saved in **`config.json`**. Change the password, the port or the
+   vote percentage there and restart.
 
 ## Keep it running
 

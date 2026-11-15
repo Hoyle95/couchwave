@@ -16,9 +16,11 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   Off by default; `!dj off` stops it.
 - **History**: the last 100 songs played, under Activity, with thumbnails, who asked, when, and a copy link.
 - **Vote to remove**: a bin on every queued song. Your own go straight away; anyone else's, and the DJ's,
-  go once more than half of the people online vote. The vote count shows on the button.
-- **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"), more than half of the people online
-  skips. Whoever added the song can skip it straight away.
+  go once enough of the people online vote. The vote count shows on the button.
+- **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"). Whoever added the song can skip it straight
+  away.
+- **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
+  someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
 - **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
 - **Joined / left** in the activity log.
 - **Audio only**: turn the video off just for you, to listen and save data.
