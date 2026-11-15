@@ -36,8 +36,7 @@ ahead of when they play, and deleted after they've played.
 
 ## Getting started
 
-1. Install Node.js, yt-dlp and ffmpeg, then start Couchwave. Step-by-step for Windows and Linux, starting
-   it with the computer, and letting friends in from outside your home: **[docs/INSTALL.md](docs/INSTALL.md)**.
+1. Install Node.js, yt-dlp and ffmpeg, then start Couchwave. Step-by-step instructions at **[docs/INSTALL.md](docs/INSTALL.md)**.
 2. Open <http://localhost:3000>. The room password is in **`config.json`**, made the first time it runs.
 3. Give your friends the address and the room password.
 
