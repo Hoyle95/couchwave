@@ -7,10 +7,12 @@ Changes to Couchwave. The newest are at the top; "Unreleased" is what's been add
 ### Added
 
 - **DJ**: type `!dj on` in the chat, and a DJ keeps up to 10 songs queued, like what people have been asking
-  for (from YouTube's Mix of recent requests and the History, other artists first, no repeats, no albums or
-  hour-long mixes). Its songs always go after everyone else's, and removing or skipping
-  them is a vote, like any song. `!dj off` stops it adding songs (what it queued stays); `!dj` says whether it's on. Off by default. The nickname
-  "DJ" is reserved. It's a separate file (`dj.js`).
+  for (from YouTube's Mix of songs people requested or played, other artists first, no repeats, no albums
+  or hour-long mixes). Its ideas only come from people's songs, never its own picks, so it doesn't feed on
+  itself; with nothing to go on, it asks in the chat for a song and starts as soon as there is one. Its songs
+  always go after everyone else's, and removing or skipping them is a vote, like any song. `!dj off` stops it
+  adding songs (what it queued stays); `!dj` says whether it's on. Off by default. The nickname "DJ" is
+  reserved. It's a separate file (`dj.js`).
 - **History**: a row of the last 100 songs played under Activity, newest on the left: thumbnail (opens it
   on YouTube), title, who asked for it, when it played, and a button to copy its link.
 

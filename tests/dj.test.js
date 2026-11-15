@@ -53,19 +53,43 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await s.state()).chat.at(-1).text, '!djembe lessons anyone?');
   });
 
-  test('keeps up to 10 songs queued: like what people asked for, other artists first, nothing that isn\'t a song', async () => {
-    const s = await start();
-    await aliceSong(s, 'long_000002'); // a 200-second song, still playing
+  test('keeps up to 10 songs queued, only from what people asked for (never its own picks), nothing that isn\'t a song', async () => {
+    // Alice is playing a long song; Alice and Bob asked for 4 more before (the History).
+    const now = Date.now(), asked = ['hist_000001', 'hist_000002', 'hist_000003', 'hist_000004'];
+    const s = await start({
+      here: {}, current: song(1, 'Song play_000001', 'Alice', { duration: 10000, url: yt('play_000001') }),
+      history: [{ url: yt('play_000001'), title: 'Song play_000001', by: 'Alice', t: now },
+        ...asked.map((id, i) => ({ url: yt(id), title: `Song ${id}`, by: i % 2 ? 'Bob' : 'Alice', t: now - (i + 1) * 60000 }))],
+    });
     await say(s, 'Bob', '!dj on');
     await waitFor(() => djCount(10)(s), 20000, '10 DJ songs');
     const mine = await djSongs(s);
-    const fromMix = n => (n + require('crypto').createHash('md5').update('long_000002').digest('hex')).slice(0, 11); // as fakes/yt-dlp.js
-    assert.ok([fromMix('b'), fromMix('e')].includes(vid(mine[0])), 'its first: another artist from the Mix of Alice\'s song: ' + vid(mine[0]));
     assert.equal(new Set(mine.map(vid)).size, 10, 'no repeats');
     assert.ok(!mine.some(q => /Full Album|Too Short/.test(q.title)), 'no albums or jingles');
-    assert.ok((await s.log()).some(l => /^DJ: added ".+" \(like "Song long_000002", from Alice\)$/.test(l)), 'the log says why');
+    const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
+    assert.equal(picks.length, 10);
+    assert.ok(picks.every(l => /\(like "Song (play|hist)_00000\d", from (Alice|Bob)\)$/.test(l)), 'every pick is like a song a person asked for:\n' + picks.join('\n'));
     await sleep(4000);
     assert.equal((await djSongs(s)).length, 10, 'and no more');
+  });
+
+  test('run out of ideas: asks in the chat (once), and carries on as soon as someone adds a song', async () => {
+    // Alice's only song, and everything in its Mix already played (by the DJ): nothing new to find.
+    const seed = 'aaaa_000001', fromMix = n => (n + require('crypto').createHash('md5').update(seed).digest('hex')).slice(0, 11); // as fakes/yt-dlp.js
+    const now = Date.now();
+    const s = await start({ here: {}, history: [
+      { url: yt(seed), title: `Song ${seed}`, by: 'Alice', t: now },
+      ...['a', 'b', 'e'].map((n, i) => ({ url: yt(fromMix(n)), title: `DJ pick ${n}`, by: 'DJ', t: now - (i + 1) * 60000 })),
+    ] });
+    await say(s, 'Bob', '!dj on');
+    await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /run out of new songs/.test(m.text)), 8000, 'the DJ to ask');
+    await sleep(4000);
+    assert.equal((await s.state()).chat.filter(m => /run out of new songs/.test(m.text)).length, 1, 'once');
+    assert.equal((await djSongs(s)).length, 0, 'and it doesn\'t pick from its own songs instead');
+    const t = Date.now();
+    await s.post('/add', { url: yt('bobs_000009') }, { as: 'Bob' });
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like ".+", from Bob\)$/.test(l)), 10000, 'the DJ to carry on from Bob\'s song');
+    assert.ok(Date.now() - t < 10000, `picked up in ${((Date.now() - t) / 1000).toFixed(1)}s, not 30`);
   });
 
   test('always after people\'s songs: a song added later still goes ahead of the DJ\'s', async () => {
@@ -122,13 +146,15 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await s.state()).dj, false);
   });
 
-  test('nothing played or queued yet: says so (once), instead of guessing', async () => {
+  test('nothing played or queued yet: asks for a song (once), and starts as soon as there is one', async () => {
     const s = await start();
     await say(s, 'Bob', '!dj on');
     await sleep(4000);
-    const said = (await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on/.test(m.text));
+    const said = (await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on yet: add a song/.test(m.text));
     assert.equal(said.length, 1);
     assert.equal((await djSongs(s)).length, 0);
+    await aliceSong(s, 'long_000005');
+    await waitFor(() => djCount(1)(s), 10000, 'the DJ to start from Alice\'s song');
   });
 
   test('nobody can be "DJ": not as a new nickname, and not with an account from before it was reserved', async () => {

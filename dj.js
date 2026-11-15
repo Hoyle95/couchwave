@@ -2,7 +2,10 @@
 // ones people have been asking for: from YouTube's Mix (its radio playlist) for songs people requested (in
 // the queue, or recently played: the History), preferring other artists, and skipping anything in the
 // History or the queue, and anything too short, too long or not really a song (full albums, hour-long
-// mixes, live sets...). When there's nothing new to find from people's songs, it carries on from its own.
+// mixes, live sets...). Its ideas only ever come from songs people asked for, never its own picks, so it
+// doesn't feed on itself. With nothing to go on (nobody has asked for anything yet, or nothing new turns
+// up) it asks in the chat, once, when the queue is about to run dry, and starts again as soon as someone
+// adds a song.
 //
 // Off until someone types "!dj on" in the chat; "!dj off" stops it adding songs (what it queued stays);
 // "!dj" says whether it's on. Its songs go in as "DJ", always after everyone else's (server.js), and anyone
@@ -18,7 +21,7 @@ const NAME = 'DJ', FACE = '🎧';
 const KEEP_QUEUED = 10;                    // the DJ's own songs waiting in the queue, at most
 const MIN_SECONDS = 90, MAX_SECONDS = 600; // a song, not a jingle or an hour-long mix
 const NOT_A_SONG = /full album|\bhours?\b|compilation|\bmix\b|playlist|\blive\b|non-?stop|megamix/i;
-const IDEAS_FROM = 5;                      // starting points: the last this-many songs people asked for
+const IDEAS_FROM = 10;                     // starting points: the last this-many songs people asked for
 const FROM_ONE_MIX = 3;                    // songs taken from one Mix at most, for variety
 const CHECK_EVERY = 3000, RETRY_AFTER = 30000;
 
@@ -33,7 +36,7 @@ module.exports = function startDj(app) {
   try { saved = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch {}
   let on = saved.on === true; // off by default
   const recentArtists = [];   // the DJ's own last few, to keep some variety
-  let busy = false, nextTry = 0, saidNothingToGoOn = false;
+  let busy = false, nextTry = 0, asked = false, lastIdeas = '';
   if (!app.faces[NAME]) app.faces[NAME] = FACE;
 
   function save() {
@@ -50,7 +53,7 @@ module.exports = function startDj(app) {
       if ((want === 'on') === on) app.say(NAME, `${FACE} I'm already ${want}.`);
       else {
         on = want === 'on';
-        saidNothingToGoOn = false;
+        asked = false;
         nextTry = 0;
         save();
         app.log(who, `turned the DJ ${want}`);
@@ -69,31 +72,37 @@ module.exports = function startDj(app) {
     return true;
   }
 
-  // Starting points, best first: the last few songs people asked for (queued, then played), then the DJ's own.
+  // Starting points: the last few songs people asked for (queued, then played), in random order. Never the
+  // DJ's own: it would end up going round in circles on its own picks.
   function ideas() {
-    const people = [], own = [], seen = new Set();
+    const people = [], seen = new Set();
     for (const q of [...app.queue()].reverse().concat(app.history())) {
       const id = idOf(q.url);
-      if (!id || seen.has(id)) continue;
+      if (!id || seen.has(id) || q.by === NAME) continue;
       seen.add(id);
-      if (q.by === NAME) own.push({ id, title: q.title, by: q.by });
-      else if (people.length < IDEAS_FROM) people.push({ id, title: q.title, by: q.by });
+      people.push({ id, title: q.title, by: q.by });
+      if (people.length === IDEAS_FROM) break;
     }
-    return [...shuffle(people), ...own.slice(0, IDEAS_FROM)];
+    return shuffle(people);
+  }
+
+  // Says something in the chat, once, if the music's about to stop (nothing else waiting in the queue).
+  function ask(text) {
+    if (asked || app.queue().some(q => q.status !== 'failed')) return;
+    app.say(NAME, `${FACE} ${text}`);
+    asked = true;
   }
 
   async function tick() {
-    if (!on || busy || Date.now() < nextTry) return;
+    if (!on || busy) return;
     if (app.queue().filter(q => q.by === NAME).length >= KEEP_QUEUED) return;
+    const starts = ideas();
+    const now = starts.map(s => s.id).sort().join(',');
+    if (now !== lastIdeas) { lastIdeas = now; nextTry = 0; asked = false; } // someone asked for something new: go
+    if (Date.now() < nextTry) return;
+    if (!starts.length) return ask('Nothing to go on yet: add a song you like, and I\'ll keep the music going with more like it.');
     busy = true;
     try {
-      const starts = ideas();
-      if (!starts.length) {
-        if (!saidNothingToGoOn) app.say(NAME, `${FACE} Nothing to go on yet: add a song, and I'll take it from there.`);
-        saidNothingToGoOn = true;
-        nextTry = Date.now() + RETRY_AFTER;
-        return;
-      }
       let added = 0;
       for (const seed of starts) {
         const wanted = KEEP_QUEUED - app.queue().filter(q => q.by === NAME).length;
@@ -114,13 +123,17 @@ module.exports = function startDj(app) {
           artistsTaken.add(artist(pick.title));
           fromThisMix++;
           app.addSong(`https://www.youtube.com/watch?v=${pick.id}`, pick.title, NAME,
-            `added "${pick.title}" (like "${short(seed.title)}"${seed.by === NAME ? '' : `, from ${seed.by}`})`);
+            `added "${pick.title}" (like "${short(seed.title)}", from ${seed.by})`);
           recentArtists.unshift(artist(pick.title));
           recentArtists.length = Math.min(recentArtists.length, 4);
           added++;
         }
       }
-      if (!added) nextTry = Date.now() + RETRY_AFTER; // nothing new anywhere: try again in a while
+      if (added) asked = false;
+      else if (app.queue().filter(q => q.by === NAME).length < KEEP_QUEUED) { // nothing new from anyone's songs
+        nextTry = Date.now() + RETRY_AFTER; // try again in a while (or as soon as someone adds a song)
+        ask('I\'ve run out of new songs like the ones you\'ve played: add one, and I\'ll keep going from there.');
+      }
     } catch (err) {
       console.error('DJ:', err.message);
       nextTry = Date.now() + RETRY_AFTER;
