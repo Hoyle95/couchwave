@@ -138,6 +138,7 @@
   .brand h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
   .me { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 5px 6px; position: relative; }
   .me b { font-weight: 600; }
+  .me.loading > .editAv, .me.loading > #me { visibility: hidden; } /* until the server says what your picture is: no stand-in */
   #theme { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
   #theme svg { width: 18px; height: 18px; }
   /* Log out: same round shape as the theme toggle, in the red accent */
@@ -407,12 +408,14 @@
 <body>
 
 <!-- SVG icons -->
-<svg style="display:none">
+<svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden"> <!-- not display:none: Firefox ignores masks in that -->
   <!-- The logo: a couch whose back is a sound wave. -->
   <symbol id="i-logo" viewBox="0 .75 24 24"><rect x="1" y="9.5" width="4" height="10" rx="2"/><rect x="19" y="9.5" width="4" height="10" rx="2"/><rect x="1" y="14" width="22" height="5.5" rx="2"/><rect x="3.2" y="18" width="2" height="3" rx=".8"/><rect x="18.8" y="18" width="2" height="3" rx=".8"/><rect x="5.8" y="6" width="2" height="9" rx="1"/><rect x="8.4" y="4.5" width="2" height="10.5" rx="1"/><rect x="11" y="5.5" width="2" height="9.5" rx="1"/><rect x="13.6" y="7.5" width="2" height="7.5" rx="1"/><rect x="16.2" y="6.5" width="2" height="8.5" rx="1"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></symbol>
-  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5v-1a7 7 0 0 1 14 0v1h-2a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><path d="M4.5 6h9A2.5 2.5 0 0 1 16 8.5v1.3l3.9-2.5A1.4 1.4 0 0 1 22 8.5v7a1.4 1.4 0 0 1-2.1 1.2L16 14.2v1.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 2 15.5v-7A2.5 2.5 0 0 1 4.5 6z"/></symbol>
+  <!-- Video off: the camera with a slash, cut out with a small gap around the slash -->
+  <symbol id="i-video-off" viewBox="0 0 24 24"><mask id="m-video-off"><rect width="24" height="24" fill="#fff"/><path d="M3.5 3.5 20.5 20.5" stroke="#000" stroke-width="5" stroke-linecap="round"/></mask><path mask="url(#m-video-off)" d="M4.5 6h9A2.5 2.5 0 0 1 16 8.5v1.3l3.9-2.5A1.4 1.4 0 0 1 22 8.5v7a1.4 1.4 0 0 1-2.1 1.2L16 14.2v1.3a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 2 15.5v-7A2.5 2.5 0 0 1 4.5 6z"/><path d="M3.5 3.5 20.5 20.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 6.3v11.4a1 1 0 0 0 1.55.83L15 13v4.5a1 1 0 0 0 2 0v-11a1 1 0 0 0-2 0V11L6.55 5.47A1 1 0 0 0 5 6.3z"/></symbol>
   <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.5 8.5a1 1 0 0 1 1.4.1 5.5 5.5 0 0 1 0 6.8 1 1 0 1 1-1.5-1.3 3.5 3.5 0 0 0 0-4.2 1 1 0 0 1 .1-1.4z"/></symbol>
   <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9.5v5a1 1 0 0 0 1 1h3l4.4 3.6a1 1 0 0 0 1.6-.8V5.7a1 1 0 0 0-1.6-.8L8 8.5H5a1 1 0 0 0-1 1zM16.3 9.3a1 1 0 0 1 1.4 0L19 10.6l1.3-1.3a1 1 0 1 1 1.4 1.4L20.4 12l1.3 1.3a1 1 0 0 1-1.4 1.4L19 13.4l-1.3 1.3a1 1 0 0 1-1.4-1.4l1.3-1.3-1.3-1.3a1 1 0 0 1 0-1.4z"/></symbol>
@@ -468,7 +471,7 @@
       <div class="logo"><svg><use href="#i-logo"/></svg></div>
       <h1>Couchwave</h1>
     </div>
-    <div class="me">
+    <div class="me loading">
       <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
       <b id="me" class="nm"></b>
       <div id="colorPop" class="pop" hidden>
@@ -503,7 +506,7 @@
           <video id="v" playsinline muted></video>
           <audio id="a" preload="auto"></audio>
           <div id="vSpin" hidden></div>
-          <div id="audioCard" ondblclick="toggleFs()"><div><svg><use href="#i-logo"/></svg><b>Audio only</b><span>The video is off for you. Tap the headphones to bring it back.</span></div></div>
+          <div id="audioCard" ondblclick="toggleFs()"><div><svg><use href="#i-logo"/></svg><b>Audio only</b><span>The video is off for you. Tap the video button to bring it back.</span></div></div>
           <div id="idle"><div><svg><use href="#i-logo"/></svg><div>Nothing playing — paste a YouTube link or type a song name above to get started</div></div></div>
           <button id="unmute" hidden onclick="unmute()"><svg><use href="#i-mute"/></svg> Tap to unmute</button>
         </div>
@@ -530,7 +533,7 @@
             <button id="muteBtn" class="iconbtn" onclick="toggleMute()" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
             <input id="vol" type="range" min="0" max="1" step="0.01">
           </div>
-          <button id="audioBtn" class="iconbtn" onclick="toggleAudioOnly()" aria-pressed="false" aria-label="Audio only"><svg><use href="#i-headphones"/></svg></button>
+          <button id="audioBtn" class="iconbtn" onclick="toggleAudioOnly()" aria-pressed="false" aria-label="Audio only"><svg><use href="#i-video"/></svg></button>
           <button id="fsBtn" class="iconbtn" onclick="toggleFs()" title="Full screen (double-click the video too)" aria-label="Full screen"></button>
         </div>
       </section>
@@ -571,7 +574,7 @@
   </div>
 
   <footer>
-    <p>Want your own? Couchwave is free and open source: host your own instance, <a href="https://github.com/Hoyle95/couchwave" target="_blank" rel="noopener">get it on GitHub</a>.</p>
+    <p>Couchwave is free and open source: host your own instance, <a href="https://github.com/Hoyle95/couchwave" target="_blank" rel="noopener">get it on GitHub</a>.</p>
     <p>Vibe coded by <a href="https://matthoyle.me/" target="_blank" rel="noopener">Matt Hoyle</a> using Claude Opus 5.5</p>
   </footer>
 </div>
@@ -640,7 +643,8 @@ const savePick = () => { try { localStorage.setItem('myPick', JSON.stringify(myP
 
 // On load: if the saved cookie still works, skip the join screen.
 (async () => {
-  if (getCookie('pw') && (await fetch('/state').catch(() => null))?.ok) return enter();
+  setCookie('pw', '', 0); // older versions kept the password itself in a cookie: tidy it away
+  if ((await fetch('/state').catch(() => null))?.ok) return enter(); // still logged in
   $('name').value = getCookie('name');
   $('joinAvWrap').appendChild($('colorPop')); // the picture picker opens under the big picture until you've joined
   previewMe();
@@ -659,10 +663,9 @@ function previewMe() {
 async function join(e) {
   e.preventDefault();
   setCookie('name', $('name').value.trim());
-  setCookie('pw', $('pw').value);
-  const r = await fetch('/state').catch(() => null);
+  // The server checks the password and answers with a login cookie (the password itself isn't kept).
+  const r = await fetch('/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value }) }).catch(() => null);
   if (!r || !r.ok) {
-    if (r && r.status === 401) setCookie('pw', '', 0); // don't keep a wrong password: every reload would count as another wrong try
     $('err').textContent = !r ? "Can't reach the server" : r.status === 429 ? 'Too many wrong tries, wait a few minutes' : 'Wrong password';
     return;
   }
@@ -900,7 +903,7 @@ $('swatches').onclick = e => {
   if (b) apply(rgbToHsv(...hexToRgb(b.dataset.c)), { hex: b.dataset.c, save: true });
 };
 
-function logout() { setCookie('pw', '', 0); location.reload(); }
+async function logout() { await fetch('/logout', { method: 'POST' }).catch(() => {}); location.reload(); }
 
 // Theme: follows the OS until you click the toggle, then remembers your choice.
 const isDark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')) === 'dark';
@@ -942,6 +945,7 @@ function drawAudioOnly() {
   $('player').classList.toggle('audioMode', audioOnly);
   const b = $('audioBtn');
   b.classList.toggle('on', audioOnly);
+  b.innerHTML = icon(audioOnly ? 'video-off' : 'video');
   b.setAttribute('aria-pressed', audioOnly);
   b.title = audioOnly ? 'Audio only is on: click to show the video again (just you)' : 'Audio only: turn the video off for you (saves data)';
 }
@@ -1358,7 +1362,7 @@ async function poll() {
   let s;
   try {
     const r = await fetch(`/state?log=${logRev}&chat=${chatRev}`);
-    if (r.status === 401) return location.reload(); // password changed: back to the join screen
+    if (r.status === 401) return location.reload(); // logged out (new password, or everyone was logged out): back to the join screen
     if (!r.ok) return;
     s = await r.json();
   } catch { return; } // server restarting: the next tick tries again
@@ -1375,6 +1379,7 @@ async function poll() {
   faces = s.faces || {};
   if (!$('colorPop').hidden) { if (mine != null) colors[myName] = mine; if (myFace) faces[myName] = myFace; }
   paintMe();
+  document.querySelector('.me').classList.remove('loading'); // your real name and picture are known now
   const colorsKey = JSON.stringify([colors, faces]), recolor = colorsKey !== lastColorsKey; // names/pictures need redrawing
   lastColorsKey = colorsKey;
 

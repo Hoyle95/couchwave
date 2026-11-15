@@ -1,5 +1,6 @@
 // Couchwave: watch YouTube together with friends, on your own server. No npm packages needed.
 // Run: node server.js   then open http://localhost:3000   (the password is in config.json, see README.md)
+// Log everyone out: node server.js --logout-everyone
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +18,15 @@ const PREFETCH = 20;     // the top this-many songs of the queue get downloaded 
 const PLAYLIST_MAX = 100; // songs taken from one playlist
 const GRACE = 2;         // seconds after a song ends before the server moves on (see the timer below)
 fs.mkdirSync(DL, { recursive: true });
+
+// `node server.js --logout-everyone`: everyone has to enter the password again (works while the server is running).
+const KEYFILE = path.join(DATA, 'login-key');
+const newLoginKey = () => fs.writeFileSync(KEYFILE, crypto.randomBytes(32).toString('hex'));
+if (process.argv.includes('--logout-everyone')) {
+  newLoginKey();
+  console.log('Done: everyone is logged out and has to enter the password again.');
+  process.exit(0);
+}
 
 // ---------- Log file ----------
 // Everything the server prints goes to server.log, with timestamps. Once it passes LOG_MAX it's trimmed to
@@ -80,6 +90,20 @@ const PORT = process.env.PORT || config.port || DEFAULT_PORT;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
 if (!PASSWORD) fatal('No password set: put one in config.json');
 
+// Logins: the join screen sends the password once, and the server answers with a login cookie made from
+// the password and a secret key (data/login-key), so browsers never store the password itself. A new key
+// (--logout-everyone, above) or a new password makes every old login cookie stop working.
+let keyCache = { mtime: -1, key: '' };
+function loginKey() {
+  if (!fs.existsSync(KEYFILE)) newLoginKey();
+  const mtime = fs.statSync(KEYFILE).mtimeMs; // re-read when the file changes, so a running server notices
+  if (mtime !== keyCache.mtime) keyCache = { mtime, key: fs.readFileSync(KEYFILE, 'utf8').trim() };
+  return keyCache.key;
+}
+const loginToken = () => crypto.createHmac('sha256', loginKey()).update(PASSWORD).digest('base64url');
+const same = (a, b) => { a = Buffer.from(String(a ?? '')); b = Buffer.from(String(b)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
+const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
+
 // ---------- State ----------
 let nextId = 1;
 let queue = [];        // { id, url, title, by, status: 'waiting'|'downloading'|'ready'|'failed', duration, file, audio }
@@ -94,6 +118,19 @@ let faces = {};        // nickname -> the emoji they picked for their profile pi
 
 // Not saved:
 const seen = {};       // nickname -> last time their page checked in
+
+// "joined" / "left" in the activity log. Someone has left once their page hasn't checked in for a minute
+// (so a reload or a phone briefly dropping out isn't logged), or straight away when they log out. Pages
+// already open when the server starts aren't announced as joining again.
+const here = new Set();
+const LEAVE_AFTER = 60000, QUIET_UNTIL = Date.now() + 15000;
+function arrived(who) {
+  if (here.has(who)) return;
+  here.add(who);
+  if (Date.now() > QUIET_UNTIL) { addLog(who, 'joined'); dirty = true; }
+}
+function departed(who) { if (here.delete(who)) { addLog(who, 'left'); dirty = true; } }
+setInterval(() => { for (const who of here) if (Date.now() - (seen[who] || 0) > LEAVE_AFTER) departed(who); }, 5000);
 let reactions = [];    // { id, t, e, n, cid } emoji floating over the video; n = clicks in the bundle, cid = sending page
 let reactId = Date.now();  // ids start from the clock so they keep increasing across restarts
 // Log/chat change counters. Pages send back the ones they have, and only get the log/chat again when it
@@ -572,21 +609,37 @@ http.createServer((req, res) => {
     return fs.createReadStream(file).pipe(res);
   }
 
-  // Everything else needs the password cookie (set by the join screen).
-  const ip = ipOf(req), f = fails.get(ip);
-  if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
-  else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
-  const cookies = parseCookies(req.headers.cookie);
-  if (cookies.pw !== PASSWORD) {
-    if (cookies.pw) { const g = fails.get(ip) || { n: 0, since: Date.now() }; g.n++; fails.set(ip, g); }
-    res.writeHead(401); return res.end('Wrong password');
+  // Join screen: check the password and hand out the login cookie. Wrong tries count towards the limit.
+  if (route === 'POST /login') {
+    const ip = ipOf(req), f = fails.get(ip);
+    if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
+    else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
+    return readJson(req, 1000, ({ password }) => {
+      if (!same(password, PASSWORD)) {
+        const g = fails.get(ip) || { n: 0, since: Date.now() }; g.n++; fails.set(ip, g);
+        res.writeHead(401); return res.end('Wrong password');
+      }
+      res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', loginToken()).replace('%d', 31536000) }); // a year
+      res.end();
+    });
   }
+  if (route === 'POST /logout') {
+    const c = parseCookies(req.headers.cookie);
+    if (same(c.auth, loginToken())) { const who = (c.name || '').trim().slice(0, 30) || 'someone'; delete seen[who]; departed(who); }
+    res.writeHead(204, { 'Set-Cookie': AUTH_COOKIE.replace('%s', '').replace('%d', 0) });
+    return res.end();
+  }
+
+  // Everything else needs the login cookie.
+  const cookies = parseCookies(req.headers.cookie);
+  if (!same(cookies.auth, loginToken())) { res.writeHead(401); return res.end('Not logged in'); }
   let who = (cookies.name || '').trim().slice(0, 30) || 'someone';
   if (who === '__proto__' || who === 'constructor' || who === 'prototype') who = 'someone'; // would confuse object lookups
 
   switch (route) {
     case 'GET /state':
       seen[who] = Date.now();
+      arrived(who);
       return sendJson(res, state(url.searchParams));
 
     case 'POST /add': // { url: a YouTube link or a song name to search for, playlist: true = queue the whole playlist }
