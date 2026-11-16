@@ -14,7 +14,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **DJ**: `!dj on` in the chat keeps up to 10 songs queued, picked from YouTube's Mix of songs people asked
   for (never its own picks), always after people's songs. It asks in the chat when it has nothing to go on.
   Off by default; `!dj off` stops it.
-- **History**: the last 100 songs played, under Activity, with thumbnails, who asked, when, and a copy link.
+- **History**: the last 100 songs played, under Activity, with thumbnails, who asked, when, a copy link, and
+  a + to put a song back in the queue. Scrolls with the mouse wheel; names get up to 3 lines.
 - **Vote to remove**: a bin on every queued song. Your own go straight away; anyone else's, and the DJ's,
   go once enough of the people online vote. The vote count shows on the button. If a song plays before
   enough people vote to remove it, their votes count as votes to skip it.
@@ -25,9 +26,12 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   README.
 - **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
   someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
-- **`maxHours` in config.json**: the longest video anyone can add, 3 hours by default (`1.5` is an hour and
+- **`maxVideoHours` in config.json**: how long any one video can be, 3 hours by default (`1.5` is an hour and
   a half, `0.25` a quarter of an hour). Longer links are refused before anything downloads, with the reason
   in the queue; searches pass over results that are too long, and playlists leave them out.
+- **`downloadAhead` and `downloadsAtOnce` in config.json**: how many songs at the top of the queue are
+  downloaded ahead of time (20 by default), and how many download at the same time (3). Both were fixed
+  before.
 - **Instant updates**: chat, votes, songs changing and people joining show up for everyone straight away.
 - **Joined / left** in the activity log, with a sound (different from the message ding, and set by the same
   volume slider and mute button).

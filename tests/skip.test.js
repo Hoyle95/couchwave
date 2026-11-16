@@ -148,7 +148,7 @@ describe('vote to skip', { concurrency: true }, () => {
   test('a votePercent that isn\'t 1 to 100 falls back to 60, and the log says so', async () => {
     const s = await start({}, { votePercent: 'lots' });
     assert.equal((await s.state()).skip.need, 2, '60% of 3');
-    assert.match(fs.readFileSync(s.logFile, 'utf8'), /votePercent should be a number from 1 to 100, not "lots"; using 60/);
+    await s.logHas(/votePercent should be a number from 1 to 100, not "lots"; using 60/);
   });
 
   test('the DJ isn\'t counted: 2 people online and the DJ on still need 2 votes, not 3 of 3', async () => {

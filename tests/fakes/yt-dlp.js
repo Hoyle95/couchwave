@@ -64,7 +64,10 @@ if (args.includes('--flat-playlist')) {
   // A download: -o <file> ... -- <url>
   const out = args[args.indexOf('-o') + 1];
   const id = idOf(target);
+  const part = out + '.part'; // while downloading, like the real one (tests count these to see how many run at once)
+  try { fs.writeFileSync(part, ''); } catch {}
   const finish = () => {
+    fs.rmSync(part, { force: true });
     if (id.startsWith('fail_perm')) { console.error(`ERROR: [youtube] ${id}: Video unavailable`); process.exit(1); }
     if (id.startsWith('fail_temp')) { console.error('ERROR: unable to download video data: HTTP Error 403: Forbidden'); process.exit(1); }
     if (id.startsWith('live_')) process.exit(0);

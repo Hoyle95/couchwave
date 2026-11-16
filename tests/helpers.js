@@ -68,6 +68,9 @@ class Server {
   }
   get statePath() { return path.join(this.dir, 'data', 'state.json'); }
   get logFile() { return path.join(this.dir, 'data', 'server.log'); }
+  // Waits until data/server.log matches `re` (the server writes it in the background, so a line can land a
+  // moment after the server is up). Throws if it doesn't within `ms`.
+  logHas(re, ms = 3000) { return waitFor(() => { try { return re.test(fs.readFileSync(this.logFile, 'utf8')); } catch { return false; } }, ms, `the log to say ${re}`); }
 
   async stop() {
     if (!this.proc || this.proc.exitCode !== null) return;

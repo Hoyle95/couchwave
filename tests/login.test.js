@@ -251,6 +251,24 @@ test('many wrong guesses sent all at once still count towards the limit', async 
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from)).status, 429);
 });
 
+test('no config.json: one is made, with a random room password and every setting at its default', async () => {
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-fresh-'));
+  for (const f of ['server.js', 'dj.js', 'index.html']) fs.copyFileSync(path.join(__dirname, '..', f), path.join(dir, f));
+  const port = 30000 + Math.floor(Math.random() * 20000); // (PORT wins over config.json: never 3000, a real Couchwave's)
+  const server = require('child_process').spawn(process.execPath, ['server.js'], { cwd: dir, env: { ...process.env, PORT: String(port), COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
+  try {
+    const file = path.join(dir, 'config.json');
+    await waitFor(() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; } }, 5000, 'config.json to be made');
+    const { password, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.match(password, /^[\w-]{8}$/, 'a random room password');
+    assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false });
+  } finally {
+    server.kill();
+    await new Promise(r => setTimeout(r, 300));
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
 test('normally, the room password is needed (and the join screen shows its box)', async () => {
   const s = await start();
   assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: false });
@@ -263,7 +281,7 @@ test('"public": true in config.json: no room password (not even set), but nickna
   assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 204, 'in, with no room password');
   assert.equal((await join(s, { password: 'anything', name: 'Bob', own: 'secret2' })).status, 204);
   assert.equal((await join(s, { name: 'alice', own: 'guess' })).status, 401, 'Alice\'s nickname still needs her password');
-  assert.match(fs.readFileSync(s.logFile, 'utf8'), /"public" is on: there's no room password/, 'the log says so');
+  await s.logHas(/"public" is on: there's no room password/); // the log says so
 });
 
 test('"public" only turns on with exactly true ("yes" doesn\'t open the room by mistake)', async () => {

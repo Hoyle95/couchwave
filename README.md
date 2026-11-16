@@ -44,8 +44,12 @@ Settings are in `config.json` (made on the first run; restart Couchwave after ch
 - `port`: 3000 by default.
 - `votePercent`: how many of the people online have to vote to skip a song or remove someone else's.
   60 by default, so 2 of 3 or 3 of 5.
-- `maxHours`: the longest video anyone can add, since every video is downloaded in full to your computer.
+- `maxVideoHours`: how long any one video can be, in hours (each is downloaded in full to your computer).
   3 by default; any number works, like `1.5` (an hour and a half) or `0.25` (15 minutes).
+- `downloadAhead`: how many songs at the top of the queue are downloaded ahead of time, so they play
+  without waiting. 20 by default. The rest download as they move up, so a long playlist doesn't fill the disk.
+- `downloadsAtOnce`: how many of those download at the same time. 3 by default. Fewer is gentler on a
+  slow connection.
 - `public`: see below. Keep it `false`.
 
 A setting missing from an older `config.json` uses its default.

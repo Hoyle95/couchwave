@@ -21,9 +21,6 @@ const secs = n => n * 1000 * TIME_SCALE; // n seconds, in milliseconds
 const DATA = path.join(__dirname, 'data');
 const DL = path.join(DATA, 'downloads');
 const STATE = path.join(DATA, 'state.json');
-const MAX_DOWNLOADS = 3; // at the same time; the rest wait their turn (in queue order)
-const PREFETCH = 20;     // the top this-many songs of the queue get downloaded ahead (so a big playlist doesn't
-                         // fill the disk).
 const PLAYLIST_MAX = 100; // songs taken from one playlist
 const GRACE = 2;         // seconds after a song ends before the server moves on (see the timer below)
 fs.mkdirSync(DL, { recursive: true });
@@ -157,9 +154,10 @@ process.on('uncaughtException', err => {
 // first run makes one with a random password, port 3000, votePercent 60 and public false; change them there.
 // Saving the file restarts the server by itself when it's run with `node --watch` (start.cmd does).
 const CONFIG = path.join(__dirname, 'config.json');
-const DEFAULT_PORT = 3000, DEFAULT_VOTE_PERCENT = 60, DEFAULT_MAX_HOURS = 3;
+// The settings config.json starts with (besides the password), and what a missing one is taken to be.
+const DEFAULTS = { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false };
 if (!fs.existsSync(CONFIG)) {
-  const fresh = { password: crypto.randomBytes(6).toString('base64url'), port: DEFAULT_PORT, votePercent: DEFAULT_VOTE_PERCENT, maxHours: DEFAULT_MAX_HOURS, public: false };
+  const fresh = { password: crypto.randomBytes(6).toString('base64url'), ...DEFAULTS };
   fs.writeFileSync(CONFIG, JSON.stringify(fresh, null, 2) + '\n');
   console.log(`No config.json yet: made one with the password "${fresh.password}" and port ${fresh.port}. Change them in config.json.`);
 }
@@ -167,7 +165,7 @@ if (!fs.existsSync(CONFIG)) {
 const fatal = msg => { const l = `${stamp()}  ${msg}\n`; try { fs.appendFileSync(LOGFILE, l); } catch {} process.stderr.write(l); process.exit(1); };
 let config;
 try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' + err.message); }
-const PORT = process.env.PORT || config.port || DEFAULT_PORT;
+const PORT = process.env.PORT || config.port || DEFAULTS.port;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
 // public: true = no room password: anyone who has the address can join (with a nickname and its own password,
 // so names are still protected). Not recommended: see the README. Only the exact value true turns it on.
@@ -176,20 +174,25 @@ if (!PASSWORD && !PUBLIC) fatal('No password set: put one in config.json');
 if (PUBLIC) console.log('config.json: "public" is on: there\'s no room password, so anyone who has the address can join');
 // votePercent: how many of the people online (as a percentage, rounded up) have to vote to skip the song
 // playing, or to remove someone else's song from the queue. The DJ isn't a person, so it never counts.
-const VOTE_PERCENT = (() => {
-  const p = Number(config.votePercent ?? DEFAULT_VOTE_PERCENT);
-  if (p > 0 && p <= 100) return p;
-  console.log(`config.json: votePercent should be a number from 1 to 100, not ${JSON.stringify(config.votePercent)}; using ${DEFAULT_VOTE_PERCENT}`);
-  return DEFAULT_VOTE_PERCENT;
-})();
-// maxHours: the longest video anyone can add, in hours (1.5 = an hour and a half, 0.25 = 15 minutes). Every
+// A number setting from config.json: its default if it's missing (a config.json from an older version),
+// or if it isn't `valid` (then the log says why, `should` describing what it should be).
+function setting(key, valid, should) {
+  if (config[key] == null) return DEFAULTS[key]; // (null too, as before)
+  const v = Number(config[key]);
+  if (Number.isFinite(v) && valid(v)) return v;
+  console.log(`config.json: ${key} should be ${should}, not ${JSON.stringify(config[key])}; using ${DEFAULTS[key]}`);
+  return DEFAULTS[key];
+}
+const VOTE_PERCENT = setting('votePercent', p => p > 0 && p <= 100, 'a number from 1 to 100');
+// maxVideoHours: how long any one video can be, in hours (1.5 = an hour and a half, 0.25 = 15 minutes). Every
 // song is downloaded in full to this computer, so a 12-hour video would fill the disk and the upload.
-const MAX_HOURS = (() => {
-  const h = Number(config.maxHours ?? DEFAULT_MAX_HOURS);
-  if (Number.isFinite(h) && h > 0) return h;
-  console.log(`config.json: maxHours should be a number of hours above 0 (like 3, or 1.5), not ${JSON.stringify(config.maxHours)}; using ${DEFAULT_MAX_HOURS}`);
-  return DEFAULT_MAX_HOURS;
-})();
+const MAX_HOURS = setting('maxVideoHours', h => h > 0, 'a number of hours above 0 (like 3, or 1.5)');
+// Downloads: the top downloadAhead songs of the queue are downloaded ahead of time (not a whole 100-song
+// playlist at once, which would fill the disk), downloadsAtOnce of them at the same time (more at once
+// share this computer's download speed; the rest wait their turn, in queue order).
+const whole = n => Number.isInteger(n) && n >= 1;
+const PREFETCH = setting('downloadAhead', whole, 'a whole number of songs, 1 or more');
+const MAX_DOWNLOADS = setting('downloadsAtOnce', whole, 'a whole number, 1 or more');
 const MAX_SECONDS = Math.round(MAX_HOURS * 3600);
 // The limit in words, for the queue and the log: "3 hours", "1 hour 30 minutes", "18 minutes".
 const MAX_LENGTH_TEXT = (() => {
@@ -440,8 +443,8 @@ function cleanup() {
   }
 }
 
-// Downloads: the top PREFETCH songs of the queue get downloaded (so the disk doesn't fill up with a whole
-// playlist), MAX_DOWNLOADS at a time, highest in the queue first. If both slots are busy with songs lower
+// Downloads: the top PREFETCH songs of the queue get downloaded (downloadAhead in config.json, so the disk doesn't
+// fill up with a whole playlist), MAX_DOWNLOADS at a time (downloadsAtOnce), highest in the queue first. If both slots are busy with songs lower
 // down than a waiting one (e.g. a song that went in ahead of them), the lowest is stopped and restarted
 // later, so the song nearer the top goes first. Called whenever a download finishes, a song is played,
 // or the queue changes.
@@ -532,7 +535,7 @@ function addPlaylist(link, who) {
   addLog(who, 'is adding a playlist…');
   const entry = log[log.length - 1];
   listSongs(link, PLAYLIST_MAX, all => {
-    const songs = all.filter(s => !tooLong(s)), skipped = all.length - songs.length; // over maxHours: left out
+    const songs = all.filter(s => !tooLong(s)), skipped = all.length - songs.length; // over maxVideoHours: left out
     for (const s of songs) addSong(`https://www.youtube.com/watch?v=${s.id}`, s.title, who);
     const name = all.length && all[0].playlist, n = songs.length;
     const left = skipped ? `, ${skipped} longer than ${MAX_LENGTH_TEXT} left out` : '';
@@ -565,7 +568,7 @@ function bestMatch(query, songs) {
   const wanted = [...words(query)];
   let best = null, bestScore = -1;
   for (const s of songs) {
-    if (!(s.duration > 0) || tooLong(s)) continue; // a livestream, or longer than maxHours
+    if (!(s.duration > 0) || tooLong(s)) continue; // a livestream, or longer than maxVideoHours
     const title = words(s.title), score = wanted.filter(w => title.has(w)).length;
     if (score > bestScore) { best = s; bestScore = score; }
   }
@@ -648,7 +651,7 @@ function download(item) {
     '--encoding', 'utf-8',
     '--no-playlist', '--playlist-items', '1', // a playlist link: just its first video
     '--no-progress', '--match-filter', '!is_live', // a livestream would download forever
-    // Longer than maxHours: stops before downloading anything, with exit code 101. (<=?: a video that
+    // Longer than maxVideoHours: stops before downloading anything, with exit code 101. (<=?: a video that
     // doesn't say how long it is still goes ahead; its length is checked once it's here, see below.)
     '--break-match-filters', `duration <=? ${MAX_SECONDS}`,
     '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',

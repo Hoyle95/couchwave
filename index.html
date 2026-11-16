@@ -226,9 +226,9 @@
   #nowTitle { min-width: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; }
   .by { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
   .by .avatar { width: 20px; height: 20px; font-size: 12px; }
-  .copy { width: 34px; height: 34px; padding: 0; border-radius: 50%; flex: none; }
-  .copy svg { width: 16px; height: 16px; }
-  .copy.done { color: var(--ok); border-color: var(--ok); }
+  .copy, .requeue { width: 34px; height: 34px; padding: 0; border-radius: 50%; flex: none; }
+  .copy svg, .requeue svg { width: 16px; height: 16px; }
+  .copy.done, .requeue.done { color: var(--ok); border-color: var(--ok); }
   #queue .copy { width: 28px; height: 28px; }
   #queue .copy svg { width: 14px; height: 14px; }
   #queue .copygap { width: 28px; flex: none; } /* where the copy button goes once a searched-for song is found */
@@ -298,12 +298,14 @@
   #history li.empty { flex: 1; color: var(--muted); font-size: 14px; }
   #history .hthumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: var(--surface2); }
   #history a:hover .hthumb { filter: brightness(1.1); }
-  #history .htitle { margin-top: 2px; font-size: 13px; font-weight: 600; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #history .htitle { margin-top: 2px; font-size: 13px; font-weight: 600; line-height: 1.3; min-height: calc(3 * 1.3em); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; } /* room for 3 lines on every card */
   #history .hmeta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+  #history .htitle + .hmeta { margin-top: auto; } /* who and when at the bottom, level on every card, however long the title */
   #history .hmeta .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #history .htime { justify-content: space-between; }
-  #history .copy { width: 26px; height: 26px; }
-  #history .copy svg { width: 13px; height: 13px; }
+  #history .copy, #history .requeue { width: 26px; height: 26px; }
+  #history .copy svg, #history .requeue svg { width: 13px; height: 13px; }
+  #history .hbtns { display: flex; gap: 4px; }
   #history .avatar { width: 18px; height: 18px; font-size: 11px; flex: none; }
   #log .undo { margin-left: auto; flex: none; align-self: center; padding: 2px 10px; font-size: 12px; border-radius: 99px; }
   .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; flex: none; }
@@ -1400,7 +1402,31 @@ $('log').onclick = e => {
   if (b && Date.now() - (undoSeen[b.dataset.undo] || 0) < 1500) return;
   if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(poll); }
 };
-$('history').onclick = e => { const copy = e.target.closest('.copy'); if (copy) copyLink(copy.dataset.url, copy); };
+$('history').onclick = e => {
+  const copy = e.target.closest('.copy'), again = e.target.closest('.requeue');
+  if (copy) copyLink(copy.dataset.url, copy);
+  if (again) requeue(again);
+};
+// The mouse wheel scrolls History sideways (it's one row of cards). At either end it scrolls the page as
+// usual, so the page never gets stuck under the mouse; sideways swipes (trackpads, shift + wheel) are left alone.
+$('history').addEventListener('wheel', e => {
+  const el = e.currentTarget;
+  if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return; // zooming, or already sideways
+  const dy = e.deltaY * (e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? el.clientWidth : 1); // lines / pages -> pixels
+  const room = dy > 0 ? el.scrollWidth - el.clientWidth - el.scrollLeft : el.scrollLeft;
+  if (room < 1) return; // at that end already: let the page scroll
+  e.preventDefault();
+  el.scrollLeft += dy;
+}, { passive: false });
+// History's + button: queue the song again, as yours (like pasting its link). A green tick for a moment,
+// and clicks meanwhile are ignored, so a double click doesn't queue it twice.
+async function requeue(b) {
+  if (b.classList.contains('done')) return;
+  b.classList.add('done'); b.innerHTML = icon('check'); b.title = 'Added to the queue';
+  await post('/add', { url: b.dataset.url });
+  poll();
+  setTimeout(() => { b.classList.remove('done'); b.innerHTML = icon('plus'); b.title = 'Add it to the queue again'; }, 1500);
+}
 // The bin button on every queued song. Yours: removes it (two clicks). Anyone else's, and the DJ's: a vote to
 // remove it, removed once enough of the people online have voted (like skipping: s.skip.need). The count of
 // votes shows on the button for everyone; hovering says who.
@@ -1508,7 +1534,7 @@ function drawHistory() {
       <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
       <span class="htitle" title="${esc(h.title)}">${esc(h.title)}</span>
       <span class="hmeta">${avatar(h.by)} <span class="nm" style="color:${nameColor(h.by)}">${esc(h.by)}</span></span>
-      <span class="hmeta htime">${whenPlayed(h.t)}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button></span>
+      <span class="hmeta htime">${whenPlayed(h.t)}<span class="hbtns"><button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
     </li>`).join('') || '<li class="empty">Nothing played yet</li>';
   if (html !== lastHistory) { $('history').innerHTML = html; lastHistory = html; }
 }
