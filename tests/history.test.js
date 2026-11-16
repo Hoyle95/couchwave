@@ -1,4 +1,4 @@
-// History: the songs played, newest first, the last 100, kept across restarts, sent only when it changed.
+// ---------- History ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -7,7 +7,6 @@ const { testServers, song, yt, waitFor } = require('./helpers');
 const servers = testServers({ after });
 const start = initial => servers({ initial });
 
-// Each test has its own server, so they run at the same time.
 describe('history', { concurrency: true }, () => {
 test('each song that plays goes in, newest first: link, title, who asked for it and when', async () => {
   const s = await start({ queue: [song(1, 'First', 'Alice', { duration: 1, url: yt('first000001') }), song(2, 'Second', 'Bob', { duration: 100, url: yt('second00002') })] });

@@ -1,2 +1,2 @@
-// Stand-in for ffprobe in the tests: every file is 42 seconds long.
+// ---------- Stand-in for ffprobe ----------
 console.log('42');

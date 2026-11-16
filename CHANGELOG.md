@@ -4,7 +4,55 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- **Even volume**: each song's loudness is measured when it downloads (in the same step that makes the
+  audio-only copy), and loud songs are turned down to match, aiming for YouTube's usual level. Songs already
+  downloaded are measured once when Couchwave starts.
+- **No duplicates**: a song that's already queued or playing can't be added again, whatever kind of link it
+  comes as. Playlists leave such songs out and searches don't add them; both say so in Activity.
+- **Speed limits**: each person can send 8 chat messages in 10 seconds and add 10 songs a minute. Going over
+  the chat limit pauses that person's chat for 30 seconds, twice as long each time it happens again within 10
+  minutes (up to 5 minutes); the chat box counts down and keeps the unsent message. Adding a song over the
+  limit explains why it didn't go in.
+
+### Changed
+
+- **Fewer checks with the server**: while instant updates are connected, pages check in every 10 seconds
+  instead of every 2 (changes still arrive straight away). Without them, it's every 2 seconds as before.
+- **Links are stored one way**: share links (`youtu.be/…?si=…`), Shorts, `music.youtube.com` and other YouTube
+  links are saved as a standard `youtube.com/watch` link, so the same song is always recognised as the same song.
+- **The page's files are in `public/`**: `index.html`, with `css/`, `js/`, `fonts/` and `icons/` folders
+  inside. The server and its settings stay at the top. `git` moves them by itself; after updating from a
+  release zip, the old `index.html`, `style.css`, `app.js`, `fonts/` and `icons/` at the top are no longer
+  used and can be deleted.
+- **Reading a playlist or search gives up after 2 minutes** if YouTube doesn't answer, instead of waiting
+  forever.
+- **The DJ waits longer between tries** when it has run out of new songs: 30 seconds, then twice as long each
+  time up to 10 minutes, starting over as soon as someone adds a song.
+- **Settings only come from `config.json`**: the room password and port can no longer be overridden by the
+  `YTP_PASSWORD` and `PORT` environment variables, a leftover from early on that was never documented.
+- **Tidier code** (nothing changes for anyone using it): the page is split into `index.html`, `style.css` and
+  `app.js`, every file is grouped into sections with short headers instead of long comments, and leftovers
+  for data and pages from before v0.1.0 are gone.
+
+### Fixed
+
+- **Playlists lost when Couchwave restarted** while it was still reading them (saving `config.json` or
+  updating is enough): the songs never went in and Activity said "is adding a playlist…" for good. Playlists
+  being read are now remembered and read again after a restart, and entries left stuck from before say they
+  didn't finish.
+- **The DJ getting stuck on videos that aren't music**: with only non-music videos (Shorts or not) to go on,
+  it asked YouTube for their Mix again every 30 seconds, forever. Now it remembers which videos have no Mix,
+  says once that it needs a song, and goes back further in the History to songs that do have one.
+- **Songs added as Shorts links** were never used as the DJ's starting points, and weren't recognised as
+  repeats. (Music Shorts have a Mix like any song.)
+- **The DJ's Activity entries** showed a raw link ("like "https://…"") when the song it started from hadn't
+  finished downloading; they now say "like a song".
+- **YouTube's "Please sign in" check** showed in the queue as a cut-off error message. It's now "YouTube bot
+  check", and retried by itself like the other one.
+- **Tests that failed now and then on a busy computer** (pausing, download pacing, instant updates) now allow
+  for the time the test servers take to start and respond. The chat tests run side by side like the others.
 
 ## v0.1.0 beta (2026-11-16)
 

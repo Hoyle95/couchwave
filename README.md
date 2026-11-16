@@ -1,4 +1,4 @@
-<p align="center"><img src="icons/icon.svg" alt="Couchwave logo: a couch whose back is a sound wave" width="96"></p>
+<p align="center"><img src="public/icons/icon.svg" alt="Couchwave logo: a couch whose back is a sound wave" width="96"></p>
 
 <h1 align="center">Couchwave</h1>
 
@@ -21,15 +21,16 @@ database, no npm packages.
 
 ## Feedback
 
-Ideas, bugs, or just saying hi: join our [Discord](https://discord.com/invite/pNtyzNkch6) or
-[open an issue](https://github.com/Hoyle95/couchwave/issues).
+Ideas, bugs, or just saying hi: join our [Discord](https://discord.com/invite/pNtyzNkch6) or [open an issue](https://github.com/Hoyle95/couchwave/issues).
 
 ## Credits
 
-Designed by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5. The screenshots show
-[Big Buck Bunny](https://peach.blender.org/) and other [Blender open movies](https://studio.blender.org/films/),
-© Blender Foundation, CC BY. The font is [Inter](https://rsms.me/inter/) (SIL Open Font License,
-`fonts/OFL.txt`), included so the site never loads anything from Google.
+- Designed by [Matt Hoyle](https://matthoyle.me/) using Claude Opus 5.5.
+- The screenshots show [Big Buck Bunny](https://peach.blender.org/) and other
+  [Blender open movies](https://studio.blender.org/films/), © Blender Foundation, under the
+  Creative Commons Attribution licence (CC BY).
+- The font is [Inter](https://rsms.me/inter/) (SIL Open Font License, see `public/fonts/OFL.txt`), included so the
+  site never loads anything from Google.
 
 ## Licence
 

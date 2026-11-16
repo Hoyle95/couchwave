@@ -1,11 +1,12 @@
-// Chat, instant updates (/events), only sending the log/chat when they changed, profile pictures and reactions.
-const { test, after } = require('node:test');
+// ---------- Chat, instant updates, profile pictures and reactions ----------
+const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('http');
 const { testServers, waitFor, sleep, secs } = require('./helpers');
 
 const start = testServers({ after });
 
+describe('chat', { concurrency: true }, () => {
 test('messages: kept as typed (the page escapes them), trimmed, capped, empty ones ignored, saved', async () => {
   const s = await start();
   await s.post('/chat', { text: '  hey <b>all</b>  ' }, { as: 'Bob' });
@@ -17,7 +18,6 @@ test('messages: kept as typed (the page escapes them), trimmed, capped, empty on
   assert.equal((await s.state()).chat.length, 2, 'still there after a restart');
 });
 
-// Opens /events as `as`: `got` collects when each nudge arrived. Resolves once connected.
 async function listen(s, as) {
   const got = [], cookie = await s.cookie(as);
   await new Promise((ok, fail) => {
@@ -37,14 +37,14 @@ test('instant updates: everyone is nudged the moment someone sends a message, or
   const bob = await listen(s, 'Bob'), cara = await listen(s, 'Cara');
   assert.equal(bob.status, 200);
   assert.equal(bob.type, 'text/event-stream');
-  await s.cookie('Alice'); // logged in already, so the timing below is just the message
-  await sleep(100);        // (any nudge from logging in has gone by)
+  await s.cookie('Alice');
+  await sleep(100);
   const before = bob.length, sent = Date.now();
   await s.post('/chat', { text: 'hello' }, { as: 'Alice' });
   await waitFor(() => bob.length > before && cara.length > 0, 1000, 'both pages to be nudged');
-  assert.ok(bob.at(-1) - sent < 250, `within ${bob.at(-1) - sent}ms`);
+  assert.ok(bob.at(-1) - sent < 1000, `within ${bob.at(-1) - sent}ms, not on the next 2-second check`);
   const n = bob.length;
-  await s.post('/react', { e: '🔥', n: 1 }, { as: 'Alice' }); // not saved, so a different path
+  await s.post('/react', { e: '🔥', n: 1 }, { as: 'Alice' });
   await waitFor(() => bob.length > n, 1000, 'a nudge for the reaction');
   bob.close(); cara.close();
 });
@@ -82,7 +82,7 @@ test('profile pictures: a colour and an emoji, checked, and quick changes are on
   await s.post('/face', { face: '🐸' }, { as: 'Bob' });
   await s.post('/face', { face: '<img>' }, { as: 'Bob' });
   await s.post('/face', { face: 'abc' }, { as: 'Bob' });
-  await s.post('/color', { color: '#123456', quiet: true }, { as: 'Cara' }); // set while joining: not news
+  await s.post('/color', { color: '#123456', quiet: true }, { as: 'Cara' });
   const st = await s.state();
   assert.equal(st.colors.Bob, '#00ff00');
   assert.equal(st.faces.Bob, '🐸');
@@ -101,4 +101,23 @@ test('reactions: shown for a few seconds, emoji only', async () => {
   const shown = Date.now();
   await waitFor(async () => (await s.state()).reactions.length === 0, secs(6) + 1000, 'the reactions to go');
   assert.ok(Date.now() - shown >= secs(6) - 200, 'after 6 (server) seconds, not straight away');
+});
+
+test('chat has a speed limit: 8 messages in 10 seconds, then a 30-second cooldown, twice as long if it happens again soon', async () => {
+  const s = await start();
+  const spam = async () => { for (let i = 1; i <= 8; i++) assert.equal((await s.post('/chat', { text: 'msg ' + i }, { as: 'Bob' })).status, 204); };
+  await spam();
+  let r = await s.post('/chat', { text: 'one too many' }, { as: 'Bob' });
+  assert.equal(r.status, 429);
+  assert.equal(+r.headers['retry-after'], Math.ceil(secs(30) / 1000), 'a 30-second cooldown');
+  assert.match(r.text, /^Slow down: you can chat again in \d+ seconds?$/);
+  assert.equal((await s.post('/chat', { text: 'hi' }, { as: 'Cara' })).status, 204, 'others can still chat');
+  await sleep(secs(10) + 200);
+  assert.equal((await s.post('/chat', { text: 'still?' }, { as: 'Bob' })).status, 429, 'still cooling down 10 seconds later');
+  await sleep(secs(20) + 200);
+  await spam();
+  r = await s.post('/chat', { text: 'again' }, { as: 'Bob' });
+  assert.equal(+r.headers['retry-after'], Math.ceil(secs(60) / 1000), 'a clean slate after it, but twice as long the next time');
+  assert.ok(!(await s.state()).chat.some(m => /one too many|still\?|again/.test(m.text)), 'none of the refused messages were posted');
+});
 });

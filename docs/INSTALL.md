@@ -1,6 +1,6 @@
 # Getting started and setup
 
-You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
+You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
 
 - [Quick start](#quick-start)
 - [Windows](#windows)
@@ -15,7 +15,9 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
 > [!NOTE]
 > **We recommend downloading a release.** The [Releases page](https://github.com/Hoyle95/couchwave/releases)
 > has tested versions. Cloning the repo or `git pull` gets the very latest code instead, which can include
-> changes that haven't been fully tested yet.
+> changes that haven't been fully tested yet. If you'd like to try the latest unreleased code anyway, we'd love
+> to hear how it goes: tell us on [Discord](https://discord.com/invite/pNtyzNkch6) or
+> [open an issue](https://github.com/Hoyle95/couchwave/issues).
 
 ## Quick start
 
@@ -39,6 +41,7 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
 
 2. Get Couchwave: on the [Releases page](https://github.com/Hoyle95/couchwave/releases), download
    **Source code (zip)** under **Assets** of the newest release, and unzip it where you want Couchwave to live.
+   The zip holds one folder (like `couchwave-0.1.0-beta`): that's your Couchwave folder, and you can rename it.
 
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
 
@@ -52,7 +55,7 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
    ```sh
    sudo apt update
    sudo apt install -y nodejs ffmpeg python3 git curl
-   node --version    # needs v18 or newer
+   node --version    # needs v18.11 or newer
    mkdir -p ~/.local/bin
    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
    chmod +x ~/.local/bin/yt-dlp
@@ -60,7 +63,7 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
    ```
 
    yt-dlp is installed from its own release rather than `apt` so that Couchwave can keep it up to date
-   (YouTube changes often, and old versions stop working). If `node --version` is older than 18, install a
+   (YouTube changes often, and old versions stop working). If `node --version` is older than 18.11, install a
    newer Node from [nodejs.org](https://nodejs.org/en/download). On other distros, install the same
    things with your package manager.
 
@@ -189,8 +192,9 @@ download, so updating never touches them. To see what's changed first, read the
 [changelog](../CHANGELOG.md).
 
 **Recommended: the newest release.** Download **Source code (zip)** from the newest release on the
-[Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it over your Couchwave
-folder (your `config.json` and `data/` stay as they are). Then restart it: on Windows, `start.cmd` notices
+[Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it somewhere else (not into your
+Couchwave folder). Open the folder inside it (like `couchwave-0.1.0-beta`), and copy everything in it into
+your Couchwave folder, replacing the old files. Your `config.json` and `data/` stay as they are. Then restart it: on Windows, `start.cmd` notices
 the new files and restarts by itself (if the page doesn't come back, stop and start it as in
 [Keep it running](#keep-it-running)); on Linux, `sudo systemctl restart couchwave`.
 
@@ -214,6 +218,8 @@ them to `config.json` (see [Settings](#settings)).
 ## Troubleshooting
 
 - **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
-  button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.)
+  button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
+  YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
+  hours.
 - **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`.
 - **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.

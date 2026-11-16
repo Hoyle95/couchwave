@@ -1,7 +1,4 @@
-// The DJ (dj.js): off until "!dj on"; keeps up to 10 songs of its own queued, always after people's;
-// removing or skipping them is a vote, like anyone's; "!dj off" leaves them queued. YouTube's Mix comes
-// from the stand-in yt-dlp: for a song, one by the same artist, two by other artists, and a full album and
-// a jingle it should skip.
+// ---------- The DJ ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
@@ -9,12 +6,11 @@ const { testServers, song, yt, waitFor, sleep, secs, PASSWORD, ownPassword } = r
 
 const servers = testServers({ after });
 const start = (initial = { here: {} }) => servers({ initial });
-const CHECKS = secs(5); // long enough for the DJ to have checked (every 3 server seconds) at least once
+const CHECKS = secs(5);
 const vid = q => (/v=([\w-]{11})/.exec(q.url || '') || [])[1];
 const say = (s, as, text) => s.post('/chat', { text }, { as });
 const djSongs = async s => (await s.state()).queue.filter(q => q.by === 'DJ');
 const djCount = n => async s => (await djSongs(s)).length >= n;
-// Alice's song plays (so it's in the History); with a long one, it keeps playing.
 async function aliceSong(s, id) {
   await s.post('/add', { url: yt(id) }, { as: 'Alice' });
   await waitFor(async () => (await s.state()).history?.some(h => h.url.endsWith(id)), 6000, 'Alice\'s song to play');
@@ -22,7 +18,6 @@ async function aliceSong(s, id) {
 
 describe('the DJ', { concurrency: true }, () => {
   test('off by default: an empty queue stays empty', async () => {
-    // Something to go on (Alice's song, played), nothing playing or queued
     const s = await start({ here: {}, history: [{ url: yt('alic_000001'), title: 'Song alic_000001', by: 'Alice', t: Date.now() }] });
     await sleep(CHECKS);
     const st = await s.state();
@@ -48,12 +43,11 @@ describe('the DJ', { concurrency: true }, () => {
     st = await s.state();
     assert.equal(st.dj, false);
     assert.ok((await s.log()).includes('Cara: turned the DJ off'));
-    await say(s, 'Cara', '!djembe lessons anyone?'); // not a command
+    await say(s, 'Cara', '!djembe lessons anyone?');
     assert.equal((await s.state()).chat.at(-1).text, '!djembe lessons anyone?');
   });
 
   test('keeps up to 10 songs queued, only from what people asked for (never its own picks), nothing that isn\'t a song', async () => {
-    // Alice is playing a long song; Alice and Bob asked for 4 more before (the History).
     const now = Date.now(), asked = ['hist_000001', 'hist_000002', 'hist_000003', 'hist_000004'];
     const s = await start({
       here: {}, current: song(1, 'Song play_000001', 'Alice', { duration: 10000, url: yt('play_000001') }),
@@ -73,8 +67,7 @@ describe('the DJ', { concurrency: true }, () => {
   });
 
   test('run out of ideas: asks in the chat (once), and carries on as soon as someone adds a song', async () => {
-    // Alice's only song, and everything in its Mix already played (by the DJ): nothing new to find.
-    const seed = 'aaaa_000001', fromMix = n => (n + require('crypto').createHash('md5').update(seed).digest('hex')).slice(0, 11); // as fakes/yt-dlp.js
+    const seed = 'aaaa_000001', fromMix = n => (n + require('crypto').createHash('md5').update(seed).digest('hex')).slice(0, 11);
     const now = Date.now();
     const s = await start({ here: {}, history: [
       { url: yt(seed), title: `Song ${seed}`, by: 'Alice', t: now },
@@ -87,7 +80,7 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await djSongs(s)).length, 0, 'and it doesn\'t pick from its own songs instead');
     const t = Date.now();
     await s.post('/add', { url: yt('bobs_000009') }, { as: 'Bob' });
-    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like ".+", from Bob\)$/.test(l)), secs(60), 'the DJ to carry on from Bob\'s song');
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like (".+"|a song), from Bob\)$/.test(l)), secs(60), 'the DJ to carry on from Bob\'s song');
     assert.ok(Date.now() - t < secs(20), `picked up in ${((Date.now() - t) / secs(1)).toFixed(1)} (server) seconds, not after its 30-second wait`);
   });
 
@@ -106,12 +99,10 @@ describe('the DJ', { concurrency: true }, () => {
   });
 
   test('the DJ\'s songs: removing one from the queue, or skipping the one playing, is a vote; !dj off leaves the rest queued', async () => {
-    // Alice's 1-second song playing (and so in the History), and one of Bob's played before: a DJ song plays
-    // next. (Two songs to go on: each Mix has 3 the DJ can use, and this test uses up 3 of them.)
     const s = await start({ here: {}, current: song(1, 'Song alic_000004', 'Alice', { duration: 1, url: yt('alic_000004') }),
       history: [{ url: yt('alic_000004'), title: 'Song alic_000004', by: 'Alice', t: Date.now() },
         { url: yt('bobs_000004'), title: 'Song bobs_000004', by: 'Bob', t: Date.now() - 60000 }] });
-    const stop = await s.keepOnline('Alice', 'Bob', 'Cara', 'Dan'); // 4 people online: 3 votes needed
+    const stop = await s.keepOnline('Alice', 'Bob', 'Cara', 'Dan');
     await say(s, 'Bob', '!dj on');
     const [first] = await waitFor(async () => { const d = await djSongs(s); return d.length && d; }, 8000, 'a DJ song');
     await s.post('/remove', { id: first.id, vote: true }, { as: 'Cara' });
@@ -124,10 +115,9 @@ describe('the DJ', { concurrency: true }, () => {
     const st = await s.state('Dan');
     assert.equal(st.current?.id, playing.id, 'one vote isn\'t enough, even for the DJ\'s song');
     assert.deepEqual(st.skip.voters, ['Dan']);
-    for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who }); // a majority of the people online
+    for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who });
     assert.notEqual((await s.state()).current?.id, playing.id, 'skipped by the vote');
     assert.ok((await s.log()).some(l => /^: ".+" was skipped \(\d of \d voted\)$/.test(l)), 'logged as a vote');
-    // (Counted after turning it off: while on, it may add another at any moment.)
     await say(s, 'Bob', '!dj off');
     const kept = (await djSongs(s)).length;
     assert.ok(kept > 0, 'off: what it queued stays, until it\'s voted out');
@@ -165,7 +155,6 @@ describe('the DJ', { concurrency: true }, () => {
     const join = name => s.req('POST', '/login', { body: { password: PASSWORD, name, own: ownPassword('Bob') }, cookie: '' });
     assert.equal((await join('dj')).status, 400);
     assert.equal((await join('DJ')).status, 400);
-    // An old account called "dj" (made before the name was reserved): Bob's, renamed.
     await s.cookie('Bob');
     await s.stop();
     const file = path.join(s.dir, 'data', 'accounts.json');
@@ -178,5 +167,31 @@ describe('the DJ', { concurrency: true }, () => {
     const st = await s.state('Bob');
     assert.deepEqual(st.users, ['Bob'], 'and the DJ isn\'t counted as a person online');
     assert.equal(st.skip.need, 1);
+  });
+
+  test('songs saved as Shorts links are starting points too (as long as they have a Mix)', async () => {
+    const s = await start({ here: {}, history: [{ url: 'https://www.youtube.com/shorts/shmu_000001', title: 'Song shmu_000001', by: 'Alice', t: Date.now() }] });
+    await say(s, 'Bob', '!dj on');
+    await waitFor(() => djCount(1)(s), 8000, 'a DJ song');
+    const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
+    assert.ok(picks.length && picks.every(l => / \(like "Song shmu_000001", from Alice\)$/.test(l)), picks.join('\n'));
+    assert.ok(!(await djSongs(s)).some(q => vid(q) === 'shmu_000001'), 'not the Short itself again');
+  });
+
+  test('videos that aren\'t music have no Mix: says so once, never asks YouTube about them again, and carries on from music', async () => {
+    const now = Date.now(), notMusic = ['nomx_000001', 'nomx_000002'];
+    const s = await start({ here: {}, history: notMusic.map((id, i) => ({ url: yt(id), title: `Not music ${id}`, by: 'Alice', t: now - i * 60000 })) });
+    const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n'); } catch { return []; } };
+    await say(s, 'Bob', '!dj on');
+    await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /no Mix for the other videos/.test(m.text)), 8000, 'the DJ to say it needs music');
+    assert.deepEqual(asked().sort(), notMusic, 'asked YouTube once about each');
+    await sleep(secs(32));
+    assert.deepEqual(asked().sort(), notMusic, 'and not again, even after its 30-second wait');
+    await s.post('/add', { url: yt('musc_000001') }, { as: 'Cara' });
+    await waitFor(() => djCount(1)(s), 8000, 'the DJ to carry on from Cara\'s song');
+    assert.ok(!asked().slice(2).some(id => id.startsWith('nomx')), 'still never asked about the non-music ones again');
+    const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
+    assert.ok(picks.every(l => / \(like (".+"|a song), from Cara\)$/.test(l)), 'every pick is like Cara\'s song, never its own:\n' + picks.join('\n'));
+    assert.equal((await s.state()).chat.filter(m => /no Mix for the other videos/.test(m.text)).length, 1, 'said once');
   });
 });

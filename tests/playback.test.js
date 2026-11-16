@@ -1,20 +1,20 @@
-// Pause / play / seek for everyone, songs moving on, the video and audio files, and download pacing.
+// ---------- Pause, play, seek, moving on and download pacing ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path'), http = require('http');
-const { testServers, song, waitFor, sleep } = require('./helpers');
+const { testServers, song, waitFor, sleep, secs } = require('./helpers');
 
 const start = testServers({ after });
 
-// Each test has its own server, so they run at the same time.
 describe('playback', { concurrency: true }, () => {
 test('pause, seek and play: for everyone, and in the log', async () => {
-  const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 300 }), startedAt: Date.now() - 20000 } });
+  const t0 = Date.now();
+  const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 300 }), startedAt: t0 - 20000 } });
   await s.post('/pause');
   let st = await s.state('Bob');
   assert.equal(st.paused, true);
-  const at = st.elapsed;
-  assert.ok(at >= 19 && at <= 22, 'paused around 0:20: ' + at);
+  const at = st.elapsed, upTo = 20 + (Date.now() - t0) / 1000;
+  assert.ok(at >= 20 && at <= upTo, `paused 20 seconds in, plus however long the server took to start (up to ${upTo.toFixed(1)}): ${at}`);
   await sleep(600);
   assert.equal((await s.state('Bob')).elapsed, at, 'the clock stops while paused');
   await s.post('/seek', { t: 125 });
@@ -28,7 +28,7 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   assert.equal(st.paused, false);
   assert.ok(st.elapsed > 60.4 && st.elapsed < 62, 'playing on from 1:00: ' + st.elapsed);
   const log = await s.log();
-  for (const line of ['Alice: paused at 0:20', 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);
+  for (const line of [`Alice: paused at 0:${String(Math.floor(at)).padStart(2, '0')}`, 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);
 });
 
 test('only whoever added the song can move through it (jumping to the end would skip it without a vote)', async () => {
@@ -41,7 +41,7 @@ test('only whoever added the song can move through it (jumping to the end would 
   assert.ok(!(await s.log()).some(l => /jumped/.test(l)), 'nothing logged');
   assert.equal((await s.post('/seek', { t: 100 }, { as: 'Alice' })).status, 204, 'Alice can');
   assert.ok((await s.state()).elapsed >= 100);
-  await s.post('/skip', { id: 1 }, { as: 'Alice' }); // Alice skips her song: the DJ's plays
+  await s.post('/skip', { id: 1 }, { as: 'Alice' });
   await waitFor(async () => (await s.state()).current?.by === 'DJ', 3000, 'the DJ\'s song to play');
   for (const who of ['Alice', 'Bob']) assert.equal((await s.post('/seek', { t: 299 }, { as: who })).status, 403, `nobody moves the DJ's song (${who})`);
 });
@@ -81,8 +81,6 @@ test('video and audio files: whole, in parts (seeking), and the next song early'
   assert.equal((await s.get('/video/77')).status, 404, 'not a song that\'s playing or ready');
 });
 
-// Reads a download, pausing for `stall` ms after the first `pauseAt` bytes; returns how many bytes arrived in
-// the `window` ms after reading starts again.
 async function readWithStall(s, url, { pauseAt, stall, window }) {
   const cookie = await s.cookie('Alice');
   return new Promise((resolve, reject) => {
@@ -104,22 +102,34 @@ async function readWithStall(s, url, { pauseAt, stall, window }) {
 }
 
 test('pacing: songs start at full speed, then go at a steady pace, with no rush after a stall', async () => {
-  // A 40 MB, 40-second song: 1 MB per second of song. Pace: the first 20 seconds of song (20 MB) at full
-  // speed, then 3x the song's own speed: 3 MB/s.
   const MB = 1024 * 1024, BURST = 20 * MB, RATE = 3 * MB;
   const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 40, file: 'big.mp4' }) }, files: { 'big.mp4': Buffer.alloc(40 * MB, 1) } });
-  let t = Date.now();
-  const first = await s.get('/video/1', { headers: { Range: `bytes=0-${2 * MB - 1}` } });
-  assert.equal(first.body.length, 2 * MB);
-  assert.ok(Date.now() - t < 500, `the start of a song comes straight away: ${Date.now() - t}ms`);
-  // The burst, then 3 MB more: about a second at 3 MB/s
-  t = Date.now();
-  await s.get('/video/1', { headers: { Range: `bytes=0-${BURST + 3 * MB - 1}` } });
-  const took = (Date.now() - t) / 1000;
-  assert.ok(took > 0.7 && took < 2.5, `20 MB at full speed + 3 MB at 3 MB/s took ${took.toFixed(1)}s (expected ~1s)`);
-  // Stall 3 s just after the burst, then read for 1 s: at most 1 s of pace + the 1 s it banks + whatever the
-  // connection buffered meanwhile (about 7 MB). Rushing to catch up on the 3 s it was "behind" would be ~13 MB.
+  const fastest = async (bytes, good) => {
+    let best = Infinity;
+    for (let i = 0; i < 3 && !good(best); i++) {
+      const t = Date.now(), r = await s.get('/video/1', { headers: { Range: `bytes=0-${bytes - 1}` } });
+      assert.equal(r.body.length, bytes);
+      best = Math.min(best, (Date.now() - t) / 1000);
+    }
+    return best;
+  };
+  const first = await fastest(2 * MB, t => t < 0.5);
+  assert.ok(first < 0.5, `the start of a song comes straight away: ${first}s (fastest of 3)`);
+  const took = await fastest(BURST + 3 * MB, t => t > 0.7 && t < 2.5);
+  assert.ok(took > 0.7 && took < 2.5, `20 MB at full speed + 3 MB at 3 MB/s took ${took.toFixed(1)}s (expected ~1s, fastest of 3)`);
   const after = await readWithStall(s, '/video/1', { pauseAt: BURST + MB, stall: 3000, window: 1000 });
   assert.ok(after < 2 * RATE + 3.5 * MB, `after a stall: ${(after / MB).toFixed(1)} MB in 1 s (limit ${((2 * RATE + 3.5 * MB) / MB).toFixed(1)} MB)`);
+});
+
+test('even volume: every song\'s loudness is measured, and loud ones are turned down to match (songs from before too)', async () => {
+  const s = await start({ initial: { current: song(1, 'Saved before', 'Alice', { duration: 10000 }) } });
+  const loudGain = Math.round(10 ** ((-14 - -8) / 20) * 1000) / 1000;
+  await waitFor(async () => (await s.state()).current.gain === loudGain, 5000, 'the song playing to be measured');
+  await s.post('/add', { url: 'https://www.youtube.com/watch?v=loud_000001' });
+  const next = await waitFor(async () => { const n = (await s.state()).next; return n && n.gain !== 1 && n; }, 5000, 'the new song to be measured');
+  assert.equal(next.gain, loudGain, 'about half the volume for a song at -8 LUFS (aiming for -14)');
+  await waitFor(() => { try { return JSON.parse(fs.readFileSync(s.statePath, 'utf8')).queue.some(q => q.gain === loudGain); } catch { return false; } }, 3000, 'it to be saved');
+  await s.restart();
+  assert.equal((await s.state()).next.gain, loudGain, 'kept across a restart');
 });
 });

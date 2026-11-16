@@ -9,8 +9,9 @@
 
 **Watching together**
 
-- **Shared queue**: paste YouTube links or playlists, or just type a song name. People take turns, so one
-  person's big playlist doesn't keep everyone else waiting.
+- **Shared queue**: paste YouTube links (share links and Shorts too) or playlists, or just type a song name. People take
+  turns, so one person's big playlist doesn't keep everyone else waiting. A song that's already queued or
+  playing can't go in twice (playlists and searches leave it out, and say so).
 - **In sync** for everyone: play, pause and the current song are the same on every screen.
 - **Votes**: skipping a song or removing someone else's is a vote ("1 out of 3 voted to skip"). Your own
   songs go straight away, and only you can move through your song. How many votes it takes is a setting.
@@ -21,13 +22,17 @@
 
 **Together**
 
-- **Chat and emoji reactions** that float over the video, all instant.
+- **Chat and emoji reactions** that float over the video, all instant. To keep it friendly, each person can
+  send 8 messages in 10 seconds (going over pauses their chat for 30 seconds, and twice as long each time it
+  happens again soon, up to 5 minutes) and add 10 songs a minute.
 - **Who's online**, and who joined or left in the Activity log, with a sound (its own volume and mute).
 - **Profile pictures**: an emoji and a colour of your choice.
 - **Your own nickname** with its own password, so nobody can join as you.
 
 **Watching**
 
+- **Even volume**: each song's loudness is measured when it downloads, and loud ones are turned down to
+  match the rest, so you're not reaching for the volume between songs.
 - **Full screen like Twitch**: the video edge to edge, with the chat alongside (or hidden).
 - **Works on phones**: keeps playing when the screen locks, installs as an app, and has an audio-only mode
   to save data.
@@ -38,7 +43,7 @@
 - **Runs on your own computer** with just Node.js, yt-dlp and ffmpeg: no database, no npm packages, no
   account anywhere.
 - **Gentle on your connection**: videos are sent at a steady pace, so the chat doesn't stall, and only the
-  next few songs are downloaded ahead.
+  songs near the top of the queue are downloaded ahead.
 - **Limits you choose**: the longest video allowed, how many songs download ahead and at once (see
   [settings](INSTALL.md#settings)).
 - **Keeps yt-dlp up to date** by itself, since YouTube changes often.
@@ -53,7 +58,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --logout-everyone` | Everyone has to log in again. Accounts and passwords are kept. |
 | `node server.js --set-password <name> <password>` | For a forgotten password (4+ characters). Logs them out everywhere; send them the new one. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
-| `node --test` | After changing the code: checks nothing broke (under 10 seconds). |
+| `node --test` | After changing the code: checks nothing broke (about 10 seconds). |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
 also logs everyone out.
@@ -72,7 +77,8 @@ The DJ picks from YouTube's Mix of songs people requested or played (never its o
 artists, and skips repeats, albums and hour-long mixes. Its songs go after everyone else's, as "DJ" 🎧; skipping
 or removing them is a vote, like any song. With nothing to go on, it asks in the chat for a song. It's off
 until someone turns it on, and stays on or off across restarts. It only plays music: YouTube has no Mix for
-other videos. It lives in `dj.js`.
+other videos (music Shorts work, other Shorts don't). If people have only added other videos, it says so once
+and waits for a song, without asking YouTube about those videos again. It lives in `dj.js`.
 
 ## About the tests
 

@@ -1,17 +1,15 @@
-// Logging in: the room password, nicknames with their own passwords, the login cookie, logging out,
-// the wrong-password limit, --logout-everyone, --delete-account and --set-password.
+// ---------- Logging in, accounts and settings ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { testServers, waitFor, PASSWORD, ownPassword } = require('./helpers');
+const { testServers, waitFor, PASSWORD, ownPassword, APP_FILES, ROOT } = require('./helpers');
 
 const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
 const cookies = r => Object.fromEntries((r.headers['set-cookie'] || []).map(c => { const [kv] = c.split(';'); const i = kv.indexOf('='); return [kv.slice(0, i), decodeURIComponent(kv.slice(i + 1))]; }));
 const asCookie = (auth, name = 'whatever') => `auth=${auth}; name=${encodeURIComponent(name)}`;
 
-// Each test has its own server, so they run at the same time.
 describe('logging in', { concurrency: true }, () => {
 test('without the login cookie, nothing works', async () => {
   const s = await start();
@@ -32,6 +30,12 @@ test('joining: the room password, then a new nickname claims it with its own pas
   assert.match(auth, /HttpOnly/);
   assert.ok(!auth.includes(PASSWORD) && !auth.includes('secret1'), 'no password in the login cookie');
   assert.equal(cookies(r).name, 'Alice', 'the name cookie (for the page to show), trimmed');
+});
+
+test('the room password and port come from config.json only, never the environment', async () => {
+  const s = await start({ env: { PORT: '65000', YTP_PASSWORD: 'from-the-environment' } });
+  assert.equal((await join(s, { password: 'from-the-environment', name: 'Alice', own: 'secret1' })).status, 401);
+  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).status, 204);
 });
 
 test('a taken nickname needs its own password; capitals don\'t matter', async () => {
@@ -61,10 +65,10 @@ test('claiming a name someone already had before accounts keeps its spelling (an
 test('the login cookie decides who you are: editing the name cookie or the login cookie gets nowhere', async () => {
   const s = await start();
   const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
-  await s.req('POST', '/chat', { body: { text: 'hi' }, cookie: asCookie(alice, 'Bob') }); // name cookie says Bob
+  await s.req('POST', '/chat', { body: { text: 'hi' }, cookie: asCookie(alice, 'Bob') });
   assert.equal((await s.state('Cara')).chat.at(-1).by, 'Alice', 'still Alice');
   const [, sig] = alice.split('.');
-  const forged = Buffer.from('Bob').toString('base64url') + '.' + sig; // Bob's name with Alice's signature
+  const forged = Buffer.from('Bob').toString('base64url') + '.' + sig;
   await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' });
   assert.equal((await s.get('/state', { cookie: asCookie(forged) })).status, 401, 'a made-up login cookie');
   assert.equal((await s.get('/state', { cookie: asCookie('x' + alice) })).status, 401, 'a changed one');
@@ -91,17 +95,16 @@ test('over https:// (a tunnel or proxy on this machine says so), cookies are mar
   const s = await start();
   const secure = r => (r.headers['set-cookie'] || []).map(c => /;\s*Secure\b/i.test(c));
   const body = { password: PASSWORD, name: 'Alice', own: ownPassword('Alice') };
-  let r = await join(s, body); // a home network, or localhost: Secure would make the browser drop them
+  let r = await join(s, body);
   assert.equal(r.status, 204);
   assert.deepEqual(secure(r), [false, false], 'plain http: not Secure, or nobody could log in');
   const plain = cookies(r).auth;
-  for (const headers of [{ 'X-Forwarded-Proto': 'https' }, { 'CF-Visitor': '{"scheme":"https"}' }]) { // Caddy/nginx, Cloudflare
+  for (const headers of [{ 'X-Forwarded-Proto': 'https' }, { 'CF-Visitor': '{"scheme":"https"}' }]) {
     r = await join(s, body, headers);
     assert.deepEqual(secure(r), [true, true], `via ${Object.keys(headers)[0]}: both cookies Secure`);
   }
   r = await join(s, body, { 'X-Forwarded-Proto': 'http' });
   assert.deepEqual(secure(r), [false, false], 'a proxy saying http: not Secure');
-  // A login from before (not Secure) gets Secure the next time the page is opened over https, without logging in again.
   r = await s.req('GET', '/', { cookie: asCookie(plain, 'Alice'), headers: { 'X-Forwarded-Proto': 'https' } });
   assert.match(String(r.headers['set-cookie']), new RegExp(`^auth=${plain};.*HttpOnly; Secure$`), 'the same login, now Secure');
   r = await s.req('GET', '/', { cookie: asCookie(plain, 'Alice') });
@@ -192,12 +195,12 @@ test('the page is told who you are by the server, not by the name cookie', async
 test('look-alike nicknames: invisible characters, other widths and mixed alphabets don\'t make a second "Alice"', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
-  for (const name of ['Alice​', '​Alice', 'Ａｌｉｃｅ', 'Al­ice']) { // zero-width space, full-width letters, soft hyphen
+  for (const name of ['Alice​', '​Alice', 'Ａｌｉｃｅ', 'Al­ice']) {
     const r = await join(s, { password: PASSWORD, name, own: 'other-pw' });
     assert.equal(r.status, 401, JSON.stringify(name) + ' is Alice, so it needs her password');
   }
   assert.equal((await join(s, { password: PASSWORD, name: 'Ａｌｉｃｅ', own: 'secret1' })).status, 204, '...and with it, it\'s her');
-  const r = await join(s, { password: PASSWORD, name: 'Аlice', own: 'other-pw' }); // Cyrillic А
+  const r = await join(s, { password: PASSWORD, name: 'Аlice', own: 'other-pw' });
   assert.equal(r.status, 400, 'a Cyrillic letter among Latin ones');
   assert.equal((await join(s, { password: PASSWORD, name: 'Алиса', own: 'other-pw' })).status, 204, 'one alphabet is fine');
 });
@@ -215,21 +218,20 @@ test('two people claiming the same new nickname at once: only one gets it', asyn
 });
 
 test('a broken or locked accounts file pauses logins, instead of letting anyone take any nickname', async () => {
-  const s = await start({ expectProblems: /Can't read .*accounts\.json/ }); // the error this test causes on purpose
+  const s = await start({ expectProblems: /Can't read .*accounts\.json/ });
   const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
   const file = path.join(s.dir, 'data', 'accounts.json');
   const good = fs.readFileSync(file, 'utf8');
-  fs.writeFileSync(file, good.slice(0, 20)); // e.g. a bad hand edit
+  fs.writeFileSync(file, good.slice(0, 20));
   assert.equal((await s.get('/state', { cookie: asCookie(alice) })).status, 200, 'logged-in people carry on (the last good copy)');
   let r = await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' });
   assert.equal(r.status, 503, 'no new nicknames meanwhile');
   assert.match(r.text, /accounts file/);
   assert.equal(fs.readFileSync(file, 'utf8'), good.slice(0, 20), 'the file is left alone (nothing wiped)');
-  // Started with it broken: nobody gets in, nobody can claim anything
   await s.restart();
   assert.equal((await s.get('/state', { cookie: asCookie(alice) })).status, 401);
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'new-pw' })).status, 503, 'Alice can\'t be claimed by someone else');
-  fs.writeFileSync(file, good); // fixed
+  fs.writeFileSync(file, good);
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).status, 204, 'fixed: back to normal');
   assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' })).status, 204);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['alice', 'bob'], 'Alice\'s account survived');
@@ -253,9 +255,9 @@ test('many wrong guesses sent all at once still count towards the limit', async 
 
 test('no config.json: one is made, with a random room password and every setting at its default', async () => {
   const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-fresh-'));
-  for (const f of ['server.js', 'dj.js', 'index.html']) fs.copyFileSync(path.join(__dirname, '..', f), path.join(dir, f));
-  const port = 30000 + Math.floor(Math.random() * 20000); // (PORT wins over config.json: never 3000, a real Couchwave's)
-  const server = require('child_process').spawn(process.execPath, ['server.js'], { cwd: dir, env: { ...process.env, PORT: String(port), COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
+  for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+  const server = require('child_process').spawn(process.execPath, ['-r', path.join(__dirname, 'fakes', 'any-port.js'), 'server.js'],
+    { cwd: dir, env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
   try {
     const file = path.join(dir, 'config.json');
     await waitFor(() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; } }, 5000, 'config.json to be made');
@@ -281,7 +283,7 @@ test('"public": true in config.json: no room password (not even set), but nickna
   assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 204, 'in, with no room password');
   assert.equal((await join(s, { password: 'anything', name: 'Bob', own: 'secret2' })).status, 204);
   assert.equal((await join(s, { name: 'alice', own: 'guess' })).status, 401, 'Alice\'s nickname still needs her password');
-  await s.logHas(/"public" is on: there's no room password/); // the log says so
+  await s.logHas(/"public" is on: there's no room password/);
 });
 
 test('"public" only turns on with exactly true ("yes" doesn\'t open the room by mistake)', async () => {
@@ -293,7 +295,6 @@ test('"public" only turns on with exactly true ("yes" doesn\'t open the room by 
 test('20 wrong passwords (room or own): that address is locked out, other visitors aren\'t', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
-  // Through a tunnel every request comes from localhost, so the real visitor is in a header.
   const from = ip => ({ 'CF-Connecting-IP': ip });
   for (let i = 0; i < 10; i++) assert.equal((await join(s, { password: 'wrong', name: 'Eve', own: 'xxxx' }, from('1.2.3.4'))).status, 401);
   for (let i = 0; i < 10; i++) assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'guess' + i }, from('1.2.3.4'))).status, 401, 'guessing Alice\'s password');

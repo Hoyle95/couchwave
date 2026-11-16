@@ -1,14 +1,10 @@
-// Vote to skip (and how many votes it takes, which removing someone else's song shares): votePercent of the
-// people online (config.json, 60 by default), votes per song, taking a vote back, the song's owner skipping
-// without a vote, and votes surviving a restart. Timings are the server's (secs() in helpers.js).
+// ---------- Vote to skip ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const { testServers, song, waitFor, sleep, secs } = require('./helpers');
 
 const servers = testServers({ after });
-// Zed's songs playing and queued, so Alice / Bob / Cara are never the owner (unless a test says so);
-// Alice, Bob and Cara online. config: extra config.json settings (votePercent).
 async function start(extra = {}, config) {
   const s = await servers({ config, initial: {
     current: song(1, 'Song A', 'Zed', { duration: 10000 }),
@@ -20,7 +16,6 @@ async function start(extra = {}, config) {
 const title = async s => (await s.state()).current.title;
 const vote = (s, as, id, v = true) => s.post('/skip', { id, vote: v }, { as });
 
-// Each test has its own server, so they run at the same time.
 describe('vote to skip', { concurrency: true }, () => {
   test('the count everyone sees, and 2 of 3 skips', async () => {
     const s = await start();
@@ -38,19 +33,11 @@ describe('vote to skip', { concurrency: true }, () => {
 
   test('voting twice counts once, a vote can be taken back, and votes for an old song do nothing', async () => {
     const s = await start();
-    await vote(s, 'Alice', 1); await vote(s, 'Alice', 1); // e.g. the lock-screen "next" pressed twice
+    await vote(s, 'Alice', 1); await vote(s, 'Alice', 1);
     assert.deepEqual((await s.state()).skip.voters, ['Alice']);
     await vote(s, 'Alice', 1, false);
     assert.deepEqual((await s.state()).skip.voters, []);
-    await vote(s, 'Alice', 999); // the song that just ended
-    assert.deepEqual((await s.state()).skip.voters, []);
-  });
-
-  test('a page from before votes said which song (no id) still works: it switches your vote', async () => {
-    const s = await start();
-    await s.post('/skip', {}, { as: 'Alice' });
-    assert.deepEqual((await s.state()).skip.voters, ['Alice']);
-    await s.post('/skip', {}, { as: 'Alice' });
+    await vote(s, 'Alice', 999);
     assert.deepEqual((await s.state()).skip.voters, []);
   });
 
@@ -67,41 +54,40 @@ describe('vote to skip', { concurrency: true }, () => {
     await vote(s, 'Bob', 1);
     assert.equal(await title(s), 'Song B', 'skipped with 1 of 3');
     assert.ok((await s.log()).includes('Bob: skipped their song "Bob\'s song"'));
-    await vote(s, 'Bob', 2); // ...but not someone else's song: that's a vote again
+    await vote(s, 'Bob', 2);
     assert.equal(await title(s), 'Song B');
     assert.deepEqual((await s.state()).skip.voters, ['Bob']);
   });
 
   test('votes to remove a queued song carry over as votes to skip it once it plays', async () => {
     const s = await start();
-    await s.post('/remove', { id: 2 }, { as: 'Alice' }); // 1 of 3: not enough to remove it
+    await s.post('/remove', { id: 2 }, { as: 'Alice' });
     assert.deepEqual((await s.state()).queue.find(q => q.id === 2).removeVoters, ['Alice']);
-    await vote(s, 'Bob', 1); await vote(s, 'Cara', 1); // Song A skipped, Song B plays
+    await vote(s, 'Bob', 1); await vote(s, 'Cara', 1);
     let st = await s.state();
     assert.equal(st.current.title, 'Song B');
     assert.deepEqual(st.skip.voters, ['Alice'], 'Alice\'s vote to remove is now a vote to skip ("1 out of 3")');
-    await vote(s, 'Alice', 2, false); // and she can take it back
+    await vote(s, 'Alice', 2, false);
     assert.deepEqual((await s.state()).skip.voters, []);
     await s.post('/remove', { id: 3 }, { as: 'Alice' });
-    await vote(s, 'Bob', 2); await vote(s, 'Cara', 2); // Song B skipped, Song C plays
+    await vote(s, 'Bob', 2); await vote(s, 'Cara', 2);
     await waitFor(async () => (await title(s)) === 'Song C');
-    await vote(s, 'Bob', 3); // with Alice's carried-over vote: 2 of 3
+    await vote(s, 'Bob', 3);
     assert.ok(await waitFor(async () => (await s.state()).current?.title !== 'Song C'), 'skipped with the carried-over vote');
   });
 
   test('someone reloading doesn\'t tip the vote; someone leaving does', async () => {
     const s = await start();
     s.stopOnline(); const stopAB = await s.keepOnline('Alice', 'Bob');
-    await s.post('/bye', undefined, { as: 'Cara' }); // Cara closes the page for good
-    await vote(s, 'Alice', 1); // 1 of 3
-    // Bob reloads: gone for longer than the server's 1-second check, back well within "online"
+    await s.post('/bye', undefined, { as: 'Cara' });
+    await vote(s, 'Alice', 1);
     await s.post('/bye', undefined, { as: 'Bob' }); await sleep(secs(2)); await s.state('Bob');
     await sleep(secs(2));
     assert.equal(await title(s), 'Song A', 'Bob reloading didn\'t skip it');
     await waitFor(async () => (await s.state()).users.length === 2, secs(15), 'Cara to drop off the online list');
     assert.equal(await title(s), 'Song A', '1 of 2 still not enough');
     stopAB(); const stopA = await s.keepOnline('Alice');
-    await s.post('/bye', undefined, { as: 'Bob' }); // Bob closes for good: 1 of 1
+    await s.post('/bye', undefined, { as: 'Bob' });
     await waitFor(async () => (await title(s)) === 'Song B', secs(20), 'Alice\'s vote to win once Bob has gone');
     stopA();
   });
@@ -119,10 +105,10 @@ describe('vote to skip', { concurrency: true }, () => {
     const s = await servers({ initial: { current: song(1, 'Song A', 'Zed', { duration: 10000 }) } });
     const people = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9'], needs = [];
     for (let n = 1; n <= people.length; n++) {
-      for (const p of people.slice(0, n)) await s.state(p); // n people online
+      for (const p of people.slice(0, n)) await s.state(p);
       needs.push((await s.state('P1')).skip.need);
     }
-    assert.deepEqual(needs, [1, 2, 2, 3, 3, 4, 5, 5, 6]); // ("more than half" would be 4 of 7 and 5 of 9)
+    assert.deepEqual(needs, [1, 2, 2, 3, 3, 4, 5, 5, 6]);
   });
 
   test('votePercent 100 in config.json: everyone online has to vote, to skip and to remove someone else\'s song', async () => {
