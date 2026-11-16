@@ -1,12 +1,30 @@
-# Installing Couchwave
+# Getting started and setup
 
 You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
 
+- [Quick start](#quick-start)
 - [Windows](#windows)
 - [Linux (Debian, Ubuntu, Raspberry Pi OS)](#linux-debian-ubuntu-raspberry-pi-os)
+- [Settings](#settings)
+- [Your data](#your-data)
 - [Keep it running](#keep-it-running)
 - [Letting friends in](#letting-friends-in)
 - [Updating](#updating)
+- [Troubleshooting](#troubleshooting)
+
+> [!NOTE]
+> **We recommend downloading a release.** The [Releases page](https://github.com/Hoyle95/couchwave/releases)
+> has tested versions. Cloning the repo or `git pull` gets the very latest code instead, which can include
+> changes that haven't been fully tested yet.
+
+## Quick start
+
+1. Install it and start it: [Windows](#windows) or [Linux](#linux-debian-ubuntu-raspberry-pi-os).
+2. Open <http://localhost:3000>. The room password is in `config.json`, made on the first run.
+3. Send your friends the address and the room password (see [Letting friends in](#letting-friends-in)).
+   The first time they join, they pick a nickname and a password for it.
+
+<p align="center"><img src="screenshot-join.png" alt="The join screen: a profile picture and nickname with its own password under &quot;You&quot;, the room password below, and a Join the party button" width="450"></p>
 
 ## Windows
 
@@ -19,14 +37,13 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
 
    (The yt-dlp package brings ffmpeg with it.) Close and reopen PowerShell afterwards.
 
-2. Get Couchwave: download it from GitHub (**Code → Download ZIP**, then unzip it), or
-   `git clone https://github.com/Hoyle95/couchwave.git`.
+2. Get Couchwave: on the [Releases page](https://github.com/Hoyle95/couchwave/releases), download
+   **Source code (zip)** under **Assets** of the newest release, and unzip it where you want Couchwave to live.
 
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
 
 4. Open <http://localhost:3000>. The room password is in **`config.json`**, which is created the first
-   time it runs. Change the password, the port or the vote percentage there; the server restarts by itself
-   when you save.
+   time it runs, along with the other [settings](#settings). The server restarts by itself when you save it.
 
 ## Linux (Debian, Ubuntu, Raspberry Pi OS)
 
@@ -47,17 +64,51 @@ You need **Node.js 18 or newer**, **yt-dlp** and **ffmpeg**.
    newer Node from [nodejs.org](https://nodejs.org/en/download). On other distros, install the same
    things with your package manager.
 
-2. Get Couchwave and start it:
+2. Get Couchwave (the latest release) and start it:
 
    ```sh
    git clone https://github.com/Hoyle95/couchwave.git
    cd couchwave
+   git checkout "$(git describe --tags --abbrev=0 origin/main)"   # the latest release, not untested code
    node server.js
    ```
 
+   (Or download **Source code (zip)** from the newest release on the [Releases page](https://github.com/Hoyle95/couchwave/releases)
+   and unzip it.)
+
 3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The room
-   password is printed on the first run and saved in **`config.json`**. Change the password, the port or the
-   vote percentage there and restart.
+   password is printed on the first run and saved in **`config.json`**, along with the other
+   [settings](#settings). Restart Couchwave after changing them.
+
+## Settings
+
+Settings are in `config.json`, made on the first run. On Windows (`start.cmd`) Couchwave restarts by
+itself when you save it; otherwise, restart it.
+
+- `password`: the room password. Changing it logs everyone out.
+- `port`: 3000 by default.
+- `votePercent`: how many of the people online have to vote to skip a song or remove someone else's.
+  60 by default, so 2 of 3 or 3 of 5.
+- `maxVideoHours`: how long any one video can be, in hours (each is downloaded in full to your computer).
+  3 by default; any number works, like `1.5` (an hour and a half) or `0.25` (15 minutes).
+- `downloadAhead`: how many songs at the top of the queue are downloaded ahead of time, so they play
+  without waiting. 20 by default. The rest download as they move up, so a long playlist doesn't fill the disk.
+- `downloadsAtOnce`: how many of those download at the same time. 3 by default. Fewer is gentler on a
+  slow connection.
+- `public`: see below. Keep it `false`.
+
+A setting missing from an older `config.json` uses its default.
+
+> [!WARNING]
+> **Keep `public` set to `false`.** With `"public": true` there's no room password: anyone who finds your
+> address can join, chat, and add songs that **your computer then downloads**. Nicknames still have their
+> own passwords, but strangers can simply make up new ones. We strongly recommend never turning it on,
+> especially if Couchwave can be reached from the internet.
+
+## Your data
+
+Everything Couchwave saves is in `data/`: the queue, chat and history, the accounts (passwords scrambled,
+never stored as typed), the downloaded songs and the logs. **To back up, copy `data/`** (and `config.json`).
 
 ## Keep it running
 
@@ -128,10 +179,41 @@ HTTPS-only (never sent unencrypted). Another proxy has to run on the same machin
 `X-Forwarded-Proto` (nginx: `proxy_set_header X-Forwarded-Proto $scheme;`).
 
 Then send your friends the address and the room password. The first time they join, they pick a nickname
-and a password for it.
+and a password for it. To log someone out, reset a forgotten password or delete an account, see the
+[server commands](FEATURES.md#server-commands).
 
 ## Updating
 
-Download the new version (or `git pull`) over the old one. `config.json` and `data/` are kept. On Windows
-it restarts by itself (if the page doesn't come back, stop and start it as above); on Linux,
-`sudo systemctl restart couchwave`. Everyone just needs to refresh the page.
+Your settings and everything people have done are kept: `config.json` and `data/` aren't part of the
+download, so updating never touches them. To see what's changed first, read the
+[changelog](../CHANGELOG.md).
+
+**Recommended: the newest release.** Download **Source code (zip)** from the newest release on the
+[Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it over your Couchwave
+folder (your `config.json` and `data/` stay as they are). Then restart it: on Windows, `start.cmd` notices
+the new files and restarts by itself (if the page doesn't come back, stop and start it as in
+[Keep it running](#keep-it-running)); on Linux, `sudo systemctl restart couchwave`.
+
+**With `git`, staying on releases** (as set up in the Linux steps above), from the Couchwave folder:
+
+```sh
+git fetch --tags
+git checkout "$(git describe --tags --abbrev=0 origin/main)"
+```
+
+then restart as above.
+
+**The very latest code** (not recommended): `git checkout main`, then `git pull`. This gets every change
+as soon as it's made, before it's been released, so now and then something may not work yet. If `git`
+says your local changes would be overwritten, you've edited one of Couchwave's own files: `git stash`
+puts your changes aside, then try again (`git stash pop` brings them back).
+
+Everyone else just refreshes the page. Settings added in a new version use their defaults until you add
+them to `config.json` (see [Settings](#settings)).
+
+## Troubleshooting
+
+- **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
+  button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.)
+- **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`.
+- **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.

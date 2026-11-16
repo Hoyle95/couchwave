@@ -1,5 +1,5 @@
 // Couchwave: watch YouTube together with friends, on your own server. No npm packages needed.
-// Run: node server.js   then open http://localhost:3000   (the password is in config.json, see README.md)
+// Run: node server.js   then open http://localhost:3000   (the password is in config.json, see docs/INSTALL.md)
 // Log everyone out: node server.js --logout-everyone
 const http = require('http');
 const fs = require('fs');
@@ -168,7 +168,7 @@ try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' 
 const PORT = process.env.PORT || config.port || DEFAULTS.port;
 const PASSWORD = String(process.env.YTP_PASSWORD || config.password || '');
 // public: true = no room password: anyone who has the address can join (with a nickname and its own password,
-// so names are still protected). Not recommended: see the README. Only the exact value true turns it on.
+// so names are still protected). Not recommended: see docs/INSTALL.md. Only the exact value true turns it on.
 const PUBLIC = config.public === true;
 if (!PASSWORD && !PUBLIC) fatal('No password set: put one in config.json');
 if (PUBLIC) console.log('config.json: "public" is on: there\'s no room password, so anyone who has the address can join');

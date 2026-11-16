@@ -4,13 +4,19 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.1.0 beta (2026-11-16)
+
+The first release. It's a beta: it runs a real room every day, but expect the odd rough edge.
+
 ### Added
 
 - **Accounts**: joining takes the room password plus your nickname's own password, chosen the first time
   you use it, so nobody can join as you. Look-alike nicknames are refused, and "DJ" is reserved.
   Everyone logs in once more after updating; whoever logs in first with an existing nickname claims it.
 - **Admin commands**: `--set-password`, `--delete-account` and `--logout-everyone`
-  (see [docs/COMMANDS.md](docs/COMMANDS.md)). They work while Couchwave is running.
+  (see [docs/FEATURES.md](docs/FEATURES.md#server-commands)). They work while Couchwave is running.
 - **DJ**: `!dj on` in the chat keeps up to 10 songs queued, picked from YouTube's Mix of songs people asked
   for (never its own picks), always after people's songs. It asks in the chat when it has nothing to go on.
   Off by default; `!dj off` stops it.
@@ -22,8 +28,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Vote to skip**: Skip is a vote ("1 out of 3 voted to skip"). Whoever added the song can skip it straight
   away. A song skipped by a vote shows in Activity as everyone's doing, not the last voter's.
 - **`public` in config.json (not recommended)**: `"public": true` removes the room password, so anyone with
-  the address can join (nicknames still have their own passwords). Off by default; see the warning in the
-  README.
+  the address can join (nicknames still have their own passwords). Off by default; see the warning in
+  [docs/INSTALL.md](docs/INSTALL.md#settings).
 - **`votePercent` in config.json**: how many of the people online have to vote, to skip or to remove
   someone else's song: 60% by default, rounded up (2 of 3, 3 of 5). The DJ is never counted.
 - **`maxVideoHours` in config.json**: how long any one video can be, 3 hours by default (`1.5` is an hour and
@@ -40,8 +46,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Join screen**: eye buttons to show what you typed, and password managers can now fill in your login.
   The footer (GitHub link and credits) shows there too.
 - **Tests**: `node --test` checks the whole app in under 10 seconds, without internet or your real data.
-- **Docs**: installing is in [docs/INSTALL.md](docs/INSTALL.md), commands in
-  [docs/COMMANDS.md](docs/COMMANDS.md).
+- **Docs**: a short README, with setup, settings and troubleshooting in [docs/INSTALL.md](docs/INSTALL.md),
+  and every feature and command in [docs/FEATURES.md](docs/FEATURES.md).
 
 ### Changed
 

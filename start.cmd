@@ -1,5 +1,5 @@
 @echo off
-rem Starts Couchwave. Double-click it, or run it from Task Scheduler at boot (see README.md).
+rem Starts Couchwave. Double-click it, or run it from Task Scheduler at boot (see docs/INSTALL.md).
 rem If the server ever stops or crashes, it starts again 5 seconds later. Close this window to stop it.
 rem
 rem Logs (in data\): the server writes server.log itself (timestamped, trimmed to the newest ~2 MB once it
