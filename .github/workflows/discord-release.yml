@@ -1,0 +1,45 @@
+# Announces a new release in the Couchwave Discord: "@everyone New Couchwave release out now! V0.1.0 BETA"
+# and a link to the release page (the details are there).
+#
+# Runs by itself when a release (or pre-release) is published. To send it again, or for a release made
+# before this existed: Actions -> Announce release on Discord -> Run workflow (announces the newest release).
+#
+# Needs the repository secret DISCORD_WEBHOOK: in Discord, Server Settings -> Integrations -> Webhooks ->
+# New Webhook (pick the channel) -> Copy Webhook URL; then on GitHub, Settings -> Secrets and variables ->
+# Actions -> New repository secret.
+name: Announce release on Discord
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    if: github.repository == 'Hoyle95/couchwave' # not from other people's copies of the repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          GH_TOKEN: ${{ github.token }}
+          # (passed as variables, never pasted into the script: a release name can't run as code)
+          NAME: ${{ github.event.release.name }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::The DISCORD_WEBHOOK secret isn't set: see the top of .github/workflows/discord-release.yml"
+            exit 1
+          fi
+          if [ -z "$URL" ]; then # run by hand: the newest published release (pre-releases too)
+            release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=10" --jq '[.[] | select(.draft | not)][0]')
+            NAME=$(jq -r '.name // ""' <<<"$release"); TAG=$(jq -r '.tag_name' <<<"$release"); URL=$(jq -r '.html_url' <<<"$release")
+          fi
+          message="@everyone New Couchwave release out now! **${NAME:-$TAG}**"$'\n'"$URL"
+          jq -n --arg content "$message" '{content: $content, allowed_mentions: {parse: ["everyone"]}}' |
+            curl --fail-with-body -sS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
+          echo "Announced: ${NAME:-$TAG} ($URL)"
