@@ -1011,7 +1011,7 @@ setTimeout(updateYtdlp, secs(60));
 setInterval(updateYtdlp, secs(24 * 3600));
 
 // ---------- New versions of Couchwave ----------
-const VERSION = '0.2.0-beta';
+const VERSION = '0.2.1-beta';
 const RELEASES = process.env.COUCHWAVE_RELEASES_URL || 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10';
 const numbers = tag => (/(\d+)\.(\d+)\.(\d+)/.exec(tag || '') || []).slice(1).map(Number);
 function newer(tag, than) {

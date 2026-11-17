@@ -4,6 +4,16 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.2.1 beta (2026-11-17)
+
+Still a beta. Safer logins (each device its own, and a proper limit on password guessing), a Couchwave that
+looks after itself (stuck downloads, a full disk, missing tools), and security fixes. **Download
+`couchwave-v0.2.1-beta.zip`** from the release (not "Source code"). **Updating?** Stop Couchwave, unzip it
+into your Couchwave folder, replacing the old files, and start it again: everyone stays logged in. Behind
+nginx, add the `X-Forwarded-For` line from [docs/INSTALL.md](docs/INSTALL.md#letting-friends-in).
+
 ### Added
 
 - **A limit on wrong passwords for each nickname**: after 20 wrong passwords for the same nickname within 15
