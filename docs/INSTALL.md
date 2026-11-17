@@ -132,7 +132,8 @@ A setting missing from an older `config.json` uses its default.
 Everything Couchwave saves is in `data/`: the queue, chat and history, the accounts (passwords scrambled,
 never stored as typed) and who's logged in, the downloaded songs and the logs. **To back up, copy `data/`**
 (and `config.json`). Downloads pause by themselves if the disk gets down to its last 2 GB, so Couchwave
-never fills it.
+never fills it. To wipe the chat, the Activity log or the played history, see `--clear` in the
+[server commands](FEATURES.md#server-commands).
 
 ## Keep it running
 

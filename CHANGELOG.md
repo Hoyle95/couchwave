@@ -11,6 +11,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   the song and asks first, and works whether Couchwave is running or not (no restart needed). On its own,
   it lists the queue with the numbers. Handy for a song that will never download, like one YouTube only
   shows to signed-in accounts.
+- **`node server.js --clear <what>`**, for whoever runs Couchwave: clears the chat, the Activity log or the
+  played history (any or all of them: `--clear chat activity`, `--clear all`) for everyone, straight away.
+  It asks first, and Activity notes that it was cleared. On its own, it says how much there is of each.
 
 ### Changed
 

@@ -7,6 +7,8 @@ const { testServers, song, yt, waitFor, sleep, ROOT } = require('./helpers');
 const start = testServers({ after });
 const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
 const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
+const command = (s, ...args) => new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js', ...args],
+  { cwd: s.dir, encoding: 'utf8', timeout: 30000 }, (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })));
 
 describe('upkeep', { concurrency: true }, () => {
 test('a download that stops getting anywhere is stopped after 5 minutes and tried again later, so the queue keeps moving', async () => {
@@ -144,5 +146,38 @@ test('a newer Couchwave: Activity says so once (not after every restart); nothin
     assert.equal(asked, before, 'updateCheck false: never asks');
     assert.deepEqual(await told(off), []);
   } finally { releases.close(); }
+});
+
+test('--clear, for whoever runs Couchwave: the chat, Activity or played history, any or all of them, with Couchwave on or off', async () => {
+  const s = await start({ initial: { history: [{ url: yt('hist_000002'), title: 'Played before', by: 'Zed', t: Date.now() }] } });
+  await s.post('/chat', { text: 'hello' }, { as: 'Bob' });
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('hello'), 3000, 'the chat to be saved');
+  let r = await command(s, '--clear');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /^Usage: node server\.js --clear <history \| activity \| chat \| all>/);
+  assert.match(r.stdout, /Now: 1 songs in the played history, \d+ lines in Activity, 1 chat messages\./, 'how much there is of each');
+  assert.equal((await command(s, '--clear', 'everything')).status, 1, 'only what it knows how to clear');
+  const before = await s.state();
+  r = await command(s, '--clear', 'chat');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^Done: cleared the chat\./);
+  let st = (await s.get(`/state?log=${before.logRev}&chat=${before.chatRev}&history=${before.historyRev}`)).json;
+  assert.deepEqual(st.chat, [], 'cleared straight away, and pages that already had the chat are sent the empty one');
+  assert.equal(st.history, undefined, 'the history is untouched');
+  assert.ok(st.log.some(e => e.by === 'server' && e.text === 'cleared the chat (whoever runs Couchwave did)'), 'Activity says so');
+  assert.equal((await command(s, '--clear', 'history', 'Activity')).status, 0, 'more than one, any capitals');
+  st = await s.state();
+  assert.deepEqual(st.history, []);
+  assert.deepEqual(st.log.map(e => `${e.by}: ${e.text}`), ['server: cleared the played history and the Activity log (whoever runs Couchwave did)']);
+  await s.post('/chat', { text: 'after' }, { as: 'Bob' });
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('after'), 3000, 'the chat to be saved');
+  await s.stop();
+  r = await command(s, '--clear', 'all');
+  assert.equal(r.status, 0, 'with Couchwave off: ' + r.stdout + r.stderr);
+  await s.start();
+  st = await s.state();
+  assert.deepEqual([st.chat, st.history], [[], []]);
+  assert.deepEqual(st.log.filter(e => !/^(joined|left)$/.test(e.text)).map(e => `${e.by}: ${e.text}`),
+    ['server: cleared the played history, the Activity log and the chat (whoever runs Couchwave did)']);
 });
 });

@@ -6,8 +6,12 @@
 
 Couchwave is a watch party you host yourself. Paste a YouTube link or just type what you want to hear, and
 it joins a shared queue where everyone takes turns. Videos play in sync on every screen, with chat, emoji
-reactions and votes to skip, on a laptop or a phone. All it needs is Node.js, yt-dlp and ffmpeg: no
-database, no npm packages.
+reactions and votes to skip, on a laptop or a phone. A DJ keeps the music going when the queue runs dry,
+and every song plays at an even volume.
+
+Set it up once and leave it: Couchwave keeps yt-dlp up to date, retries stuck downloads, won't fill your
+disk, and tells you when there's a new version. Everyone has their own nickname and password, and password
+guessing is shut down. All it needs is Node.js, yt-dlp and ffmpeg: no database, no npm packages.
 
 ![Couchwave in a browser: a video playing with emoji reactions floating over it, a skip vote in progress, the chat and online friends on the right, and below them the activity log, the history of songs played with thumbnails, and the queue](docs/screenshot.png)
 

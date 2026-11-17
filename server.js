@@ -158,26 +158,7 @@ async function removeSongCommand(what) {
   const { song, problem } = findSong(queue, what);
   if (problem) { console.log(problem); process.exit(1); }
   if (process.stdin.isTTY && !(await askYesNo(`Remove ${songLine(queue, song)}? [y/N] `))) { console.log('Nothing was changed.'); process.exit(1); }
-  let port = 3000;
-  try { port = Number(JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).port) || 3000; } catch {}
-  const running = await fetch(`http://127.0.0.1:${port}/manifest.json`, { signal: AbortSignal.timeout(3000) })
-    .then(r => r.json()).then(m => m.name === 'Couchwave', () => false);
-  if (running) {
-    fs.mkdirSync(REQUESTS, { recursive: true });
-    const file = path.join(REQUESTS, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
-    writeAtomic(file + '.json', JSON.stringify({ removeSong: song.id }));
-    for (let i = 0; i < 100; i++) {
-      await new Promise(r => setTimeout(r, 100));
-      let reply;
-      try { reply = JSON.parse(fs.readFileSync(file + '.reply', 'utf8')); } catch { continue; }
-      fs.rmSync(file + '.reply', { force: true });
-      console.log(reply.text);
-      process.exit(reply.ok ? 0 : 1);
-    }
-    fs.rmSync(file + '.json', { force: true });
-    console.log('Couchwave is running but didn\'t answer within 10 seconds. Nothing was changed.');
-    process.exit(1);
-  }
+  await askServer({ removeSong: song.id });
   const state = savedState(), at = (Array.isArray(state.queue) ? state.queue : []).findIndex(q => q && q.id === song.id);
   if (at < 0) { console.log('That song isn\'t in the queue any more. Nothing was changed.'); process.exit(1); }
   state.queue.splice(at, 1);
@@ -186,8 +167,60 @@ async function removeSongCommand(what) {
   console.log(`Done: removed "${song.title}" from the queue.`);
   process.exit(0);
 }
+
+async function askServer(request) {
+  let port = 3000;
+  try { port = Number(JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).port) || 3000; } catch {}
+  const running = await fetch(`http://127.0.0.1:${port}/manifest.json`, { signal: AbortSignal.timeout(3000) })
+    .then(r => r.json()).then(m => m.name === 'Couchwave', () => false);
+  if (!running) return;
+  fs.mkdirSync(REQUESTS, { recursive: true });
+  const file = path.join(REQUESTS, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+  writeAtomic(file + '.json', JSON.stringify(request));
+  for (let i = 0; i < 100; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    let reply;
+    try { reply = JSON.parse(fs.readFileSync(file + '.reply', 'utf8')); } catch { continue; }
+    fs.rmSync(file + '.reply', { force: true });
+    console.log(reply.text);
+    process.exit(reply.ok ? 0 : 1);
+  }
+  fs.rmSync(file + '.json', { force: true });
+  console.log('Couchwave is running but didn\'t answer within 10 seconds. Nothing was changed.');
+  process.exit(1);
+}
+
+const CLEARABLE = { history: 'the played history', activity: 'the Activity log', chat: 'the chat' };
+const clearedText = what => {
+  const names = what.map(w => CLEARABLE[w]);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+};
+async function clearCommand(words) {
+  const state = savedState(), count = v => (Array.isArray(v) ? v.length : 0);
+  const asked = words.map(w => (w === 'log' ? 'activity' : w));
+  const what = asked.includes('all') ? Object.keys(CLEARABLE) : [...new Set(asked)].filter(w => CLEARABLE[w]);
+  if (!what.length || asked.some(w => w !== 'all' && !CLEARABLE[w])) {
+    console.log('Usage: node server.js --clear <history | activity | chat | all>   (one or more, like: --clear chat activity)\n\n'
+      + `Now: ${count(state.history)} songs in the played history, ${count(state.log)} lines in Activity, ${count(state.chat)} chat messages.`);
+    process.exit(1);
+  }
+  if (process.stdin.isTTY && !(await askYesNo(`Clear ${clearedText(what)}? It can't be undone. [y/N] `))) { console.log('Nothing was changed.'); process.exit(1); }
+  await askServer({ clear: what });
+  if (what.includes('history')) state.history = [];
+  if (what.includes('chat')) state.chat = [];
+  if (what.includes('activity')) state.log = [];
+  state.log = [...(Array.isArray(state.log) ? state.log : []), { t: Date.now(), by: 'server', text: `cleared ${clearedText(what)} (whoever runs Couchwave did)` }].slice(-200);
+  writeAtomic(STATE, JSON.stringify(state));
+  console.log(`Done: cleared ${clearedText(what)}.`);
+  process.exit(0);
+}
+
 if (process.argv.includes('--remove-song')) {
   removeSongCommand(process.argv.slice(process.argv.indexOf('--remove-song') + 1).join(' ').trim());
+  return;
+}
+if (process.argv.includes('--clear')) {
+  clearCommand(process.argv.slice(process.argv.indexOf('--clear') + 1).map(w => w.toLowerCase().replace(/^-+/, '')));
   return;
 }
 
@@ -1014,12 +1047,27 @@ function handleRequests() {
     let request;
     try { request = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
     fs.rmSync(file, { force: true });
-    const song = queue.find(q => q.id === request.removeSong);
-    if (song) removeFromQueue(song, 'server', `removed "${song.title}" (whoever runs Couchwave did)`);
-    const reply = song ? { ok: true, text: `Done: removed "${song.title}" from the queue.` }
-      : { ok: false, text: "That song isn't in the queue any more (it may have just started playing). Nothing was changed." };
+    const reply = Array.isArray(request.clear) ? clearRequest(request.clear) : removeRequest(request.removeSong);
     try { writeAtomic(file.replace(/\.json$/, '.reply'), JSON.stringify(reply)); } catch {}
   }
+}
+
+function removeRequest(id) {
+  const song = queue.find(q => q.id === id);
+  if (!song) return { ok: false, text: "That song isn't in the queue any more (it may have just started playing). Nothing was changed." };
+  removeFromQueue(song, 'server', `removed "${song.title}" (whoever runs Couchwave did)`);
+  return { ok: true, text: `Done: removed "${song.title}" from the queue.` };
+}
+
+function clearRequest(asked) {
+  const what = Object.keys(CLEARABLE).filter(w => asked.includes(w));
+  if (!what.length) return { ok: false, text: 'Nothing to clear. Nothing was changed.' };
+  if (what.includes('history')) { history = []; historyRev++; }
+  if (what.includes('chat')) { chat = []; chatRev++; }
+  if (what.includes('activity')) { log = []; logRev++; }
+  addLog('server', `cleared ${clearedText(what)} (whoever runs Couchwave did)`);
+  dirty = true;
+  return { ok: true, text: `Done: cleared ${clearedText(what)}.` };
 }
 
 // ---------- Startup ----------

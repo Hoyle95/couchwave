@@ -84,6 +84,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --set-password <name>` | For a forgotten password: asks for the new one (4+ characters, hidden as you type, and kept out of your command history). Logs them out everywhere; send them the new one. You can also put the password after the name. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
 | `node server.js --remove-song <song>` | Takes a song out of the queue straight away, with no vote (and no Undo): give its number in the queue, its YouTube link, or part of its name. It shows the song and asks before removing it. On its own, it lists the queue with the numbers. |
+| `node server.js --clear <what>` | Clears the `chat`, the `activity` log or the played `history` (one or more, like `--clear chat activity`), or `all` of them, for everyone, straight away. It asks first, since it can't be undone, and Activity notes that it was cleared. On its own, it says how much there is of each. |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
 also logs everyone out.
