@@ -1144,8 +1144,12 @@ function clearRequest(asked) {
 
 const STOP_FILE = path.join(DATA, 'stop');
 try { fs.rmSync(STOP_FILE, { force: true }); } catch {}
+function startedBySystemd() {
+  if (process.env.COUCHWAVE_FAKE_SYSTEMD) return true;
+  try { return fs.readFileSync(`/proc/${process.ppid}/comm`, 'utf8').trim() === 'systemd'; } catch { return false; }
+}
 function stopRequest() {
-  if (process.env.INVOCATION_ID) {
+  if (startedBySystemd()) {
     return { ok: false, text: 'Couchwave runs as a systemd service here, which would start it again straight away. Stop it with: sudo systemctl stop couchwave' };
   }
   setTimeout(() => {

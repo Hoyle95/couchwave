@@ -253,7 +253,7 @@ test('--stop: saves everything and stops; under systemd it says to use systemctl
   assert.deepEqual([r.status, r.stdout.trim()], [0, 'Couchwave isn\'t running.']);
   await s.start();
   assert.ok(!fs.existsSync(path.join(s.dir, 'data', 'stop')), 'the note is cleared when it starts again');
-  const systemd = await start({ env: { INVOCATION_ID: 'test' } });
+  const systemd = await start({ env: { COUCHWAVE_FAKE_SYSTEMD: '1' } });
   r = await command(systemd, '--stop');
   assert.equal(r.status, 1);
   assert.match(r.stdout, /systemd service .* sudo systemctl stop couchwave/);
