@@ -8,7 +8,10 @@ const start = testServers({ after });
 const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
 const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
 const command = (s, ...args) => new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js', ...args],
-  { cwd: s.dir, encoding: 'utf8', timeout: 30000 }, (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })));
+  { cwd: s.dir, encoding: 'utf8', timeout: 30000, env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' } },
+  (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })));
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const fileHas = (file, re) => { try { return re.test(fs.readFileSync(file, 'utf8')); } catch { return false; } };
 
 describe('upkeep', { concurrency: true }, () => {
 test('a download that stops getting anywhere is stopped after 5 minutes and tried again later, so the queue keeps moving', async () => {
@@ -179,5 +182,60 @@ test('--clear, for whoever runs Couchwave: the chat, Activity or played history,
   assert.deepEqual([st.chat, st.history], [[], []]);
   assert.deepEqual(st.log.filter(e => !/^(joined|left)$/.test(e.text)).map(e => `${e.by}: ${e.text}`),
     ['server: cleared the played history, the Activity log and the chat (whoever runs Couchwave did)']);
+});
+
+test('--status: whether it\'s running, who\'s online, what\'s playing, the queue, the DJ, disk space, the tools and the newest release', async () => {
+  const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Next up', 'Bob')] } });
+  await s.state('Alice');
+  let r = await command(s, '--status');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  for (const line of [
+    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 1666:40$/m,
+    /^Queue: 1 song \(1 ready\)$/m, /^The DJ is off\.$/m, /^Disk: [\d.]+ GB free$/m,
+    /^Tools: yt-dlp 2026\.10\.26, ffmpeg 7\.1-test, ffprobe 7\.1-test, Node\.js \S+$/m, /^Newest release: couldn't check$/m,
+  ]) assert.match(r.stdout, line);
+  await s.stop();
+  r = await command(s, '--status');
+  assert.match(r.stdout, /^Couchwave v\S+ isn't running\.\nSaved: 1 song in the queue, 0 in the played history\.$/m);
+});
+
+test('youtubeCookies in config.json: handed to yt-dlp for downloads and for searches, playlists and the DJ (a cookies file, or a browser)', async () => {
+  const s = await start({ config: { youtubeCookies: 'data/youtube-cookies.txt' }, initial: playing });
+  await s.logHas(/youtubeCookies should be a cookies file that exists \(like "data\/youtube-cookies\.txt"\) or a browser .*; downloading without cookies/);
+  fs.writeFileSync(path.join(s.dir, 'data', 'youtube-cookies.txt'), '# Netscape HTTP Cookie File\n');
+  await s.restart();
+  await s.post('/add', { url: yt('cook_000001') });
+  await s.post('/add', { url: 'cookie search' });
+  const used = path.join(s.dir, 'cookies-used.log');
+  await waitFor(() => fileHas(used, /^download --cookies .*youtube-cookies\.txt$/m) && fileHas(used, /^list --cookies .*youtube-cookies\.txt$/m), 5000, 'both to use the cookies file');
+  const b = await start({ config: { youtubeCookies: 'Firefox' }, initial: playing });
+  await b.post('/add', { url: yt('cook_000002') });
+  await waitFor(() => fileHas(path.join(b.dir, 'cookies-used.log'), /^download --cookies-from-browser firefox$/m), 5000, 'the browser\'s cookies');
+});
+
+test('yt-dlp that can\'t update itself (installed with pip or a package manager): Activity says so, once', async () => {
+  const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
+  fs.writeFileSync(path.join(s.dir, 'yt-dlp-cant-update'), '');
+  await s.restart();
+  const told = async () => (await s.log()).filter(l => /^server: yt-dlp can't update itself here \(it was installed with pip\)/.test(l));
+  await waitFor(async () => (await told()).length, 5000, 'Activity to say so');
+  await sleep(1000);
+  assert.equal((await told()).length, 1, 'once');
+  assert.match((await told())[0], /Update it the same way it was installed, or install it as in docs\/INSTALL\.md$/);
+});
+
+test('a backup of the accounts, logins, queue and settings once a day, keeping the last 7 days', async () => {
+  const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
+  await s.state();
+  const backups = path.join(s.dir, 'data', 'backups'), day = path.join(backups, today());
+  await waitFor(() => fs.existsSync(path.join(day, 'state.json')), 5000, 'today\'s backup');
+  for (const f of ['state.json', 'logins.json', 'config.json']) assert.ok(fs.existsSync(path.join(day, f)), f);
+  await s.stop();
+  for (let i = 1; i <= 9; i++) fs.mkdirSync(path.join(backups, `2020-01-0${i}`));
+  await s.start();
+  await waitFor(() => fs.readdirSync(backups).length === 7, 5000, 'only the last 7 days to be kept');
+  const kept = fs.readdirSync(backups).sort();
+  assert.equal(kept[0], '2020-01-04', 'the oldest went');
+  assert.equal(kept.at(-1), today(), 'today\'s is kept');
 });
 });

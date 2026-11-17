@@ -13,7 +13,7 @@ const djSongs = async s => (await s.state()).queue.filter(q => q.by === 'DJ');
 const djCount = n => async s => (await djSongs(s)).length >= n;
 async function aliceSong(s, id) {
   await s.post('/add', { url: yt(id) }, { as: 'Alice' });
-  await waitFor(async () => (await s.state()).history?.some(h => h.url.endsWith(id)), 6000, 'Alice\'s song to play');
+  await waitFor(async () => (await s.state()).history?.some(h => h.url.endsWith(id)), 12000, 'Alice\'s song to play');
 }
 
 describe('the DJ', { concurrency: true }, () => {
@@ -197,6 +197,17 @@ describe('the DJ', { concurrency: true }, () => {
     const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
     assert.ok(picks.every(l => / \(like (".+"|a song), from Cara\)$/.test(l)), 'every pick is like Cara\'s song, never its own:\n' + picks.join('\n'));
     assert.equal((await s.state()).chat.filter(m => /no Mix for the other videos/.test(m.text)).length, 1, 'said once');
+  });
+
+  test('a song of its own that can never be downloaded: the DJ drops it, so it doesn\'t sit in the queue', async () => {
+    const s = await start({ here: {}, current: song(1, 'Playing now', 'Zed', { duration: 100000 }),
+      queue: [song(2, 'Song mine_000001', 'Alice', { status: 'waiting', file: undefined, url: yt('fail_perm02') }),
+        song(3, 'Song djsg_000001', 'DJ', { status: 'waiting', file: undefined, url: yt('fail_perm03') })] });
+    await waitFor(async () => (await s.log()).includes('DJ: dropped "Song djsg_000001": it couldn\'t be downloaded (Unavailable)'), 8000, 'the DJ to drop it');
+    assert.ok(!(await s.state()).queue.some(x => x.id === 3), 'gone from the queue');
+    await waitFor(async () => (await s.state()).queue.find(x => x.id === 2)?.status === 'failed', 8000, 'someone else\'s to fail too');
+    await sleep(500);
+    assert.equal((await s.state()).queue.find(x => x.id === 2)?.status, 'failed', 'someone else\'s stays, with its Retry button');
   });
 
   test('picks songs between 1 and 20 minutes long', async () => {

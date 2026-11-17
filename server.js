@@ -8,6 +8,15 @@ const zlib = require('zlib');
 const net = require('net');
 const { spawn } = require('child_process');
 
+const VERSION = '0.2.1-beta';
+const RELEASES = process.env.COUCHWAVE_RELEASES_URL || 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10';
+function versionNumbers(tag) { return (/(\d+)\.(\d+)\.(\d+)/.exec(tag || '') || []).slice(1).map(Number); }
+function newer(tag, than) {
+  const a = versionNumbers(tag), b = versionNumbers(than);
+  if (a.length < 3 || b.length < 3) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+}
 const FAKE_TOOLS = process.env.COUCHWAVE_FAKE_TOOLS;
 const TIME_SCALE = Number(process.env.COUCHWAVE_TIME_SCALE) > 0 ? Number(process.env.COUCHWAVE_TIME_SCALE) : 1;
 const secs = n => n * 1000 * TIME_SCALE;
@@ -168,9 +177,9 @@ async function removeSongCommand(what) {
   process.exit(0);
 }
 
-async function askServer(request) {
-  let port = 3000;
-  try { port = Number(JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).port) || 3000; } catch {}
+const configFile = () => { try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')) || {}; } catch { return {}; } };
+async function askServer(request, keep) {
+  const port = Number(configFile().port) || 3000;
   const running = await fetch(`http://127.0.0.1:${port}/manifest.json`, { signal: AbortSignal.timeout(3000) })
     .then(r => r.json()).then(m => m.name === 'Couchwave', () => false);
   if (!running) return;
@@ -182,12 +191,50 @@ async function askServer(request) {
     let reply;
     try { reply = JSON.parse(fs.readFileSync(file + '.reply', 'utf8')); } catch { continue; }
     fs.rmSync(file + '.reply', { force: true });
+    if (keep) return reply;
     console.log(reply.text);
     process.exit(reply.ok ? 0 : 1);
   }
   fs.rmSync(file + '.json', { force: true });
-  console.log('Couchwave is running but didn\'t answer within 10 seconds. Nothing was changed.');
+  const why = `Couchwave on port ${port} didn't answer within 10 seconds (if it was started from a different folder, run this there)`;
+  if (keep) return { ok: false, text: why + '.' };
+  console.log(why + '. Nothing was changed.');
   process.exit(1);
+}
+
+function toolVersion(name, flag) {
+  return new Promise(resolve => {
+    const p = FAKE_TOOLS ? spawn(process.execPath, [path.join(FAKE_TOOLS, name + '.js'), flag]) : spawn(name, [flag]);
+    const timer = setTimeout(() => p.kill(), 10000);
+    let out = '';
+    p.stdout.on('data', d => (out += d));
+    p.on('error', () => { clearTimeout(timer); resolve(`${name}: not found`); });
+    p.on('close', code => {
+      clearTimeout(timer);
+      const first = String(out).trim().split(/\r?\n/)[0];
+      resolve(code === 0 && first ? `${name} ${first.replace(/^ff\w+ version /, '').split(' ')[0]}` : `${name}: not found`);
+    });
+  });
+}
+async function statusCommand() {
+  const reply = await askServer({ status: true }, true), lines = [];
+  if (reply) lines.push(reply.text);
+  else {
+    const s = savedState(), count = v => (Array.isArray(v) ? v.length : 0);
+    lines.push(`Couchwave v${VERSION} isn't running.`, `Saved: ${count(s.queue)} song${count(s.queue) === 1 ? '' : 's'} in the queue, ${count(s.history)} in the played history.`);
+  }
+  try { const st = fs.statfsSync(DATA); lines.push(`Disk: ${(st.bavail * st.bsize / 1024 ** 3).toFixed(1)} GB free`); } catch {}
+  const tools = await Promise.all([toolVersion('yt-dlp', '--version'), toolVersion('ffmpeg', '-version'), toolVersion('ffprobe', '-version')]);
+  lines.push(`Tools: ${[...tools, `Node.js ${process.versions.node}`].join(', ')}`);
+  if (configFile().updateCheck !== false) {
+    const newest = await fetch(RELEASES, { headers: { 'User-Agent': 'Couchwave', Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(list => Array.isArray(list) && list.find(r => r && !r.draft && typeof r.tag_name === 'string'), () => null);
+    lines.push(!newest ? 'Newest release: couldn\'t check'
+      : newer(newest.tag_name, VERSION) ? `Newest release: ${newest.tag_name}, newer than this one (see docs/INSTALL.md#updating)`
+      : `Newest release: ${newest.tag_name} (this is up to date)`);
+  }
+  console.log(lines.join('\n'));
+  process.exit(0);
 }
 
 const CLEARABLE = { history: 'the played history', activity: 'the Activity log', chat: 'the chat' };
@@ -215,6 +262,10 @@ async function clearCommand(words) {
   process.exit(0);
 }
 
+if (process.argv.includes('--status')) {
+  statusCommand();
+  return;
+}
 if (process.argv.includes('--remove-song')) {
   removeSongCommand(process.argv.slice(process.argv.indexOf('--remove-song') + 1).join(' ').trim());
   return;
@@ -274,7 +325,6 @@ if (!fs.existsSync(CONFIG)) {
 const fatal = msg => { const l = `${stamp()}  ${msg}\n`; try { fs.appendFileSync(LOGFILE, l); } catch {} process.stderr.write(l); process.exit(1); };
 let config;
 try { config = require(CONFIG); } catch (err) { fatal('config.json is broken: ' + err.message); }
-const PORT = config.port || DEFAULTS.port;
 const PASSWORD = String(config.password || '');
 const PUBLIC = config.public === true;
 if (!PASSWORD && !PUBLIC) fatal('No password set: put one in config.json');
@@ -287,6 +337,7 @@ function setting(key, valid, should) {
   console.log(`config.json: ${key} should be ${should}, not ${JSON.stringify(config[key])}; using ${DEFAULTS[key]}`);
   return DEFAULTS[key];
 }
+const PORT = setting('port', p => Number.isInteger(p) && p >= 1 && p <= 65535, 'a whole number from 1 to 65535');
 const VOTE_PERCENT = setting('votePercent', p => p > 0 && p <= 100, 'a number from 1 to 100');
 const MAX_HOURS = setting('maxVideoHours', h => h > 0, 'a number of hours above 0 (like 3, or 1.5)');
 const whole = n => Number.isInteger(n) && n >= 1;
@@ -298,6 +349,18 @@ const MAX_LENGTH_TEXT = (() => {
   return [h && `${h} hour${h === 1 ? '' : 's'}`, m && `${m} minute${m === 1 ? '' : 's'}`].filter(Boolean).join(' ');
 })();
 const tooLong = song => song.duration > MAX_SECONDS;
+const BROWSERS = ['brave', 'chrome', 'chromium', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale'];
+function cookieArgs() {
+  const v = config.youtubeCookies;
+  if (v == null || v === '' || v === false) return [];
+  const text = String(v).trim();
+  if (BROWSERS.includes(text.toLowerCase())) return ['--cookies-from-browser', text.toLowerCase()];
+  const file = path.resolve(__dirname, text);
+  if (fs.existsSync(file)) return ['--cookies', file];
+  console.log(`config.json: youtubeCookies should be a cookies file that exists (like "data/youtube-cookies.txt") or a browser (${BROWSERS.join(', ')}), not ${JSON.stringify(v)}; downloading without cookies`);
+  return [];
+}
+const COOKIES = cookieArgs();
 
 // ---------- Visitors' addresses ----------
 const subnets = list => { const b = new net.BlockList(); for (const [ip, bits] of list) b.addSubnet(ip, bits, net.isIPv6(ip) ? 'ipv6' : 'ipv4'); return b; };
@@ -663,7 +726,7 @@ function listSongs(target, max, cb) {
   const p = run('yt-dlp', [
     '--encoding', 'utf-8',
     '--flat-playlist', '--yes-playlist', '--playlist-end', String(max),
-    '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', '--', target,
+    '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', ...COOKIES, '--', target,
   ], secs(120), `yt-dlp reading ${target}`);
   let stdout = '', finished = false;
   p.stdout.setEncoding('utf8');
@@ -830,6 +893,7 @@ function failed(item, reason, permanent) {
   const patient = /bot check|rate limit/.test(reason);
   if (!permanent && item.tries <= 2) { item.retryAt = Date.now() + (patient ? secs(item.tries === 1 ? 60 : 300) : 10000 * item.tries); return; }
   item.retryAt = null;
+  if (isDjSong(item) && queue.includes(item)) return removeFromQueue(item, DJ_NAME, `dropped "${item.title}": it couldn't be downloaded (${reason})`);
   addLog(item.by, `couldn't download "${item.title}" (${reason})`);
 }
 
@@ -871,7 +935,7 @@ function download(item) {
     '--no-progress', '--match-filter', '!is_live',
     '--break-match-filters', `duration <=? ${MAX_SECONDS}`,
     '-S', 'res:720,vcodec:h264,acodec:m4a', '--merge-output-format', 'mp4',
-    '-o', out, '--print', 'after_move:%(duration)s|%(title)s', '--', item.url,
+    '-o', out, '--print', 'after_move:%(duration)s|%(title)s', ...COOKIES, '--', item.url,
   ]);
   running.set(item.id, p);
   const prefix = path.basename(out, '.mp4');
@@ -1047,7 +1111,7 @@ function handleRequests() {
     let request;
     try { request = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
     fs.rmSync(file, { force: true });
-    const reply = Array.isArray(request.clear) ? clearRequest(request.clear) : removeRequest(request.removeSong);
+    const reply = request.status ? statusRequest() : Array.isArray(request.clear) ? clearRequest(request.clear) : removeRequest(request.removeSong);
     try { writeAtomic(file.replace(/\.json$/, '.reply'), JSON.stringify(reply)); } catch {}
   }
 }
@@ -1068,6 +1132,20 @@ function clearRequest(asked) {
   addLog('server', `cleared ${clearedText(what)} (whoever runs Couchwave did)`);
   dirty = true;
   return { ok: true, text: `Done: cleared ${clearedText(what)}.` };
+}
+
+function statusRequest() {
+  const users = online().sort((a, b) => a.localeCompare(b)), counts = {};
+  for (const q of queue) counts[q.status] = (counts[q.status] || 0) + 1;
+  const kinds = Object.entries(counts).map(([status, n]) => `${n} ${status}`).join(', ');
+  const at = current ? `${fmt(Math.min(elapsed(), current.duration || 0))} of ${fmt(current.duration || 0)}${paused ? ', paused' : ''}` : '';
+  return { ok: true, text: [
+    `Couchwave v${VERSION} is running on port ${PORT}.`,
+    `Online now: ${users.join(', ') || 'nobody'}`,
+    `Playing: ${current ? `"${current.title}" (added by ${current.by}), ${at}` : 'nothing'}`,
+    `Queue: ${queue.length} song${queue.length === 1 ? '' : 's'}${kinds ? ` (${kinds})` : ''}${diskFull ? '. Downloads are paused: the disk is nearly full' : ''}`,
+    `The DJ is ${dj && dj.isOn() ? 'on' : 'off'}.`,
+  ].join('\n') };
 }
 
 // ---------- Startup ----------
@@ -1131,6 +1209,7 @@ for (const [tool, flag, effect] of process.env.COUCHWAVE_CHECK_TOOLS === 'no' ? 
 }
 
 // ---------- Keeping yt-dlp up to date ----------
+let toldCantUpdate = false;
 function updateYtdlp() {
   if (running.size) return setTimeout(updateYtdlp, secs(300));
   const p = run('yt-dlp', ['-U'], secs(300));
@@ -1143,6 +1222,14 @@ function updateYtdlp() {
     const updated = /Updated yt-dlp to:?\s*(?:\S*@)?([\d.]+)/i.exec(out);
     if (updated) { addLog('server', `updated yt-dlp to ${updated[1]}`); dirty = true; }
     logOut('yt-dlp update check: ' + (out.trim().split('\n').pop() || 'no output'));
+    if (!updated && !toldCantUpdate && /installed yt-dlp .*use that to update/i.test(out)) {
+      toldCantUpdate = true;
+      const how = /pip|pypi/i.test(out) ? 'with pip' : 'with a package manager';
+      const text = `yt-dlp can't update itself here (it was installed ${how}), so it will go out of date and YouTube downloads will start failing. Update it the same way it was installed, or install it as in docs/INSTALL.md`;
+      logOut(text);
+      addLog('server', text);
+      dirty = true;
+    }
   };
   p.on('error', end);
   p.on('close', end);
@@ -1151,15 +1238,6 @@ setTimeout(updateYtdlp, secs(60));
 setInterval(updateYtdlp, secs(24 * 3600));
 
 // ---------- New versions of Couchwave ----------
-const VERSION = '0.2.1-beta';
-const RELEASES = process.env.COUCHWAVE_RELEASES_URL || 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10';
-const numbers = tag => (/(\d+)\.(\d+)\.(\d+)/.exec(tag || '') || []).slice(1).map(Number);
-function newer(tag, than) {
-  const a = numbers(tag), b = numbers(than);
-  if (a.length < 3 || b.length < 3) return false;
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-  return false;
-}
 function checkForUpdate() {
   if (config.updateCheck === false) return;
   const req = (RELEASES.startsWith('https:') ? https : http).get(RELEASES, { headers: { 'User-Agent': 'Couchwave', Accept: 'application/vnd.github+json' }, timeout: 15000 }, res => {
@@ -1183,6 +1261,27 @@ function checkForUpdate() {
 }
 setTimeout(checkForUpdate, secs(120));
 setInterval(checkForUpdate, secs(24 * 3600));
+
+// ---------- Daily backups ----------
+const BACKUPS = path.join(DATA, 'backups'), BACKUP_DAYS = 7;
+const BACKED_UP = ['accounts.json', 'state.json', 'logins.json', 'login-key', 'dj.json'];
+function backUp() {
+  const d = new Date();
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  try {
+    const dir = path.join(BACKUPS, day);
+    if (!fs.existsSync(dir)) {
+      save();
+      fs.mkdirSync(dir, { recursive: true });
+      for (const f of BACKED_UP) { try { fs.copyFileSync(path.join(DATA, f), path.join(dir, f)); } catch {} }
+      try { fs.copyFileSync(CONFIG, path.join(dir, 'config.json')); } catch {}
+    }
+    const days = fs.readdirSync(BACKUPS).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
+    for (const old of days.slice(0, -BACKUP_DAYS)) fs.rmSync(path.join(BACKUPS, old), { recursive: true, force: true });
+  } catch (err) { console.error('backing up failed:', err.message); }
+}
+setTimeout(backUp, secs(30));
+setInterval(backUp, secs(3600));
 
 // ---------- What pages see ----------
 const pub = i => i && { id: i.id, url: i.url, title: i.title, by: i.by, duration: i.duration, gain: i.gain ?? 1 };
@@ -1336,7 +1435,11 @@ function readJson(req, max, cb) {
   let body = '';
   req.setEncoding('utf8');
   req.on('data', d => { body += d; if (body.length > max) req.destroy(); });
-  req.on('end', () => { let data; try { data = JSON.parse(body); } catch {} cb(data && typeof data === 'object' ? data : {}); });
+  req.on('end', () => {
+    let data;
+    try { data = JSON.parse(body); } catch {}
+    try { cb(data && typeof data === 'object' && !Array.isArray(data) ? data : {}); } catch (err) { req.failed(err); }
+  });
 }
 
 function parseCookies(header) {
@@ -1359,7 +1462,20 @@ function plainFromInternet(req) {
 
 // ---------- Routes ----------
 http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
+  let url;
+  try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); return res.end(); }
+  req.on('error', () => {});
+  req.failed = err => {
+    console.error(`${req.method} ${url.pathname} failed: ${err.stack || err.message}`);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  };
+  try { route(req, res, url); } catch (err) { req.failed(err); }
+}).on('error', err => fatal(err.code === 'EADDRINUSE'
+  ? `Can't start: port ${PORT} is already in use. Is Couchwave already running? Close it, or set another "port" in config.json`
+  : `Can't start: ${err.message}`)).listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));
+
+function route(req, res, url) {
   const route = req.method + ' ' + url.pathname;
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
   if (viaHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
@@ -1644,4 +1760,4 @@ http.createServer((req, res) => {
   }
 
   res.writeHead(404); res.end();
-}).listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));
+}

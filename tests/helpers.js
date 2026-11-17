@@ -63,7 +63,7 @@ class Server {
   logHas(re, ms = 3000) { return waitFor(() => { try { return re.test(fs.readFileSync(this.logFile, 'utf8')); } catch { return false; } }, ms, `the log to say ${re}`); }
 
   async stop() {
-    if (!this.proc || this.proc.exitCode !== null) return;
+    if (!this.proc || this.proc.exitCode !== null || this.proc.signalCode !== null) return;
     const exited = new Promise(r => this.proc.on('exit', r));
     this.proc.kill();
     await exited;

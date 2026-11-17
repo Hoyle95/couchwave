@@ -7,9 +7,12 @@ const utf8 = args[args.indexOf('--encoding') + 1] === 'utf-8' && args.includes('
 const text = t => (utf8 ? t : t.replace(/[^\x00-\x7e]/gu, '�'));
 
 if (args[0] === '--version') { console.log('2026.10.26'); process.exit(0); }
+const cookies = args.findIndex(a => a === '--cookies' || a === '--cookies-from-browser');
+if (cookies >= 0) fs.appendFileSync('cookies-used.log', `${args.includes('--flat-playlist') ? 'list' : 'download'} ${args[cookies]} ${args[cookies + 1]}\n`);
 
 if (args.includes('-U')) {
   fs.appendFileSync('update-checks.log', 'checked\n');
+  if (fs.existsSync('yt-dlp-cant-update')) { console.error('ERROR: You installed yt-dlp with pip or using the wheel from PyPi; Use that to update'); process.exit(1); }
   if (fs.existsSync('yt-dlp-update')) console.log('Updating to stable@2026.11.01 from yt-dlp/yt-dlp ...\nUpdated yt-dlp to stable@2026.11.01 from yt-dlp/yt-dlp');
   else console.log('yt-dlp is up to date (stable@2026.10.26 from yt-dlp/yt-dlp)');
   process.exit(0);

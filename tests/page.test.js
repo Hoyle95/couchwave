@@ -114,3 +114,20 @@ test('big status replies are compressed; small ones aren\'t worth it', async () 
   assert.ok(JSON.parse(zlib.gunzipSync(r.body)).chat.length >= 18);
   assert.equal((await s.get('/room', { cookie: '', headers: { 'Accept-Encoding': 'gzip' } })).headers['content-encoding'], undefined);
 });
+
+test('a broken request (an address it can\'t read, or one cut off halfway) gets nowhere, and Couchwave carries on', async () => {
+  const net = require('net');
+  const raw = (text, cut) => new Promise(resolve => {
+    const c = net.connect(s.port, '127.0.0.1', () => { c.write(text); if (cut) setTimeout(() => { c.destroy(); resolve('cut off'); }, 200); });
+    let got = '';
+    c.on('data', d => (got += d));
+    c.on('close', () => resolve(got.split('\r\n')[0]));
+    c.on('error', () => resolve('error'));
+  });
+  assert.equal(await raw('GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'), 'HTTP/1.1 400 Bad Request');
+  const cookie = await s.cookie('Alice');
+  await raw(`POST /chat HTTP/1.1\r\nHost: x\r\nCookie: ${cookie}\r\nContent-Length: 500\r\n\r\n{"text":"hel`, true);
+  await raw('POST /login HTTP/1.1\r\nHost: x\r\nContent-Length: 500\r\n\r\n{"pass', true);
+  assert.equal((await s.get('/manifest.json', { cookie: '' })).status, 200, 'still running');
+  assert.equal((await s.post('/chat', ['an', 'array'])).status, 204, 'a body that isn\'t an object is ignored, not a crash');
+});

@@ -63,11 +63,13 @@
   reuse what they already have, and a phone in your pocket gets just the sound, not the video.
 - **Limits you choose**: the longest video allowed, how many songs download ahead and at once (see
   [settings](INSTALL.md#settings)).
-- **Keeps yt-dlp up to date** by itself, since YouTube changes often, and says in Activity when there's a
-  new Couchwave (see `updateCheck` in the [settings](INSTALL.md#settings)).
+- **Keeps yt-dlp up to date** by itself, since YouTube changes often (and says so if it can't), and says in
+  Activity when there's a new Couchwave (see `updateCheck` in the [settings](INSTALL.md#settings)). If
+  YouTube keeps asking it to sign in, it can use a signed-in account (see `youtubeCookies`).
 - **Looks after itself**: a download or ffmpeg that gets stuck is stopped and tried again, downloads pause
   before the disk fills up, a missing yt-dlp or ffmpeg is named in Activity when Couchwave starts, a damaged
-  save file is kept aside instead of stopping Couchwave, and its log file trims itself.
+  save file is kept aside instead of stopping Couchwave, its log file trims itself, and it backs itself up
+  every day (the last 7 days, in `data/backups/`).
 - **Locked down**: browsers only run Couchwave's own scripts (so even a bug letting code into a chat message
   couldn't run it), other sites can't show it inside theirs or act as someone who's logged in, and YouTube
   isn't told your room's address. Over `https://`, browsers are told to always use it; if friends reach it
@@ -85,6 +87,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
 | `node server.js --remove-song <song>` | Takes a song out of the queue straight away, with no vote (and no Undo): give its number in the queue, its YouTube link, or part of its name. It shows the song and asks before removing it. On its own, it lists the queue with the numbers. |
 | `node server.js --clear <what>` | Clears the `chat`, the `activity` log or the played `history` (one or more, like `--clear chat activity`), or `all` of them, for everyone, straight away. It asks first, since it can't be undone, and Activity notes that it was cleared. On its own, it says how much there is of each. |
+| `node server.js --status` | How Couchwave is doing: whether it's running, who's online, what's playing, the queue, the DJ, the free disk space, the versions of yt-dlp, ffmpeg and Node.js, and whether there's a newer Couchwave. |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
 also logs everyone out.
@@ -107,6 +110,7 @@ The DJ:
 - **Fills up gently**: its first songs come straight away, then it asks YouTube for one more Mix every 10
   seconds until it has 10 queued, so it doesn't rush YouTube.
 - **Queues its songs after everyone else's**, as "DJ" 🎧. Skipping or removing them is a vote, like any song.
+  If one of its songs can't be downloaded, it drops it (Activity says why) and picks another.
 - **Only plays music**: YouTube has no Mix for other videos (music Shorts work, other Shorts don't). With
   nothing to go on, or only other videos, it says so once in the chat and waits for a song.
 - **Is off until someone turns it on**, and stays on or off across restarts.
@@ -131,6 +135,6 @@ it's running. The stand-ins mean it needs no internet. The test servers run thei
 `COUCHWAVE_…` variables in `tests/helpers.js` and `server.js` are only for the tests. Every push to `main`
 also runs them on Linux and Windows (`.github/workflows/tests.yml`).
 
-Releasing: first set `VERSION` (in the "New versions of Couchwave" part of `server.js`) to the new version:
+Releasing: first set `VERSION` (near the top of `server.js`) to the new version:
 it's what the "a newer Couchwave is out" check compares. Publishing a GitHub release runs the tests on
 Linux, then builds `couchwave-<tag>.zip` and attaches it (`.github/workflows/release-zip.yml`).

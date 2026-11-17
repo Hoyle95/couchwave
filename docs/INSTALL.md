@@ -99,7 +99,7 @@ Settings are in `config.json`, made on the first run. On Windows (`start.cmd`) C
 itself when you save it; otherwise, restart it.
 
 - `password`: the room password. Changing it logs everyone out.
-- `port`: 3000 by default.
+- `port`: 3000 by default (any whole number from 1 to 65535).
 - `votePercent`: how many of the people online have to vote to skip a song or remove someone else's.
   60 by default, so 2 of 3 or 3 of 5.
 - `maxVideoHours`: how long any one video can be, in hours (each is downloaded in full to your computer).
@@ -118,6 +118,17 @@ itself when you save it; otherwise, restart it.
 - `updateCheck`: once a day Couchwave asks GitHub whether there's a newer release, and if there is, says so in
   Activity and the log (it doesn't install anything, and nothing about you or your room is sent). `false`
   turns this off.
+- `youtubeCookies`: only if YouTube keeps stopping downloads with its bot check, or a video only shows to
+  signed-in accounts. It lets yt-dlp use a signed-in YouTube account, from either:
+  - a cookies file, like `"youtubeCookies": "data/youtube-cookies.txt"`, exported from a browser where you're
+    signed in to YouTube (in the Netscape `cookies.txt` format: see
+    [yt-dlp's guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)). Keep it in
+    `data/`, so it's never shared or uploaded.
+  - or a browser on this computer where you're signed in to YouTube: `"firefox"`, `"chrome"`, `"edge"`,
+    `"brave"`, `"opera"`, `"vivaldi"`, `"chromium"` or `"safari"`. On Windows, Chrome and Edge's cookies
+    usually can't be read; Firefox or a cookies file work.
+
+  Use a spare Google account, not your main one: YouTube can block an account it thinks is a bot.
 
 A setting missing from an older `config.json` uses its default.
 
@@ -134,6 +145,11 @@ never stored as typed) and who's logged in, the downloaded songs and the logs. *
 (and `config.json`). Downloads pause by themselves if the disk gets down to its last 2 GB, so Couchwave
 never fills it. To wipe the chat, the Activity log or the played history, see `--clear` in the
 [server commands](FEATURES.md#server-commands).
+
+Couchwave also backs itself up once a day, into `data/backups/` (a folder for each day, keeping the last 7):
+the accounts and logins, the queue, chat and history, and `config.json`. To go back to one, stop Couchwave,
+copy that day's files back into `data/` (and `config.json` back into the Couchwave folder), and start it
+again. For a copy somewhere safer, copy `data/backups/` to another drive now and then.
 
 ## Keep it running
 
@@ -266,10 +282,18 @@ them to `config.json` (see [Settings](#settings)).
 - **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
   button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
   YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
-  hours. If it's just **one song**, again and again, while others download fine, YouTube wants a signed-in
-  account for that video: remove it and pick another version of the song. If it's someone else's (or the
-  DJ's), `node server.js --remove-song <its number in the queue>` takes it out without a vote (see the
+  hours. If it keeps coming back, see `youtubeCookies` in the [settings](#settings). If it's just **one
+  song**, again and again, while others download fine, YouTube wants a signed-in account for that video:
+  remove it and pick another version of the song (or use `youtubeCookies`). If it's someone else's, `node
+  server.js --remove-song <its number in the queue>` takes it out without a vote (see the
   [server commands](FEATURES.md#server-commands)).
+- **Activity says "yt-dlp can't update itself here"**: yt-dlp was installed with pip or a package manager
+  (like `apt`), which won't let it update itself, so it goes out of date as YouTube changes. Update it the same
+  way now and then (`pip install -U yt-dlp`, or your package manager), or install it as in the steps for
+  [Linux](#linux-debian-ubuntu-raspberry-pi-os) so Couchwave can keep it up to date.
+- **To check on Couchwave**: `node server.js --status` in the Couchwave folder says whether it's running,
+  who's online, what's playing, how the queue is doing, the free disk space, the versions of its tools and
+  whether there's a newer Couchwave.
 - **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
   this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
   **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On
@@ -281,7 +305,9 @@ them to `config.json` (see [Settings](#settings)).
   Free up some space and they carry on by themselves within a minute.
 - **A song shows "Download stalled"**: its download stopped getting anywhere for 5 minutes, so Couchwave
   stopped it and tries again shortly. If it keeps happening, check this computer's internet connection.
-- **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`.
+- **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`, or "port … is
+  already in use": Couchwave (or something else) is already running on that port. Close it, or pick another
+  `port` in `config.json`.
 - **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.
 - **The queue, chat and history are suddenly empty**: `data/state.json` couldn't be read (the log says why).
   The old file is kept beside it as `state.json.broken-…`, in case you want to look at it or put it back.

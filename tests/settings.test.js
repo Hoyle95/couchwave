@@ -71,4 +71,20 @@ test('"public": only exactly true opens the room: no room password (the join scr
   assert.equal((await join(s, { name: 'alice', own: 'guess' })).status, 401, 'Alice\'s nickname still needs her password');
   await s.logHas(/"public" is on: there's no room password/);
 });
+
+test('a port that\'s already in use: it says so plainly (is Couchwave already running?) and stops', async () => {
+  const first = await start();
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-second-'));
+  try {
+    for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: first.port }));
+    const status = await new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js'], { cwd: dir, timeout: 20000,
+      env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' } },
+    err => resolve(err ? err.code : 0)));
+    assert.equal(status, 1);
+    assert.match(fs.readFileSync(path.join(dir, 'data', 'server.log'), 'utf8'),
+      new RegExp(`Can't start: port ${first.port} is already in use\\. Is Couchwave already running\\? Close it, or set another "port" in config\\.json`));
+    assert.equal((await first.get('/manifest.json', { cookie: '' })).status, 200, 'the one already running carries on');
+  } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); }
+});
 });

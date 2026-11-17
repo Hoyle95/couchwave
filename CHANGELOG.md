@@ -14,6 +14,16 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **`node server.js --clear <what>`**, for whoever runs Couchwave: clears the chat, the Activity log or the
   played history (any or all of them: `--clear chat activity`, `--clear all`) for everyone, straight away.
   It asks first, and Activity notes that it was cleared. On its own, it says how much there is of each.
+- **`node server.js --status`**: how Couchwave is doing at a glance, whether it's running or not: who's
+  online, what's playing, the queue, the DJ, the free disk space, the versions of its tools and whether
+  there's a newer Couchwave.
+- **`youtubeCookies` in config.json**, for when YouTube keeps stopping downloads with its bot check, or a
+  video only shows to signed-in accounts: yt-dlp can use a signed-in account's cookies, from a file or a
+  browser on the same computer (see [docs/INSTALL.md](docs/INSTALL.md#settings); use a spare account).
+- **A backup every day** in `data/backups/`: the accounts and logins, the queue, chat and history, and
+  `config.json`, keeping the last 7 days.
+- **A warning when yt-dlp can't update itself** (installed with pip or a package manager), in Activity and
+  the log, since an out-of-date yt-dlp stops downloading as YouTube changes.
 
 ### Changed
 
@@ -22,6 +32,17 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   (a burst like that can make YouTube start checking for bots).
 - **YouTube's bot check and rate limit are given time**: a song that hits one is tried again after a minute,
   then 5 minutes, instead of 10 and 20 seconds, so Couchwave doesn't keep pushing while YouTube is pushing back.
+- **The DJ drops its own songs that can't be downloaded** (Activity says why), instead of leaving them in the
+  queue, where they took up its 10 places. Other people's stay, with their Retry button.
+
+### Fixed
+
+- **One malformed request could stop Couchwave**, for anyone who could reach it, without logging in (it
+  restarted by itself a few seconds later). Requests it can't read are now turned away, and anything that goes
+  wrong while answering one is written to the log instead of stopping the server.
+- **A `port` that's already in use** (say, Couchwave already running) now says so plainly in the log, instead
+  of an error dump every few seconds. A `port` that isn't a whole number from 1 to 65535 falls back to 3000,
+  and the log says so.
 
 ## v0.2.1 beta (2026-11-17)
 
