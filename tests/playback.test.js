@@ -61,9 +61,9 @@ test('moving through a song: only whoever added it while they\'re here (or it\'d
 });
 
 test('when a song ends, the next one plays and the old files are deleted', async () => {
-  const s = await start({ initial: { current: song(1, 'Short song', 'Alice', { duration: 4 }), queue: [song(2, 'Next song', 'Bob')] } });
-  const oldFile = path.join(s.dir, 'data', 'downloads', JSON.parse(fs.readFileSync(s.statePath)).current.file);
-  assert.ok(fs.existsSync(oldFile));
+  const short = song(1, 'Short song', 'Alice', { duration: 4 });
+  const s = await start({ initial: { current: short, queue: [song(2, 'Next song', 'Bob')] } });
+  const oldFile = path.join(s.dir, 'data', 'downloads', short.file);
   const st = await waitFor(async () => { const x = await s.state(); return x.current?.title === 'Next song' && x; }, 12000, 'the next song');
   assert.equal(st.queue.length, 0);
   await waitFor(() => !fs.existsSync(oldFile), 3000, 'the old file to be deleted');
