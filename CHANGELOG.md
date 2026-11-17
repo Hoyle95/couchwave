@@ -4,6 +4,14 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.2.0 beta (2026-11-17)
+
+Still a beta. Even volume, no duplicate songs, chat speed limits, security headers, a sturdier DJ, and a lot
+of fixes. **Download `couchwave-v0.2.0-beta.zip`** from the release (not "Source code"): its files are at the
+top of the zip, so it unzips straight into your Couchwave folder.
+
 ### Added
 
 - **Even volume**: each song's loudness is measured when it downloads (in the same step that makes the
@@ -46,9 +54,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   its video, until it's looked at again.
 - **Settings only come from `config.json`**: the room password and port can no longer be overridden by the
   `YTP_PASSWORD` and `PORT` environment variables, a leftover from early on that was never documented.
-- **Tidier code** (nothing changes for anyone using it): the page is split into `index.html`, `style.css` and
-  `app.js`, every file is grouped into sections with short headers instead of long comments, and leftovers
-  for data and pages from before v0.1.0 are gone.
+- **Under the hood** (nothing changes for anyone using it): tidier code grouped into sections, leftovers
+  from before v0.1.0 removed, and steadier tests.
 
 ### Fixed
 
@@ -71,9 +78,6 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   song is already in the queue.
 - **Emoji or accented letters could arrive garbled** when a message reached the server in two pieces.
 - **A song with a missing file could crash the server** when someone's page asked for it.
-- **Tests that failed now and then on a busy computer** (pausing, download pacing, instant updates, logging
-  everyone out, the DJ stopping, a song ending) now allow for the time the test servers take to start and
-  respond. The chat tests run side by side like the others.
 
 ### Known issues
 

@@ -40,8 +40,8 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
    (The yt-dlp package brings ffmpeg with it.) Close and reopen PowerShell afterwards.
 
 2. Get Couchwave: on the [Releases page](https://github.com/Hoyle95/couchwave/releases), download
-   **Source code (zip)** under **Assets** of the newest release, and unzip it where you want Couchwave to live.
-   The zip holds one folder (like `couchwave-0.1.0-beta`): that's your Couchwave folder, and you can rename it.
+   **couchwave-…zip** under **Assets** of the newest release (not "Source code"). Right-click it, choose
+   **Extract All**, and pick where you want Couchwave to live: that folder is your Couchwave folder.
 
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
 
@@ -54,7 +54,7 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
 
    ```sh
    sudo apt update
-   sudo apt install -y nodejs ffmpeg python3 git curl
+   sudo apt install -y nodejs ffmpeg python3 git curl unzip
    node --version    # needs v18.11 or newer
    mkdir -p ~/.local/bin
    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
@@ -76,8 +76,8 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
    node server.js
    ```
 
-   (Or download **Source code (zip)** from the newest release on the [Releases page](https://github.com/Hoyle95/couchwave/releases)
-   and unzip it.)
+   (Or download **couchwave-…zip** from the newest release on the
+   [Releases page](https://github.com/Hoyle95/couchwave/releases) and `unzip` it into a new folder.)
 
 3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The room
    password is printed on the first run and saved in **`config.json`**, along with the other
@@ -196,11 +196,11 @@ download, so updating never touches them. To see what's changed first, read the
 
 **Recommended: the newest release.**
 
-1. Download **Source code (zip)** from the newest release on the
-   [Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it somewhere else (not into
-   your Couchwave folder).
-2. Open the folder inside it (like `couchwave-0.1.0-beta`) and copy everything in it into your Couchwave
-   folder, replacing the old files. Your `config.json` and `data/` stay as they are.
+1. Download **couchwave-…zip** (not "Source code") from the newest release on the
+   [Releases page](https://github.com/Hoyle95/couchwave/releases).
+2. Unzip it straight into your Couchwave folder, replacing the old files (on Windows: **Extract All**, pick
+   your Couchwave folder, and choose to replace the files; on Linux: `unzip -o couchwave-…zip -d <folder>`).
+   Your `config.json` and `data/` aren't in the zip, so they stay as they are.
 3. Restart Couchwave. On Windows, `start.cmd` notices the new files and restarts by itself (if the page
    doesn't come back, stop and start it as in [Keep it running](#keep-it-running)). On Linux,
    `sudo systemctl restart couchwave`.
