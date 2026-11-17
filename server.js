@@ -262,6 +262,13 @@ async function clearCommand(words) {
   process.exit(0);
 }
 
+if (process.argv.includes('--stop')) {
+  askServer({ stop: true }, true).then(reply => {
+    console.log(reply ? reply.text : 'Couchwave isn\'t running.');
+    process.exit(!reply || reply.ok ? 0 : 1);
+  });
+  return;
+}
 if (process.argv.includes('--status')) {
   statusCommand();
   return;
@@ -1111,7 +1118,8 @@ function handleRequests() {
     let request;
     try { request = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
     fs.rmSync(file, { force: true });
-    const reply = request.status ? statusRequest() : Array.isArray(request.clear) ? clearRequest(request.clear) : removeRequest(request.removeSong);
+    const reply = request.stop ? stopRequest() : request.status ? statusRequest()
+      : Array.isArray(request.clear) ? clearRequest(request.clear) : removeRequest(request.removeSong);
     try { writeAtomic(file.replace(/\.json$/, '.reply'), JSON.stringify(reply)); } catch {}
   }
 }
@@ -1132,6 +1140,23 @@ function clearRequest(asked) {
   addLog('server', `cleared ${clearedText(what)} (whoever runs Couchwave did)`);
   dirty = true;
   return { ok: true, text: `Done: cleared ${clearedText(what)}.` };
+}
+
+const STOP_FILE = path.join(DATA, 'stop');
+try { fs.rmSync(STOP_FILE, { force: true }); } catch {}
+function stopRequest() {
+  if (process.env.INVOCATION_ID) {
+    return { ok: false, text: 'Couchwave runs as a systemd service here, which would start it again straight away. Stop it with: sudo systemctl stop couchwave' };
+  }
+  setTimeout(() => {
+    save();
+    try { fs.writeFileSync(STOP_FILE, 'stopped by node server.js --stop\n'); } catch {}
+    for (const p of running.values()) killTree(p);
+    logOut('stopped by node server.js --stop');
+    if (process.env.WATCH_REPORT_DEPENDENCIES) { try { process.kill(process.ppid); } catch {} }
+    setTimeout(() => process.exit(0), 200);
+  }, 200);
+  return { ok: true, text: 'Done: Couchwave has stopped, and everything is saved. To start it again: start.cmd (or Start-ScheduledTask Couchwave) on Windows, or node server.js.' };
 }
 
 function statusRequest() {
@@ -1272,9 +1297,12 @@ function backUp() {
     const dir = path.join(BACKUPS, day);
     if (!fs.existsSync(dir)) {
       save();
-      fs.mkdirSync(dir, { recursive: true });
-      for (const f of BACKED_UP) { try { fs.copyFileSync(path.join(DATA, f), path.join(dir, f)); } catch {} }
-      try { fs.copyFileSync(CONFIG, path.join(dir, 'config.json')); } catch {}
+      const making = `${dir}.making`;
+      fs.rmSync(making, { recursive: true, force: true });
+      fs.mkdirSync(making, { recursive: true });
+      for (const f of BACKED_UP) { try { fs.copyFileSync(path.join(DATA, f), path.join(making, f)); } catch {} }
+      try { fs.copyFileSync(CONFIG, path.join(making, 'config.json')); } catch {}
+      fs.renameSync(making, dir);
     }
     const days = fs.readdirSync(BACKUPS).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort();
     for (const old of days.slice(0, -BACKUP_DAYS)) fs.rmSync(path.join(BACKUPS, old), { recursive: true, force: true });

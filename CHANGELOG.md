@@ -24,6 +24,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   `config.json`, keeping the last 7 days.
 - **A warning when yt-dlp can't update itself** (installed with pip or a package manager), in Activity and
   the log, since an out-of-date yt-dlp stops downloading as YouTube changes.
+- **A proper way to stop Couchwave on Windows**: double-click the new `stop.cmd` (or run
+  `node server.js --stop`). It saves everything and stops Couchwave, including when it starts with the PC.
+  Before, stopping the scheduled task left Couchwave running until you found it in Task Manager.
 
 ### Changed
 

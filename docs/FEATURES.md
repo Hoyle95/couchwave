@@ -82,6 +82,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | Command | What it does |
 |---|---|
 | `node server.js` | Starts Couchwave. On Windows, `start.cmd` does this, and restarts it when you save `config.json`. |
+| `node server.js --stop` | Stops Couchwave after saving everything. On Windows it also stops `start.cmd` (or the task that starts it with the PC) starting it again; `stop.cmd` does the same with a double-click. On Linux with the service, use `sudo systemctl stop couchwave` instead. |
 | `node server.js --logout-everyone` | Everyone has to log in again. Accounts and passwords are kept. |
 | `node server.js --set-password <name>` | For a forgotten password: asks for the new one (4+ characters, hidden as you type, and kept out of your command history). Logs them out everywhere; send them the new one. You can also put the password after the name. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
@@ -128,7 +129,7 @@ Comments in the code are only short section headers; how things should behave is
 The page's security policy blocks inline scripts, including `onclick="…"`: give an element
 `data-click="name"` (or `data-submit`, `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `app.js`.
 
-After changing the code, run `node --test` (about 15 seconds). Each test runs against its own throwaway
+After changing the code, run `node --test` (about 20 seconds). Each test runs against its own throwaway
 Couchwave (temporary folder, password and port), so your real server and data are never touched, even while
 it's running. The stand-ins mean it needs no internet. The test servers run their clock 4x faster
 (`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10. Other

@@ -2,7 +2,7 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), os = require('os'), path = require('path'), http = require('http');
-const { testServers, song, yt, waitFor, sleep, ROOT } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, ROOT, APP_FILES, PASSWORD } = require('./helpers');
 
 const start = testServers({ after });
 const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
@@ -237,5 +237,60 @@ test('a backup of the accounts, logins, queue and settings once a day, keeping t
   const kept = fs.readdirSync(backups).sort();
   assert.equal(kept[0], '2020-01-04', 'the oldest went');
   assert.equal(kept.at(-1), today(), 'today\'s is kept');
+});
+
+test('--stop: saves everything and stops; under systemd it says to use systemctl instead; with nothing running it says so', async () => {
+  const s = await start({ initial: playing });
+  await s.post('/chat', { text: 'saved before stopping' });
+  const exited = new Promise(r => s.proc.on('exit', r));
+  let r = await command(s, '--stop');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /^Done: Couchwave has stopped, and everything is saved\./);
+  assert.equal(await exited, 0, 'it stopped by itself, on purpose');
+  assert.ok(fs.readFileSync(s.statePath, 'utf8').includes('saved before stopping'));
+  assert.ok(fs.existsSync(path.join(s.dir, 'data', 'stop')), 'a note for start.cmd not to start it again');
+  r = await command(s, '--stop');
+  assert.deepEqual([r.status, r.stdout.trim()], [0, 'Couchwave isn\'t running.']);
+  await s.start();
+  assert.ok(!fs.existsSync(path.join(s.dir, 'data', 'stop')), 'the note is cleared when it starts again');
+  const systemd = await start({ env: { INVOCATION_ID: 'test' } });
+  r = await command(systemd, '--stop');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /systemd service .* sudo systemctl stop couchwave/);
+  assert.equal((await systemd.get('/manifest.json', { cookie: '' })).status, 200, 'still running');
+});
+
+async function folder(withStartCmd) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-stop-'));
+  for (const f of [...APP_FILES, ...(withStartCmd ? ['start.cmd'] : [])]) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+  const port = await new Promise(r => { const t = require('net').createServer().listen(0, () => { const p = t.address().port; t.close(() => r(p)); }); });
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port }));
+  const env = { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' };
+  const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
+  return { dir, env, up, stop: () => command({ dir }, '--stop'), clean: () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
+}
+
+test('--stop under node --watch (as start.cmd runs it): the watcher stops too, so nothing starts it again', async () => {
+  const f = await folder();
+  const watcher = require('child_process').spawn(process.execPath, ['--watch', 'server.js'], { cwd: f.dir, env: f.env, stdio: 'ignore' });
+  const exited = new Promise(r => watcher.on('exit', r));
+  try {
+    await f.up();
+    assert.equal((await f.stop()).status, 0);
+    await Promise.race([exited, sleep(10000).then(() => { throw new Error('node --watch is still running'); })]);
+  } finally { watcher.kill(); await sleep(300); f.clean(); }
+});
+
+test('Windows: stop.cmd\'s --stop ends start.cmd too, instead of it restarting Couchwave', { skip: process.platform !== 'win32' }, async () => {
+  const f = await folder(true);
+  const loop = require('child_process').spawn('cmd.exe', ['/c', path.join(f.dir, 'start.cmd')], { cwd: f.dir, env: f.env, stdio: 'ignore' });
+  const exited = new Promise(r => loop.on('exit', r));
+  try {
+    await f.up();
+    assert.equal((await f.stop()).status, 0);
+    assert.equal(await Promise.race([exited, sleep(15000).then(() => 'start.cmd is still running')]), 0, 'start.cmd finished');
+    assert.ok(!fs.existsSync(path.join(f.dir, 'data', 'stop')), 'and cleared the note');
+    assert.match(fs.readFileSync(path.join(f.dir, 'data', 'server-console.log'), 'utf8'), /stopped by node server\.js --stop/);
+  } finally { require('child_process').spawnSync('taskkill', ['/pid', String(loop.pid), '/T', '/F']); await sleep(300); f.clean(); }
 });
 });

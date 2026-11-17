@@ -17,6 +17,11 @@ echo Keep this window open; close it to stop Couchwave.
 powershell -NoProfile -Command "$f='data\server-console.log'; if ((Test-Path $f) -and (Get-Item $f).Length -gt 1MB) { $l = Get-Content $f -Tail 2000; Set-Content $f $l }"
 echo ==== %date% %time% starting ==== >> data\server-console.log
 node --watch server.js >> data\server-console.log 2>&1
+if exist data\stop (
+  del data\stop
+  echo ==== %date% %time% stopped by node server.js --stop or stop.cmd ==== >> data\server-console.log
+  exit /b 0
+)
 echo ==== %date% %time% server exited (code %errorlevel%), restarting in 5s ==== >> data\server-console.log
 timeout /t 5 /nobreak > nul
 goto loop

@@ -45,7 +45,8 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
    `Documents\Couchwave`): that's your Couchwave folder. Then right-click the zip, choose **Extract All**,
    click **Browse**, and pick that folder.
 
-3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
+3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open. To stop Couchwave, close
+   that window, or double-click **`stop.cmd`**.
 
 4. Open <http://localhost:3000>. The room password is in **`config.json`**, which is created the first
    time it runs, along with the other [settings](#settings). The server restarts by itself when you save it.
@@ -167,8 +168,10 @@ Register-ScheduledTask -TaskName Couchwave -Action $action -Trigger (New-Schedul
 It then starts at boot (no need to log in) and restarts itself if it ever crashes. If you move the
 Couchwave folder, run the same commands again from its new place.
 
-To stop it: `Stop-ScheduledTask Couchwave`, then end the leftover **Node.js** process in Task Manager
-(stopping the task alone can leave the server running). To start it again: `Start-ScheduledTask Couchwave`.
+To stop it, double-click **`stop.cmd`** in the Couchwave folder (or run `node server.js --stop` there). It
+saves everything, then stops Couchwave and the task, so nothing starts it again. (`Stop-ScheduledTask
+Couchwave` on its own leaves Couchwave running.) To start it again: `Start-ScheduledTask Couchwave`, or
+restart the PC.
 
 ### Linux: run as a service
 
@@ -250,8 +253,8 @@ the download, so updating never touches them. To see what's changed first, read 
 1. Download **couchwave-…zip** (not "Source code") from the newest release on the
    [Releases page](https://github.com/Hoyle95/couchwave/releases).
 2. Stop Couchwave first, so it doesn't start up halfway through with some old files and some new ones. On
-   Windows, close the `start.cmd` window (if it starts with the PC: `Stop-ScheduledTask Couchwave`, then end
-   the leftover **Node.js** process in Task Manager). On Linux, `sudo systemctl stop couchwave`.
+   Windows, double-click `stop.cmd` in your Couchwave folder (or close the `start.cmd` window). On Linux,
+   `sudo systemctl stop couchwave`.
 3. Unzip it into your Couchwave folder, replacing the old files. On Windows: **Extract All**, **Browse** to
    your Couchwave folder, and choose to replace the files. On Linux:
    `unzip -o ~/Downloads/couchwave-v*.zip -d ~/couchwave` (or wherever your Couchwave folder is). Your
