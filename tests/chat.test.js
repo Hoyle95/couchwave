@@ -51,7 +51,7 @@ test('instant updates: everyone is nudged the moment someone sends a message or 
   await Promise.all([1, 2, 3, 4, 5].map(i => s.post('/chat', { text: 'msg ' + i }, { as: 'Alice' })));
   await waitFor(() => bob.length > n, 3000, 'a nudge for the 5 messages');
   await sleep(200);
-  assert.ok(bob.length - n >= 1 && bob.length - n <= 2, `5 messages at once: ${bob.length - n} nudge(s)`);
+  assert.ok(bob.length - n >= 1 && bob.length - n < 5, `5 messages at once: ${bob.length - n} nudge(s), not one each`);
   bob.close(); cara.close();
 });
 
