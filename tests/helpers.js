@@ -39,8 +39,7 @@ class Server {
       this.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-test-'));
       for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(this.dir, f), { recursive: true });
       fs.mkdirSync(path.join(this.dir, 'data', 'downloads'), { recursive: true });
-      this.port = await freePort();
-      fs.writeFileSync(path.join(this.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: this.port, ...this.config }));
+      await this.newPort();
       if (this.initial) {
         const s = { nextId: 100, queue: [], current: null, startedAt: Date.now(), paused: false, pausedAt: 0, log: [], chat: [], colors: {}, faces: {}, ...this.initial };
         for (const q of [s.current, ...s.queue]) if (q && q.file && !this.files[q.file]) this.files[q.file] = Buffer.alloc(64 * 1024, q.id % 256);
@@ -48,16 +47,29 @@ class Server {
       }
       for (const [name, data] of Object.entries(this.files)) fs.writeFileSync(path.join(this.dir, 'data', 'downloads', name), data);
     }
-    this.out = '';
-    this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: {
-      ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME),
-      COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests', COUCHWAVE_CHECK_TOOLS: 'no', ...this.env,
-    } });
-    this.proc.stdout.on('data', d => (this.out += d));
-    this.proc.stderr.on('data', d => (this.out += d));
-    await waitFor(async () => (await this.req('GET', '/manifest.json', { cookie: '' }).catch(() => null)), 10000, 'the server to start');
-    return this;
+    for (let tries = 1; ; tries++) {
+      const started = () => (this.logText().match(new RegExp(`Running on http://localhost:${this.port}\\b`, 'g')) || []).length;
+      const before = started();
+      this.out = '';
+      this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: {
+        ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME),
+        COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests', COUCHWAVE_CHECK_TOOLS: 'no', ...this.env,
+      } });
+      this.proc.stdout.on('data', d => (this.out += d));
+      this.proc.stderr.on('data', d => (this.out += d));
+      let gone = false;
+      this.proc.once('exit', () => (gone = true));
+      await waitFor(async () => gone || (started() > before && (await this.req('GET', '/manifest.json', { cookie: '' }).catch(() => null))), 10000, 'the server to start');
+      if (!gone) return this;
+      if (tries >= 3 || !/already in use/.test(this.logText())) throw new Error(`the server stopped while starting:\n${this.out}\n${this.logText().slice(-2000)}`);
+      await this.newPort();
+    }
   }
+  async newPort() {
+    this.port = await freePort();
+    fs.writeFileSync(path.join(this.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: this.port, ...this.config }));
+  }
+  logText() { try { return fs.readFileSync(this.logFile, 'utf8'); } catch { return ''; } }
   get statePath() { return path.join(this.dir, 'data', 'state.json'); }
   get logFile() { return path.join(this.dir, 'data', 'server.log'); }
   logHas(re, ms = 3000) { return waitFor(() => { try { return re.test(fs.readFileSync(this.logFile, 'utf8')); } catch { return false; } }, ms, `the log to say ${re}`); }
