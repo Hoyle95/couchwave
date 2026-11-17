@@ -266,7 +266,9 @@ them to `config.json` (see [Settings](#settings)).
   button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
   YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
   hours. If it's just **one song**, again and again, while others download fine, YouTube wants a signed-in
-  account for that video: remove it and pick another version of the song.
+  account for that video: remove it and pick another version of the song. If it's someone else's (or the
+  DJ's), `node server.js --remove-song <its number in the queue>` takes it out without a vote (see the
+  [server commands](FEATURES.md#server-commands)).
 - **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
   this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
   **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On

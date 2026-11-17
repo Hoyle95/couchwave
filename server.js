@@ -118,6 +118,79 @@ function askQuietly(question) {
   });
 }
 
+// ---------- Removing a song (for whoever runs Couchwave) ----------
+const REQUESTS = path.join(DATA, 'requests');
+function videoId(url) {
+  return (/^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/.exec(url || '') || [])[1];
+}
+function savedState() { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')) || {}; } catch { return {}; } }
+const songLine = (queue, q) => `${queue.indexOf(q) + 1}. ${q.title} (added by ${q.by})`;
+function queueList(queue) {
+  if (!queue.length) return 'The queue is empty.';
+  return queue.slice(0, 50).map(q => songLine(queue, q)).join('\n') + (queue.length > 50 ? `\n…and ${queue.length - 50} more` : '');
+}
+function findSong(queue, what) {
+  if (/^\d+$/.test(what)) {
+    const q = queue[Number(what) - 1];
+    if (q) return { song: q };
+    return { problem: queue.length ? `There's no song ${what}: the queue has ${queue.length}.\n\n${queueList(queue)}` : 'The queue is empty.' };
+  }
+  const id = videoId(what);
+  const found = id ? queue.filter(q => videoId(q.url) === id) : queue.filter(q => String(q.title).toLowerCase().includes(what.toLowerCase()));
+  if (found.length === 1) return { song: found[0] };
+  if (found.length) return { problem: `${found.length} songs match "${what}". Use its number instead:\n${found.map(q => songLine(queue, q)).join('\n')}` };
+  return { problem: `Nothing in the queue matches "${what}".\n\n${queueList(queue)}` };
+}
+const askYesNo = question => new Promise(resolve => {
+  process.stdout.write(question);
+  process.stdin.setEncoding('utf8');
+  process.stdin.once('data', d => { process.stdin.pause(); resolve(/^\s*y/i.test(d)); });
+  process.stdin.once('end', () => resolve(false));
+  process.stdin.resume();
+});
+
+async function removeSongCommand(what) {
+  const queue = (s => (Array.isArray(s.queue) ? s.queue.filter(q => q && typeof q === 'object') : []))(savedState());
+  if (!what) {
+    console.log(`Usage: node server.js --remove-song <queue number, YouTube link or part of the name>\n\n${queueList(queue)}`);
+    process.exit(1);
+  }
+  const { song, problem } = findSong(queue, what);
+  if (problem) { console.log(problem); process.exit(1); }
+  if (process.stdin.isTTY && !(await askYesNo(`Remove ${songLine(queue, song)}? [y/N] `))) { console.log('Nothing was changed.'); process.exit(1); }
+  let port = 3000;
+  try { port = Number(JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')).port) || 3000; } catch {}
+  const running = await fetch(`http://127.0.0.1:${port}/manifest.json`, { signal: AbortSignal.timeout(3000) })
+    .then(r => r.json()).then(m => m.name === 'Couchwave', () => false);
+  if (running) {
+    fs.mkdirSync(REQUESTS, { recursive: true });
+    const file = path.join(REQUESTS, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`);
+    writeAtomic(file + '.json', JSON.stringify({ removeSong: song.id }));
+    for (let i = 0; i < 100; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      let reply;
+      try { reply = JSON.parse(fs.readFileSync(file + '.reply', 'utf8')); } catch { continue; }
+      fs.rmSync(file + '.reply', { force: true });
+      console.log(reply.text);
+      process.exit(reply.ok ? 0 : 1);
+    }
+    fs.rmSync(file + '.json', { force: true });
+    console.log('Couchwave is running but didn\'t answer within 10 seconds. Nothing was changed.');
+    process.exit(1);
+  }
+  const state = savedState(), at = (Array.isArray(state.queue) ? state.queue : []).findIndex(q => q && q.id === song.id);
+  if (at < 0) { console.log('That song isn\'t in the queue any more. Nothing was changed.'); process.exit(1); }
+  state.queue.splice(at, 1);
+  state.log = [...(Array.isArray(state.log) ? state.log : []), { t: Date.now(), by: 'server', text: `removed "${song.title}" (whoever runs Couchwave did)` }].slice(-200);
+  writeAtomic(STATE, JSON.stringify(state));
+  console.log(`Done: removed "${song.title}" from the queue.`);
+  process.exit(0);
+}
+if (process.argv.includes('--remove-song')) {
+  removeSongCommand(process.argv.slice(process.argv.indexOf('--remove-song') + 1).join(' ').trim());
+  return;
+}
+
 // ---------- Log file ----------
 const LOGFILE = path.join(DATA, 'server.log');
 const LOG_MAX = 5 * 1024 * 1024, LOG_KEEP = 2 * 1024 * 1024;
@@ -548,7 +621,6 @@ function addSong(url, title, who) {
   return item;
 }
 
-const videoId = url => (/^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{11})/.exec(url || '') || [])[1];
 const watchUrl = id => `https://www.youtube.com/watch?v=${id}`;
 const alreadyHere = id => !!id && [current, ...queue].find(q => q && videoId(q.url) === id);
 const songName = item => (/^https?:\/\//.test(item.title) ? 'That song' : `"${item.title}"`);
@@ -928,8 +1000,27 @@ setInterval(() => {
   const due = queue.filter(q => q.status === 'failed' && q.retryAt && Date.now() >= q.retryAt);
   for (const q of due) { q.status = 'waiting'; q.retryAt = null; dirty = true; }
   if (due.length) pump();
+  handleRequests();
   if (dirty) save();
 }, secs(1));
+
+function handleRequests() {
+  let files;
+  try { files = fs.readdirSync(REQUESTS); } catch { return; }
+  for (const f of files) {
+    const file = path.join(REQUESTS, f);
+    if (f.endsWith('.reply')) { try { if (Date.now() - fs.statSync(file).mtimeMs > 60000) fs.rmSync(file, { force: true }); } catch {} continue; }
+    if (!f.endsWith('.json')) continue;
+    let request;
+    try { request = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { continue; }
+    fs.rmSync(file, { force: true });
+    const song = queue.find(q => q.id === request.removeSong);
+    if (song) removeFromQueue(song, 'server', `removed "${song.title}" (whoever runs Couchwave did)`);
+    const reply = song ? { ok: true, text: `Done: removed "${song.title}" from the queue.` }
+      : { ok: false, text: "That song isn't in the queue any more (it may have just started playing). Nothing was changed." };
+    try { writeAtomic(file.replace(/\.json$/, '.reply'), JSON.stringify(reply)); } catch {}
+  }
+}
 
 // ---------- Startup ----------
 for (const job of playlistJobs) readPlaylist(job);

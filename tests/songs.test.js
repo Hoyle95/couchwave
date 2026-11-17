@@ -7,6 +7,8 @@ const { testServers, song, yt, waitFor, sleep, secs } = require('./helpers');
 const servers = testServers({ after });
 const start = () => servers({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
 const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
+const removeSong = (s, ...what) => new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js', '--remove-song', ...what],
+  { cwd: s.dir, encoding: 'utf8', timeout: 30000 }, (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })));
 
 describe('songs', { concurrency: true }, () => {
 test('a link: queued, downloaded, and its real title replaces the link', async () => {
@@ -352,7 +354,7 @@ test('a big playlist: the first 100 songs, fitted in fairly around other people\
   assert.equal(q.filter(x => x.by === 'Alice').length, 100);
   assert.equal(q.findIndex(x => x.url === yt('bobs_000002')), 3, 'Bob\'s next song goes 4th, not after all 100');
   q = await waitFor(async () => { const q = (await s.state()).queue; return q.filter(x => x.status === 'ready').length >= 20 && q; }, 10000, 'the top 20 to download');
-  assert.ok(q.slice(20).every(x => x.status === 'waiting'), 'the rest wait until they move up');
+  assert.ok(q.slice(21).every(x => x.status === 'waiting'), 'the rest wait until they move up (the 21st may be one that downloaded before Bob\'s song pushed it down)');
 });
 
 test('a playlist still being read when Couchwave restarts is read again afterwards, not lost', async () => {
@@ -379,5 +381,35 @@ test('undo won\'t put a song back if someone has added it again meanwhile', asyn
   assert.equal(r.status, 409);
   assert.match(r.text, /is already in the queue$/);
   assert.equal((await s.state()).queue.filter(x => x.url === yt('undo_000001')).length, 1, 'only once');
+});
+
+test('--remove-song, for whoever runs Couchwave: by queue number, link or part of the name, straight away and without a vote', async () => {
+  const s = await start();
+  for (const [id, by] of [['rmsa_000001', 'Bob'], ['rmsb_000002', 'Cara'], ['rmsc_000003', 'Bob']]) await s.post('/add', { url: yt(id) }, { as: by });
+  await waitFor(async () => (await s.state()).queue.filter(q => q.status === 'ready').length === 3, 5000, 'the songs');
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('Song rmsc_000003'), 3000, 'them to be saved');
+  let r = await removeSong(s, 'Song rms');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /3 songs match "Song rms"\. Use its number instead:\n1\. Song rmsa_000001 \(added by Bob\)\n2\. Song rmsb_000002 \(added by Cara\)/);
+  r = await removeSong(s, '2');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Done: removed "Song rmsb_000002" from the queue\./);
+  assert.deepEqual((await s.state()).queue.map(q => q.title), ['Song rmsa_000001', 'Song rmsc_000003'], 'gone at once: no vote, no restart');
+  assert.ok((await s.log()).includes('server: removed "Song rmsb_000002" (whoever runs Couchwave did)'), 'Activity says so');
+  assert.equal((await removeSong(s, 'https://youtu.be/rmsc_000003?si=abc')).status, 0, 'by link, in any form');
+  assert.equal((await removeSong(s, 'RMSA')).status, 0, 'by part of the name');
+  assert.deepEqual((await s.state()).queue, []);
+  r = await removeSong(s, 'not in the queue');
+  assert.deepEqual([r.status, /Nothing in the queue matches "not in the queue"/.test(r.stdout)], [1, true]);
+  r = await removeSong(s);
+  assert.match(r.stdout, /^Usage: node server\.js --remove-song <queue number, YouTube link or part of the name>\n\nThe queue is empty\./);
+  await s.post('/add', { url: yt('rmsd_000004') }, { as: 'Bob' });
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('rmsd_000004'), 3000, 'it to be saved');
+  await s.stop();
+  r = await removeSong(s, '1');
+  assert.equal(r.status, 0, 'with Couchwave off too: ' + r.stdout + r.stderr);
+  await s.start();
+  assert.deepEqual((await s.state()).queue, []);
+  assert.ok((await s.log()).some(l => /^server: removed ".*rmsd_000004.*" \(whoever runs Couchwave did\)$/.test(l)), 'Activity says so');
 });
 });

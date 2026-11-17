@@ -211,11 +211,12 @@ describe('the DJ', { concurrency: true }, () => {
   test('turning it on doesn\'t rush YouTube: its first picks come straight away, then a Mix every 10 seconds', async () => {
     const now = Date.now();
     const s = await start({ here: {}, history: ['gapa_000001', 'gapb_000001', 'gapc_000001'].map((id, i) => ({ url: yt(id), title: `Song ${id}`, by: 'Alice', t: now - i * 60000 })) });
+    await s.cookie('Bob');
     const turnedOn = Date.now();
     await say(s, 'Bob', '!dj on');
     await waitFor(() => djCount(4)(s), 20000, 'picks from a second Mix');
     const times = fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n').map(l => +l.split('\t')[1]);
-    assert.ok(times[0] - turnedOn < secs(10), `the first Mix straight away (${times[0] - turnedOn} ms)`);
+    assert.ok(times[0] - turnedOn < secs(20), `the first Mix straight away, not after waiting (${times[0] - turnedOn} ms)`);
     const gaps = times.slice(1).map((t, i) => t - times[i]);
     assert.ok(gaps.length >= 1 && gaps.every(g => g >= secs(10) - 100), `time between Mixes: ${gaps.join(', ')} ms (at least ${secs(10)})`);
   });

@@ -4,6 +4,14 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+### Added
+
+- **`node server.js --remove-song <song>`**, for whoever runs Couchwave: takes a song out of the queue
+  straight away, with no vote, by its number in the queue, its YouTube link or part of its name. It shows
+  the song and asks first, and works whether Couchwave is running or not (no restart needed). On its own,
+  it lists the queue with the numbers. Handy for a song that will never download, like one YouTube only
+  shows to signed-in accounts.
+
 ### Changed
 
 - **The DJ fills up gently**: turning it on brings its first songs straight away, then it asks YouTube for

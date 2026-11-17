@@ -93,7 +93,7 @@ class Server {
   async req(method, url, { as = 'Alice', body, cookie, headers = {} } = {}) {
     if (cookie === undefined) cookie = await this.cookie(as);
     return new Promise((resolve, reject) => {
-      const r = http.request({ port: this.port, path: url, method, headers: { Cookie: cookie, ...headers } }, res => {
+      const r = http.request({ host: '127.0.0.1', port: this.port, path: url, method, headers: { Cookie: cookie, ...headers } }, res => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => {
