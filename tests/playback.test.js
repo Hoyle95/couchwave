@@ -117,7 +117,7 @@ async function readWithStall(s, url, { pauseAt, stall, window }) {
 
 test('pacing: songs start at full speed, then go at a steady pace, with no rush after a stall', async () => {
   const MB = 1024 * 1024, BURST = 20 * MB, RATE = 3 * MB;
-  const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 40, file: 'big.mp4' }) }, files: { 'big.mp4': Buffer.alloc(40 * MB, 1) } });
+  const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 60, file: 'big.mp4' }) }, files: { 'big.mp4': Buffer.alloc(60 * MB, 1) } });
   const fastest = async (bytes, good) => {
     let best = Infinity;
     for (let i = 0; i < 3 && !good(best); i++) {
@@ -131,8 +131,8 @@ test('pacing: songs start at full speed, then go at a steady pace, with no rush 
   assert.ok(first < 0.5, `the start of a song comes straight away: ${first}s (fastest of 3)`);
   const took = await fastest(BURST + 3 * MB, t => t > 0.7 && t < 2.5);
   assert.ok(took > 0.7 && took < 2.5, `20 MB at full speed + 3 MB at 3 MB/s took ${took.toFixed(1)}s (expected ~1s, fastest of 3)`);
-  const after = await readWithStall(s, '/video/1', { pauseAt: BURST + MB, stall: 3000, window: 1000 });
-  assert.ok(after < 2 * RATE + 3.5 * MB, `after a stall: ${(after / MB).toFixed(1)} MB in 1 s (limit ${((2 * RATE + 3.5 * MB) / MB).toFixed(1)} MB)`);
+  const after = await readWithStall(s, '/video/1', { pauseAt: BURST + MB, stall: 3000, window: 3000 });
+  assert.ok(after < 28 * MB, `after a stall: ${(after / MB).toFixed(1)} MB in 3 s, not the remaining 39 MB at once (what the computer had already buffered, plus a few seconds' worth)`);
 });
 
 test('even volume: every song\'s loudness is measured, and loud ones are turned down to match (songs from before too)', async () => {

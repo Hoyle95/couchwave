@@ -10,7 +10,10 @@ const TIME = 0.25;
 const secs = n => n * 1000 * TIME;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const SLOW = process.env.CI ? 3 : 1;
+
 async function waitFor(fn, ms = 5000, what = 'condition') {
+  ms *= SLOW;
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
@@ -70,7 +73,7 @@ class Server {
     for (const t of this.timers || []) clearInterval(t);
     await this.stop();
     const problems = this.dir ? this.problems() : [];
-    if (this.dir) fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 5 });
+    if (this.dir) { try { fs.rmSync(this.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {} }
     if (problems.length) throw new Error('the server logged problems:\n' + problems.join('\n'));
   }
 

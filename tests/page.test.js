@@ -83,6 +83,7 @@ test('unknown files and routes are 404, and paths can\'t escape the folder', asy
     assert.notEqual(r.status, 200, url);
     assert.ok(!r.text.includes(PASSWORD) && !r.text.includes('require('), url + ' gives nothing away');
   }
+});
 
 test('page files: compressed when the browser can take it, and "unchanged" (304) when it already has them', async () => {
   const zlib = require('zlib');
@@ -112,5 +113,4 @@ test('big status replies are compressed; small ones aren\'t worth it', async () 
   assert.equal(r.headers['content-encoding'], 'gzip');
   assert.ok(JSON.parse(zlib.gunzipSync(r.body)).chat.length >= 18);
   assert.equal((await s.get('/room', { cookie: '', headers: { 'Accept-Encoding': 'gzip' } })).headers['content-encoding'], undefined);
-});
 });
