@@ -4,7 +4,7 @@ const path = require('path');
 
 const NAME = 'DJ', FACE = '🎧';
 const KEEP_QUEUED = 10;
-const MIN_SECONDS = 90, MAX_SECONDS = 600;
+const MIN_SECONDS = 60, MAX_SECONDS = 20 * 60;
 const NOT_A_SONG = /full album|\bhours?\b|compilation|\bmix\b|playlist|\blive\b|non-?stop|megamix/i;
 const IDEAS_FROM = 10;
 const FROM_ONE_MIX = 3;

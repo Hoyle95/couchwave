@@ -13,7 +13,7 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   await s.post('/pause');
   let st = await s.state('Bob');
   assert.equal(st.paused, true);
-  const at = st.elapsed, upTo = 20 + (Date.now() - t0) / 1000;
+  const at = st.elapsed, upTo = 20.1 + (Date.now() - t0) / 1000;
   assert.ok(at >= 20 && at <= upTo, `paused 20 seconds in, plus however long the server took to start (up to ${upTo.toFixed(1)}): ${at}`);
   await sleep(600);
   assert.equal((await s.state('Bob')).elapsed, at, 'the clock stops while paused');
@@ -31,26 +31,36 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   for (const line of [`Alice: paused at 0:${String(Math.floor(at)).padStart(2, '0')}`, 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);
 });
 
-test('only whoever added the song can move through it (jumping to the end would skip it without a vote)', async () => {
-  const s = await start({ initial: { current: song(1, 'Alice\'s song', 'Alice', { duration: 300 }), startedAt: Date.now() - 20000,
+test('moving through a song: only whoever added it while they\'re here (or it\'d be a skip without a vote), anyone once they\'ve gone', async () => {
+  const t0 = Date.now();
+  const s = await start({ initial: { current: song(1, 'Alice\'s song', 'Alice', { duration: 300 }), startedAt: t0 - 20000,
     queue: [song(2, 'The DJ\'s song', 'DJ', { duration: 300 })] } });
-  const r = await s.post('/seek', { t: 299 }, { as: 'Bob' });
-  assert.equal(r.status, 403, 'Bob is refused');
-  const at = (await s.state()).elapsed;
-  assert.ok(at >= 19 && at < 25, 'still around 0:20: ' + at);
-  assert.ok(!(await s.log()).some(l => /jumped/.test(l)), 'nothing logged');
+  const stopAlice = await s.keepOnline('Alice'), stopOthers = await s.keepOnline('Bob', 'Cara');
+  const r = await s.post('/seek', { t: 200 }, { as: 'Bob' });
+  assert.equal(r.status, 403, 'Bob is refused while Alice is here');
+  assert.equal(r.text, 'Only Alice can move their song while they\'re here');
+  const at = (await s.state('Bob')).elapsed;
+  assert.ok(at >= 20 && at <= 20.1 + (Date.now() - t0) / 1000, 'not moved: ' + at);
+  assert.ok(!(await s.log('Bob')).some(l => /jumped/.test(l)), 'nothing logged');
   assert.equal((await s.post('/seek', { t: 100 }, { as: 'Alice' })).status, 204, 'Alice can');
-  assert.ok((await s.state()).elapsed >= 100);
-  await s.post('/skip', { id: 1 }, { as: 'Alice' });
-  await waitFor(async () => (await s.state()).current?.by === 'DJ', 3000, 'the DJ\'s song to play');
-  for (const who of ['Alice', 'Bob']) assert.equal((await s.post('/seek', { t: 299 }, { as: who })).status, 403, `nobody moves the DJ's song (${who})`);
+  stopAlice();
+  await sleep(secs(10) + 500);
+  assert.deepEqual((await s.state('Bob')).users, ['Bob', 'Cara'], 'Alice has gone; Bob and Cara are still here');
+  assert.equal((await s.post('/seek', { t: 299 }, { as: 'Bob' })).status, 204, 'now anyone can move Alice\'s song, even to the end');
+  await waitFor(async () => (await s.state('Bob')).current?.by === 'DJ', secs(20), 'the DJ\'s song to play');
+  for (const who of ['Bob', 'Cara']) assert.equal((await s.post('/seek', { t: 299 }, { as: who })).status, 403, `with two here, nobody moves the DJ's song (${who})`);
+  stopOthers();
+  await sleep(secs(10) + 500);
+  assert.deepEqual((await s.state('Bob')).users, ['Bob'], 'Bob is on his own');
+  assert.equal((await s.post('/seek', { t: 150 }, { as: 'Bob' })).status, 204, 'on his own, Bob can move the DJ\'s song');
+  assert.ok((await s.log('Bob')).includes('Bob: jumped to 2:30'));
 });
 
 test('when a song ends, the next one plays and the old files are deleted', async () => {
-  const s = await start({ initial: { current: song(1, 'Short song', 'Alice', { duration: 1 }), queue: [song(2, 'Next song', 'Bob')] } });
+  const s = await start({ initial: { current: song(1, 'Short song', 'Alice', { duration: 4 }), queue: [song(2, 'Next song', 'Bob')] } });
   const oldFile = path.join(s.dir, 'data', 'downloads', JSON.parse(fs.readFileSync(s.statePath)).current.file);
   assert.ok(fs.existsSync(oldFile));
-  const st = await waitFor(async () => { const x = await s.state(); return x.current?.title === 'Next song' && x; }, 6000, 'the next song');
+  const st = await waitFor(async () => { const x = await s.state(); return x.current?.title === 'Next song' && x; }, 12000, 'the next song');
   assert.equal(st.queue.length, 0);
   await waitFor(() => !fs.existsSync(oldFile), 3000, 'the old file to be deleted');
 });

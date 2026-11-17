@@ -120,4 +120,17 @@ test('chat has a speed limit: 8 messages in 10 seconds, then a 30-second cooldow
   assert.equal(+r.headers['retry-after'], Math.ceil(secs(60) / 1000), 'a clean slate after it, but twice as long the next time');
   assert.ok(!(await s.state()).chat.some(m => /one too many|still\?|again/.test(m.text)), 'none of the refused messages were posted');
 });
+
+test('a message arriving in pieces, split in the middle of an emoji, comes through whole', async () => {
+  const s = await start();
+  const body = Buffer.from(JSON.stringify({ text: 'split 🎉 here' })), cut = body.indexOf(Buffer.from('🎉')) + 2;
+  const cookie = await s.cookie('Bob');
+  await new Promise((resolve, reject) => {
+    const r = http.request({ port: s.port, path: '/chat', method: 'POST', headers: { Cookie: cookie } }, res => { res.resume(); res.on('end', resolve); });
+    r.on('error', reject);
+    r.write(body.subarray(0, cut));
+    setTimeout(() => r.end(body.subarray(cut)), 100);
+  });
+  assert.equal((await s.state()).chat.at(-1).text, 'split 🎉 here');
+});
 });

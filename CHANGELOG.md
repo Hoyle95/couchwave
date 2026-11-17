@@ -16,8 +16,17 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   minutes (up to 5 minutes); the chat box counts down and keeps the unsent message. Adding a song over the
   limit explains why it didn't go in.
 
+- **Security headers**: a content security policy lets browsers run only Couchwave's own scripts (any
+  injected script, like an `onerror="…"` slipped into a message, is refused), other sites can't show
+  Couchwave inside theirs, browsers don't second-guess file types, and YouTube isn't told your room's
+  address when someone opens a link. The page's buttons are wired up in `app.js` instead of `onclick="…"`,
+  and the saved-theme line moved to `js/theme.js`.
+
 ### Changed
 
+- **Moving through a song when its owner has gone**: only whoever added a song can move through it while
+  they're online (so nobody skips it without a vote by jumping to the end), but once they've gone, anyone
+  can. The DJ's songs can be moved by someone who's the only one online.
 - **Fewer checks with the server**: while instant updates are connected, pages check in every 10 seconds
   instead of every 2 (changes still arrive straight away). Without them, it's every 2 seconds as before.
 - **Links are stored one way**: share links (`youtu.be/…?si=…`), Shorts, `music.youtube.com` and other YouTube
@@ -30,6 +39,11 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   forever.
 - **The DJ waits longer between tries** when it has run out of new songs: 30 seconds, then twice as long each
   time up to 10 minutes, starting over as soon as someone adds a song.
+- **The DJ picks songs between 1 and 20 minutes long** (it was 1½ to 10).
+- **Faster and lighter pages**: the page, its style and script are compressed (about a quarter of the size),
+  and browsers reuse their copy when nothing has changed instead of downloading it again. Big status updates
+  are compressed too. A page in the background (a locked phone, another tab) only loads a song's sound, not
+  its video, until it's looked at again.
 - **Settings only come from `config.json`**: the room password and port can no longer be overridden by the
   `YTP_PASSWORD` and `PORT` environment variables, a leftover from early on that was never documented.
 - **Tidier code** (nothing changes for anyone using it): the page is split into `index.html`, `style.css` and
@@ -51,8 +65,20 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   finished downloading; they now say "like a song".
 - **YouTube's "Please sign in" check** showed in the queue as a cut-off error message. It's now "YouTube bot
   check", and retried by itself like the other one.
-- **Tests that failed now and then on a busy computer** (pausing, download pacing, instant updates) now allow
-  for the time the test servers take to start and respond. The chat tests run side by side like the others.
+- **Mute wasn't remembered**: after a refresh the player came back unmuted (the volume level and the chat's
+  mute were remembered). Now mute is too.
+- **Undo could put a song back twice**, if someone had added it again while it was removed. It now says the
+  song is already in the queue.
+- **Emoji or accented letters could arrive garbled** when a message reached the server in two pieces.
+- **A song with a missing file could crash the server** when someone's page asked for it.
+- **Tests that failed now and then on a busy computer** (pausing, download pacing, instant updates, logging
+  everyone out, the DJ stopping, a song ending) now allow for the time the test servers take to start and
+  respond. The chat tests run side by side like the others.
+
+### Known issues
+
+- **Playing on with the phone locked or the browser minimised is buggy**: the song playing carries on, but
+  the next one doesn't always start. To be looked into.
 
 ## v0.1.0 beta (2026-11-16)
 

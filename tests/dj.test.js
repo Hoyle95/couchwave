@@ -71,7 +71,7 @@ describe('the DJ', { concurrency: true }, () => {
     const now = Date.now();
     const s = await start({ here: {}, history: [
       { url: yt(seed), title: `Song ${seed}`, by: 'Alice', t: now },
-      ...['a', 'b', 'e'].map((n, i) => ({ url: yt(fromMix(n)), title: `DJ pick ${n}`, by: 'DJ', t: now - (i + 1) * 60000 })),
+      ...['a', 'b', 'e', 'f'].map((n, i) => ({ url: yt(fromMix(n)), title: `DJ pick ${n}`, by: 'DJ', t: now - (i + 1) * 60000 })),
     ] });
     await say(s, 'Bob', '!dj on');
     await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /run out of new songs/.test(m.text)), 8000, 'the DJ to ask');
@@ -124,8 +124,9 @@ describe('the DJ', { concurrency: true }, () => {
     const said = (await s.state()).chat.at(-1).text;
     assert.match(said, /DJ off: I won't add any more\. My \d+ songs? already queued stays? \(you can vote them out of the queue\)/);
     assert.equal(Number(/My (\d+) song/.exec(said)[1]), kept, 'it says how many it left');
+    const picks = async () => (await s.log()).filter(l => l.startsWith('DJ: added')).length, before = await picks();
     await sleep(CHECKS);
-    assert.equal((await djSongs(s)).length, kept, '...and it doesn\'t add any more');
+    assert.equal(await picks(), before, '...and it doesn\'t add any more');
     stop();
   });
 
@@ -193,5 +194,14 @@ describe('the DJ', { concurrency: true }, () => {
     const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
     assert.ok(picks.every(l => / \(like (".+"|a song), from Cara\)$/.test(l)), 'every pick is like Cara\'s song, never its own:\n' + picks.join('\n'));
     assert.equal((await s.state()).chat.filter(m => /no Mix for the other videos/.test(m.text)).length, 1, 'said once');
+  });
+
+  test('picks songs between 1 and 20 minutes long', async () => {
+    const s = await start({ here: {}, history: [{ url: yt('lens_000001'), title: 'Song lens_000001', by: 'Alice', t: Date.now() }] });
+    await say(s, 'Bob', '!dj on');
+    await waitFor(() => djCount(3)(s), 8000, 'the DJ\'s picks');
+    const picks = (await s.log()).filter(l => l.startsWith('DJ: added')).join('\n');
+    assert.match(picks, /Fourth Band - Long Song/, 'a 15-minute song is fine:\n' + picks);
+    assert.doesNotMatch(picks, /Too Long|Too Short|Full Album/, 'not 25 minutes, 30 seconds, or an album');
   });
 });

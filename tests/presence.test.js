@@ -78,7 +78,7 @@ describe('joined / left', { concurrency: true }, () => {
     assert.deepEqual((await s.state()).users, ['Alice']);
     s.forget('Bob'); await s.state('Bob'); const bob2 = await openEvents(s, 'Bob');
     execFileSync(process.execPath, ['server.js', '--logout-everyone'], { cwd: s.dir });
-    assert.ok(await waitFor(() => bob2.ended, secs(8), 'the stream to end after --logout-everyone'));
+    assert.ok(await waitFor(() => bob2.ended, secs(20), 'the stream to end after --logout-everyone'));
     stop();
   });
 

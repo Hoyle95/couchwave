@@ -8,7 +8,6 @@ let historyRev = '', historyList = [], lastHistory = '';
 let lastQueue = '', lastUsers = '', lastColorsKey = '';
 
 const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
-const setCookie = (k, val, age = 31536000) => { document.cookie = `${k}=${encodeURIComponent(val)}; max-age=${age}; path=/; SameSite=Lax`; };
 const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null); };
 const icon = name => `<svg><use href="#i-${name}"/></svg>`;
 
@@ -41,7 +40,7 @@ const DJ_NAME = 'DJ';
 function autoHue(name) {
   let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
 }
-const picked = name => (typeof colors[name] === 'string' ? colors[name] : null);
+const picked = name => colors[name] || null;
 const avatarBg = name => picked(name) || `hsl(${autoHue(name)} 65% 50%)`;
 const nameColor = name => picked(name) || `hsl(${autoHue(name)} 70% var(--name-l))`;
 
@@ -58,7 +57,6 @@ const savePick = () => { try { localStorage.setItem('myPick', JSON.stringify(myP
 
 // ---------- Join and leave ----------
 (async () => {
-  setCookie('pw', '', 0);
   if ((await fetch('/state').catch(() => null))?.ok) return enter();
   const room = await fetch('/room').then(r => r.json()).catch(() => ({}));
   if (room.public) { $('roomGroup').style.display = 'none'; $('pw').required = false; }
@@ -181,8 +179,8 @@ function setFace(em) {
 }
 $('facePick').onclick = e => { const b = e.target.closest('button[data-e]'); if (b) setFace(b.dataset.e); };
 $('colorPop').onkeydown = e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.target.blur(); } };
-const myHex = () => colors[myName] && typeof colors[myName] === 'string' ? colors[myName]
-  : toHex(getComputedStyle($('meAvatar')).backgroundColor.match(/\d+/g).slice(0, 3).map(Number));
+const myHex = () => colors[myName]
+  || toHex(getComputedStyle($('meAvatar')).backgroundColor.match(/\d+/g).slice(0, 3).map(Number));
 
 function toggleColorPop(e) {
   e.stopPropagation();
@@ -376,6 +374,7 @@ function tryPlay() {
 }
 function unmute() {
   a.muted = false; heldLocally = false;
+  try { localStorage.setItem('muted', '0'); } catch {}
   $('unmute').hidden = true;
   if (!serverPaused) tryPlay();
 }
@@ -404,7 +403,7 @@ function startTrack(item, at, play) {
   markOurPause();
   a.loop = false;
   a.src = '/audio/' + item.id;
-  loadVideo(item.id);
+  loadVideo(document.hidden ? null : item.id);
   a.currentTime = v.currentTime = at;
   songGain = item.gain ?? 1; applyVolume();
   setMediaSession(item);
@@ -430,6 +429,7 @@ a.onended = () => {
 };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !playingId || audioOnly) return;
+  if (!v.getAttribute('src')) loadVideo(playingId);
   v.currentTime = a.currentTime;
   if (!a.paused) playVideo();
 });
@@ -438,7 +438,9 @@ document.addEventListener('visibilitychange', () => {
 const paint = el => el.style.setProperty('--p', ((+el.value / (+el.max || 1)) * 100) + '%');
 let songGain = 1;
 const applyVolume = () => { a.volume = Math.min(1, Math.max(0, +vol.value * songGain)); };
+let preMute = null;
 try { vol.value = localStorage.getItem('vol') ?? 1; } catch { vol.value = 1; }
+try { if (localStorage.getItem('muted') === '1') { preMute = +vol.value || 1; a.muted = true; vol.value = 0; } } catch {}
 applyVolume(); paint(vol);
 vol.oninput = () => {
   preMute = null;
@@ -447,7 +449,6 @@ vol.oninput = () => {
   try { localStorage.setItem('vol', vol.value); } catch {}
 };
 
-let preMute = null;
 function toggleMute() {
   if (a.muted || +vol.value === 0) {
     let level = preMute ?? +vol.value;
@@ -459,6 +460,7 @@ function toggleMute() {
   } else {
     preMute = +vol.value;
     a.muted = true; vol.value = 0; paint(vol);
+    try { localStorage.setItem('muted', '1'); } catch {}
   }
 }
 a.onvolumechange = () => ($('muteBtn').innerHTML = icon(a.muted || a.volume === 0 ? 'mute' : 'vol'));
@@ -930,10 +932,16 @@ async function poll() {
     return;
   }
   seek.max = s.current.duration;
-  const mySong = s.current.by === myName;
-  if (seek.disabled === mySong) {
-    seek.disabled = !mySong;
-    seek.title = mySong ? 'Move through your song (for everyone)' : 'Only whoever added the song can move through it';
+  const by = s.current.by, mySong = by === myName, alone = s.users.length === 1 && s.users[0] === myName;
+  const ownerAway = by !== DJ_NAME && !s.users.includes(by), canSeek = mySong || ownerAway || alone;
+  const seekTitle = mySong ? 'Move through your song (for everyone)'
+    : ownerAway ? `${by} isn't here, so anyone can move through their song`
+    : alone ? 'Move through the song (you\'re the only one here)'
+    : by === DJ_NAME ? 'The DJ\'s songs can only be moved when you\'re the only one here'
+    : `Only ${by} can move through their song while they're here`;
+  if (seek.disabled === canSeek || seek.title !== seekTitle) {
+    seek.disabled = !canSeek;
+    seek.title = seekTitle;
   }
 
   if (s.current.id !== playingId || a.error) {
@@ -962,3 +970,15 @@ function listen() {
 }
 const live = () => events && events.readyState === EventSource.OPEN;
 setInterval(() => { if (!live() || Date.now() - lastPoll > 10000) poll(); }, 2000);
+// ---------- Buttons and forms ----------
+const ACTIONS = {
+  add, join, logout, sendChat, skip, toggleAudioOnly, toggleChat, toggleChatMute, toggleColorPop, toggleEmoji,
+  toggleFs, toggleMute, togglePause, toggleReactPop, toggleTheme, unmute,
+  togglePw: (e, el) => togglePw(el),
+  copyNow: (e, el) => copyLink(nowUrl, el),
+};
+for (const [attr, type] of [['click', 'click'], ['submit', 'submit'], ['dblclick', 'dblclick']]) {
+  for (const el of document.querySelectorAll(`[data-${attr}]`)) el.addEventListener(type, e => ACTIONS[el.dataset[attr]](e, el));
+}
+for (const el of document.querySelectorAll('[data-enter]')) el.addEventListener('keydown', e => { if (e.key === 'Enter') ACTIONS[el.dataset.enter](e, el); });
+for (const el of document.querySelectorAll('[data-keep-focus]')) el.addEventListener('mousedown', e => e.preventDefault());

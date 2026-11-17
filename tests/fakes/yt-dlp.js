@@ -30,6 +30,8 @@ if (args.includes('--flat-playlist')) {
       row(id('c'), '3600', `Other Band - Full Album ${seed}`);
       row(id('d'), '30', `Jingle - Too Short ${seed}`);
       row(id('e'), '220', `Third Act - Another One ${seed}`);
+      row(id('f'), '900', `Fourth Band - Long Song ${seed}`);
+      row(id('g'), '1500', `Fifth Band - Too Long ${seed}`);
     } else if (/[?&]list=PLbig/.test(target)) {
       for (let i = 1; i <= 150; i++) row(`bigp_${String(i).padStart(6, '0')}`, '200', `Big song ${i}`, 'Big Playlist');
     } else if (!target.startsWith('ytsearch')) {

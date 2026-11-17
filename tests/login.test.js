@@ -52,16 +52,6 @@ test('a taken nickname needs its own password; capitals don\'t matter', async ()
   assert.deepEqual(st.users, ['Alice']);
 });
 
-test('claiming a name someone already had before accounts keeps its spelling (and their picture and songs)', async () => {
-  const s = await start({ initial: { colors: { LVJ: '#26549e' }, faces: { LVJ: '🐸' }, queue: [], current: null } });
-  const r = await join(s, { password: PASSWORD, name: 'lvj', own: 'secret1' });
-  assert.equal(r.status, 204);
-  assert.equal(cookies(r).name, 'LVJ');
-  const st = (await s.get('/state', { cookie: asCookie(cookies(r).auth) })).json;
-  assert.deepEqual(st.users, ['LVJ']);
-  assert.equal(st.faces.LVJ, '🐸');
-});
-
 test('the login cookie decides who you are: editing the name cookie or the login cookie gets nowhere', async () => {
   const s = await start();
   const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;

@@ -161,7 +161,10 @@ Restart it after changing `config.json` or updating: `sudo systemctl restart cou
 ## Letting friends in
 
 On your home network, friends open `http://<this machine's IP>:3000` (or the port you set in
-`config.json`).
+`config.json`). To find the IP, run `ipconfig` on Windows (the **IPv4 Address**, like `192.168.1.20`) or
+`hostname -I` on Linux. The first time Couchwave runs, Windows asks whether Node.js may use the network:
+allow it on **private networks**, or friends can't connect (see [Troubleshooting](#troubleshooting) if you
+missed it).
 
 To host it publicly, we recommend either:
 
@@ -191,12 +194,16 @@ Your settings and everything people have done are kept: `config.json` and `data/
 download, so updating never touches them. To see what's changed first, read the
 [changelog](../CHANGELOG.md).
 
-**Recommended: the newest release.** Download **Source code (zip)** from the newest release on the
-[Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it somewhere else (not into your
-Couchwave folder). Open the folder inside it (like `couchwave-0.1.0-beta`), and copy everything in it into
-your Couchwave folder, replacing the old files. Your `config.json` and `data/` stay as they are. Then restart it: on Windows, `start.cmd` notices
-the new files and restarts by itself (if the page doesn't come back, stop and start it as in
-[Keep it running](#keep-it-running)); on Linux, `sudo systemctl restart couchwave`.
+**Recommended: the newest release.**
+
+1. Download **Source code (zip)** from the newest release on the
+   [Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it somewhere else (not into
+   your Couchwave folder).
+2. Open the folder inside it (like `couchwave-0.1.0-beta`) and copy everything in it into your Couchwave
+   folder, replacing the old files. Your `config.json` and `data/` stay as they are.
+3. Restart Couchwave. On Windows, `start.cmd` notices the new files and restarts by itself (if the page
+   doesn't come back, stop and start it as in [Keep it running](#keep-it-running)). On Linux,
+   `sudo systemctl restart couchwave`.
 
 **With `git`, staying on releases** (as set up in the Linux steps above), from the Couchwave folder:
 
@@ -221,5 +228,9 @@ them to `config.json` (see [Settings](#settings)).
   button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
   YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
   hours.
+- **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
+  this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
+  **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On
+  Linux with `ufw` turned on: `sudo ufw allow 3000/tcp`.
 - **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`.
 - **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.

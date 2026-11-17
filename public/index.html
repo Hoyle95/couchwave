@@ -10,10 +10,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="theme-color" id="themeColor" content="#0c0c11">
 <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<!-- ---------- Saved theme, applied before the page draws ---------- -->
-<script>
-  try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
-</script>
+<script src="/js/theme.js"></script>
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -53,28 +50,28 @@
     <div class="logo"><svg><use href="#i-logo"/></svg></div>
     <h1>Couchwave</h1>
     <p class="muted">Queue up videos and watch together.</p>
-    <form id="joinForm" onsubmit="join(event)">
+    <form id="joinForm" data-submit="join">
     <fieldset class="joinGroup">
       <legend>You</legend>
       <div class="joinAv" id="joinAvWrap">
-        <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="joinAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+        <span class="editAv" data-click="toggleColorPop" data-enter="toggleColorPop" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="joinAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
         <small class="muted">Tap your picture to change it</small>
       </div>
       <input id="name" name="username" placeholder="Nickname" maxlength="30" autocomplete="username" required aria-label="Nickname">
       <div class="pwWrap">
         <input id="ownPw" name="password" type="password" placeholder="Your password" autocomplete="current-password" minlength="4" required aria-label="Your password">
-        <button type="button" class="iconbtn pwEye" onclick="togglePw(this)" onmousedown="event.preventDefault()" aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
+        <button type="button" class="iconbtn pwEye" data-click="togglePw" data-keep-focus aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
       </div>
       <small class="muted joinHint">New user? Choose a password, but don't forget it!</small>
     </fieldset>
     </form>
-    <form id="roomForm" onsubmit="join(event)">
+    <form id="roomForm" data-submit="join">
     <fieldset class="joinGroup" id="roomGroup">
       <legend>Room password</legend>
       <div class="pwWrap">
         <input id="pw" name="room-password" type="password" placeholder="Room password" autocomplete="off" required aria-label="Room password"
           data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other">
-        <button type="button" class="iconbtn pwEye" onclick="togglePw(this)" onmousedown="event.preventDefault()" aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
+        <button type="button" class="iconbtn pwEye" data-click="togglePw" data-keep-focus aria-pressed="false" aria-label="Show password" title="Show password"><svg><use href="#i-eye"/></svg></button>
       </div>
       <small class="muted joinHint">Ask whoever runs this Couchwave instance.</small>
     </fieldset>
@@ -106,7 +103,7 @@
       <h1>Couchwave</h1>
     </div>
     <div class="me loading">
-      <span class="editAv" onclick="toggleColorPop(event)" onkeydown="if (event.key === 'Enter') toggleColorPop(event)" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+      <span class="editAv" data-click="toggleColorPop" data-enter="toggleColorPop" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
       <b id="me" class="nm"></b>
       <div id="colorPop" class="pop" hidden>
         <div class="pop-preview"><span class="avatar" id="popAvatar"></span> <b id="popName" class="nm"></b></div>
@@ -123,8 +120,8 @@
         </div>
         <div id="swatches"></div>
       </div>
-      <button id="logoutBtn" onclick="logout()" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
-      <button id="theme" class="ghost" onclick="toggleTheme()" title="Switch light / dark"></button>
+      <button id="logoutBtn" data-click="logout" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
+      <button id="theme" class="ghost" data-click="toggleTheme" title="Switch light / dark"></button>
     </div>
   </header>
 
@@ -132,7 +129,7 @@
     <!-- ---------- Player ---------- -->
     <main>
       <section class="card">
-        <form id="addForm" onsubmit="add(event)">
+        <form id="addForm" data-submit="add">
           <input id="url" placeholder="Paste a YouTube link or type a song name…" autocomplete="off">
           <button><svg><use href="#i-plus"/></svg> Add</button>
         </form>
@@ -141,36 +138,36 @@
           <video id="v" playsinline muted></video>
           <audio id="a" preload="auto"></audio>
           <div id="vSpin" hidden></div>
-          <div id="audioCard" ondblclick="toggleFs()"><div><svg><use href="#i-logo"/></svg><b>Audio only</b><span>The video is off for you. Tap the video button to bring it back.</span></div></div>
+          <div id="audioCard" data-dblclick="toggleFs"><div><svg><use href="#i-logo"/></svg><b>Audio only</b><span>The video is off for you. Tap the video button to bring it back.</span></div></div>
           <div id="idle"><div><svg><use href="#i-logo"/></svg><div>Nothing playing — paste a YouTube link or type a song name above to get started</div></div></div>
-          <button id="unmute" hidden onclick="unmute()"><svg><use href="#i-mute"/></svg> Tap to unmute</button>
+          <button id="unmute" hidden data-click="unmute"><svg><use href="#i-mute"/></svg> Tap to unmute</button>
         </div>
 
         <div class="now">
           <div class="nowMain">
-            <button id="copyBtn" class="ghost copy" hidden onclick="copyLink(nowUrl, this)" title="Copy the YouTube link" aria-label="Copy the YouTube link"><svg><use href="#i-copy"/></svg></button>
+            <button id="copyBtn" class="ghost copy" hidden data-click="copyNow" title="Copy the YouTube link" aria-label="Copy the YouTube link"><svg><use href="#i-copy"/></svg></button>
             <div id="nowTitle" class="muted">Nothing playing</div>
           </div>
           <span class="by" id="nowBy"></span>
           <div class="reacts" title="React (everyone sees it)">
             <span id="reactRecent"></span>
-            <button type="button" id="reactMore" class="ghost react" onclick="toggleReactPop(event)" title="Pick a different reaction" aria-label="Pick a different reaction"><svg><use href="#i-smile"/></svg></button>
+            <button type="button" id="reactMore" class="ghost react" data-click="toggleReactPop" title="Pick a different reaction" aria-label="Pick a different reaction"><svg><use href="#i-smile"/></svg></button>
             <div id="reactPop" class="pop" hidden></div>
           </div>
         </div>
 
         <div class="controls">
-          <button id="pp" onclick="togglePause()" title="Pause / play for everyone"></button>
+          <button id="pp" data-click="togglePause" title="Pause / play for everyone"></button>
           <span id="time">0:00 / 0:00</span>
           <input id="seek" type="range" min="0" max="0" step="0.1" value="0" disabled title="Only whoever added the song can move through it">
-          <button id="skipBtn" class="ghost" onclick="skip()" aria-pressed="false" title="Vote to skip this song"><svg><use href="#i-skip"/></svg> <span id="skipText">Skip</span></button>
+          <button id="skipBtn" class="ghost" data-click="skip" aria-pressed="false" title="Vote to skip this song"><svg><use href="#i-skip"/></svg> <span id="skipText">Skip</span></button>
           <div class="vol" title="Your volume only">
-            <button id="muteBtn" class="iconbtn" onclick="toggleMute()" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
+            <button id="muteBtn" class="iconbtn" data-click="toggleMute" title="Mute / unmute (just you)"><svg><use href="#i-vol"/></svg></button>
             <input id="vol" type="range" min="0" max="1" step="0.01">
           </div>
-          <button id="audioBtn" class="iconbtn" onclick="toggleAudioOnly()" aria-pressed="false" aria-label="Audio only"><svg><use href="#i-video"/></svg></button>
-          <button id="chatBtn" class="iconbtn fsOnly" onclick="toggleChat()" aria-pressed="true" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-chat"/></svg></button>
-          <button id="fsBtn" class="iconbtn" onclick="toggleFs()" title="Full screen (double-click the video too)" aria-label="Full screen"></button>
+          <button id="audioBtn" class="iconbtn" data-click="toggleAudioOnly" aria-pressed="false" aria-label="Audio only"><svg><use href="#i-video"/></svg></button>
+          <button id="chatBtn" class="iconbtn fsOnly" data-click="toggleChat" aria-pressed="true" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-chat"/></svg></button>
+          <button id="fsBtn" class="iconbtn" data-click="toggleFs" title="Full screen (double-click the video too)" aria-label="Full screen"></button>
         </div>
       </section>
     </main>
@@ -184,15 +181,15 @@
       <section class="card chat-card">
         <h3>Chat
           <span class="chatSound" title="Message sound (just you)">
-            <button id="chatMute" class="iconbtn" onclick="toggleChatMute()" title="Mute / unmute the message, join and leave sounds" aria-label="Mute / unmute the message, join and leave sounds"></button>
+            <button id="chatMute" class="iconbtn" data-click="toggleChatMute" title="Mute / unmute the message, join and leave sounds" aria-label="Mute / unmute the message, join and leave sounds"></button>
             <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Volume of the message, join and leave sounds">
           </span>
-          <button type="button" class="iconbtn fsOnly" onclick="toggleChat()" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-collapse"/></svg></button>
+          <button type="button" class="iconbtn fsOnly" data-click="toggleChat" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-collapse"/></svg></button>
         </h3>
         <div id="chat"></div>
-        <form id="chatForm" onsubmit="sendChat(event)">
+        <form id="chatForm" data-submit="sendChat">
           <div id="emojiPop" class="pop" hidden></div>
-          <button type="button" id="emojiBtn" class="iconbtn" onclick="toggleEmoji(event)" title="Emoji" aria-label="Emoji"><svg><use href="#i-smile"/></svg></button>
+          <button type="button" id="emojiBtn" class="iconbtn" data-click="toggleEmoji" title="Emoji" aria-label="Emoji"><svg><use href="#i-smile"/></svg></button>
           <input id="chatText" placeholder="Message… or !dj on" title="Type !dj on for a DJ that keeps the music going, !dj off to stop it" maxlength="500" autocomplete="off">
           <button id="sendBtn" title="Send"><svg><use href="#i-send"/></svg></button>
         </form>

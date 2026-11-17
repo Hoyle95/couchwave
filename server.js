@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { spawn } = require('child_process');
 
 const FAKE_TOOLS = process.env.COUCHWAVE_FAKE_TOOLS;
@@ -276,7 +277,6 @@ try {
   ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], history = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null, removeVotes: savedRemove = null, playlists: playlistJobs = [] } =
     JSON.parse(fs.readFileSync(STATE, 'utf8')));
 } catch {}
-for (const e of log) delete e.undo;
 for (const item of [current, ...queue]) {
   if (!item) continue;
   for (const k of ['file', 'audio', 'out']) if (item[k]) item[k] = path.join(DL, path.basename(item[k]));
@@ -338,7 +338,7 @@ setInterval(() => {
   for (const who of here) if (gone(who, now)) departed(who);
   if (here.size && now - savedAt > secs(30)) dirty = true;
 }, secs(5));
-const online = () => { streamsSeen(); const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
+const online = () => { const now = Date.now(); return Object.keys(seen).filter(n => now - seen[n] < ONLINE_FOR); };
 
 if (wasHere && typeof wasHere === 'object') {
   quietUntil = 0;
@@ -851,6 +851,7 @@ async function paced(stream, res, rate, burst) {
 }
 
 function sendFile(req, res, file, type, duration) {
+  if (!file) { res.writeHead(404); return res.end(); }
   fs.stat(file, (err, st) => {
     if (err) { res.writeHead(404); return res.end(); }
     const size = st.size;
@@ -882,13 +883,33 @@ const STATIC_TYPES = {
   '.js': ['text/javascript; charset=utf-8', 'no-cache'],
   '.png': ['image/png', 'max-age=86400'], '.woff2': ['font/woff2', 'max-age=2592000'],
 };
-function sendStatic(res, name, headers = {}) {
+const packed = new Map();
+const encodingFor = req => { const a = String(req.headers['accept-encoding'] || ''); return /\bbr\b/.test(a) ? 'br' : /\bgzip\b/.test(a) ? 'gzip' : null; };
+function sendStatic(req, res, name, headers = {}) {
   const [type, cache] = STATIC_TYPES[path.extname(name)];
   const file = path.join(WEB, name);
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache, 'Content-Length': st.size, ...headers });
-    fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    const etag = `"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    const base = { 'Content-Type': type, 'Cache-Control': cache, ETag: etag, Vary: 'Accept-Encoding', ...headers };
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, base); return res.end(); }
+    if (!type.startsWith('text/')) {
+      res.writeHead(200, { ...base, 'Content-Length': st.size });
+      return fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    }
+    const send = p => {
+      const enc = encodingFor(req), body = enc ? p[enc] : p.raw;
+      res.writeHead(200, { ...base, 'Content-Length': body.length, ...(enc ? { 'Content-Encoding': enc } : {}) });
+      res.end(body);
+    };
+    const p = packed.get(name);
+    if (p && p.etag === etag) return send(p);
+    fs.readFile(file, (err, raw) => {
+      if (err) { res.writeHead(404); return res.end(); }
+      const fresh = { etag, raw, gzip: zlib.gzipSync(raw, { level: 9 }), br: zlib.brotliCompressSync(raw) };
+      packed.set(name, fresh);
+      send(fresh);
+    });
   });
 }
 
@@ -902,16 +923,34 @@ const MANIFEST = JSON.stringify({
   ],
 });
 
+// ---------- Security headers ----------
+const CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'", "style-src-elem 'self'",
+  "style-src-attr 'unsafe-inline'", "img-src 'self' data: https://i.ytimg.com", "media-src 'self' blob:",
+  "connect-src 'self'", "font-src 'self'", "manifest-src 'self'", "object-src 'none'", "base-uri 'none'",
+  "form-action 'self'", "frame-ancestors 'none'",
+].join('; ');
+const SECURITY_HEADERS = {
+  'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',
+};
+
 // ---------- Requests ----------
-function sendJson(res, obj) {
-  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(obj));
+function sendJson(req, res, obj) {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' };
+  let body = Buffer.from(JSON.stringify(obj));
+  if (body.length > 1024 && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+    body = zlib.gzipSync(body);
+    headers['Content-Encoding'] = 'gzip';
+  }
+  res.writeHead(200, { ...headers, 'Content-Length': body.length });
+  res.end(body);
 }
 
 function done(res) { save(); res.writeHead(204); res.end(); }
 
 function readJson(req, max, cb) {
   let body = '';
+  req.setEncoding('utf8');
   req.on('data', d => { body += d; if (body.length > max) req.destroy(); });
   req.on('end', () => { let data; try { data = JSON.parse(body); } catch {} cb(data && typeof data === 'object' ? data : {}); });
 }
@@ -927,21 +966,22 @@ function parseCookies(header) {
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const route = req.method + ' ' + url.pathname;
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
 
   if (route === 'GET /') {
     const auth = parseCookies(req.headers.cookie).auth;
     const headers = viaHttps(req) && auth && loggedIn(auth) ? { 'Set-Cookie': cookie(req, AUTH_COOKIE, auth) } : {};
-    return sendStatic(res, 'index.html', headers);
+    return sendStatic(req, res, 'index.html', headers);
   }
 
-  if (route === 'GET /room') return sendJson(res, { public: PUBLIC });
+  if (route === 'GET /room') return sendJson(req, res, { public: PUBLIC });
 
   if (route === 'GET /manifest.json') {
     res.writeHead(200, { 'Content-Type': 'application/manifest+json', 'Cache-Control': 'no-cache' });
     return res.end(MANIFEST);
   }
   const asset = /^\/((?:css\/[\w-]+\.css)|(?:js\/[\w-]+\.js)|(?:icons\/[\w-]+\.png)|(?:fonts\/[\w-]+\.woff2))$/.exec(url.pathname);
-  if (req.method === 'GET' && asset) return sendStatic(res, asset[1]);
+  if (req.method === 'GET' && asset) return sendStatic(req, res, asset[1]);
 
   if (route === 'POST /login') {
     const ip = ipOf(req), f = fails.get(ip);
@@ -970,9 +1010,6 @@ http.createServer((req, res) => {
             for (const list of [colors, faces]) for (const n of Object.keys(list)) if (nameKey(n) === nameKey(name)) delete list[n];
             dirty = true;
           }
-          const known = [...Object.keys(colors), ...Object.keys(faces), ...here, ...queue.map(q => q.by), current && current.by]
-            .find(n => n && nameKey(n) === nameKey(name));
-          if (known) name = known;
           const salt = crypto.randomBytes(16).toString('hex');
           acc = { name, salt, hash: await scramble(own, salt), created: Date.now() };
           let added;
@@ -1009,7 +1046,7 @@ http.createServer((req, res) => {
   switch (route) {
     case 'GET /state':
       checkIn(who);
-      return sendJson(res, { ...state(url.searchParams), me: who });
+      return sendJson(req, res, { ...state(url.searchParams), me: who });
 
     case 'GET /events':
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
@@ -1067,7 +1104,14 @@ http.createServer((req, res) => {
 
     case 'POST /seek':
       return readJson(req, 200, ({ t }) => {
-        if (current && current.by !== who) { res.writeHead(403); return res.end('Only whoever added the song can move it'); }
+        checkIn(who);
+        const people = online(), alone = people.length === 1 && people[0] === who;
+        const ownerAway = current && !isDjSong(current) && !people.includes(current.by);
+        if (current && current.by !== who && !ownerAway && !alone) {
+          res.writeHead(403);
+          return res.end(isDjSong(current) ? 'The DJ\'s songs can only be moved when you\'re the only one here'
+            : `Only ${current.by} can move their song while they're here`);
+        }
         if (current) {
           t = Math.max(0, Math.min(Number(t) || 0, current.duration));
           if (paused) pausedAt = t; else startedAt = Date.now() - t * 1000;
@@ -1096,6 +1140,8 @@ http.createServer((req, res) => {
       return readJson(req, 200, ({ id }) => {
         const entry = trash.get(id);
         if (entry && entry.item.by !== who && entry.by !== who) { res.writeHead(403); return res.end('Only whoever deleted a song can bring it back'); }
+        const twin = entry && alreadyHere(videoId(entry.item.url));
+        if (twin) { res.writeHead(409); return res.end(`${songName(twin)} ${alreadyText(twin)}`); }
         if (entry) {
           const { item, index } = entry;
           trash.delete(id);
@@ -1104,7 +1150,6 @@ http.createServer((req, res) => {
             Object.assign(item, { status: 'waiting', out: null, file: null, audio: null });
           }
           queue.splice(Math.min(index, queue.length), 0, item);
-          for (const e of log) if (e.undo === id) delete e.undo;
           addLog(who, `restored "${item.title}"`);
           pump();
         }

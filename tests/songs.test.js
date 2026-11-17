@@ -395,4 +395,16 @@ test('an "is adding a playlist…" stuck from before this was fixed says it didn
   const s = await servers({ initial: { log: [{ t: Date.now() - 60000, by: 'Alice', text: 'is adding a playlist…' }] } });
   assert.ok((await s.log()).includes('Alice: didn\'t finish adding a playlist (Couchwave restarted): add it again'));
 });
+
+test('undo won\'t put a song back if someone has added it again meanwhile', async () => {
+  const s = await start();
+  await s.post('/add', { url: yt('undo_000001') });
+  const q = await waitFor(() => inQueue(s, q => q.url === yt('undo_000001')), 3000, 'the song');
+  await s.post('/remove', { id: q.id });
+  assert.equal((await s.post('/add', { url: 'https://youtu.be/undo_000001' }, { as: 'Bob' })).status, 204, 'Bob adds it again');
+  const r = await s.post('/undo', { id: q.id });
+  assert.equal(r.status, 409);
+  assert.match(r.text, /is already in the queue$/);
+  assert.equal((await s.state()).queue.filter(x => x.url === yt('undo_000001')).length, 1, 'only once');
+});
 });
