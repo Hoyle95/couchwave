@@ -29,6 +29,10 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   assert.ok(st.elapsed > 60.4 && st.elapsed < 62, 'playing on from 1:00: ' + st.elapsed);
   const log = await s.log();
   for (const line of [`Alice: paused at 0:${String(Math.floor(at)).padStart(2, '0')}`, 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);
+  const statuses = [];
+  for (let i = 0; i < 31; i++) statuses.push((await s.post(i % 2 ? '/play' : '/pause', undefined, { as: 'Bob' })).status);
+  assert.deepEqual([statuses.slice(0, 30).every(x => x === 204), statuses[30]], [true, 429], 'a speed limit: 30 a minute each');
+  assert.equal((await s.post('/pause', undefined, { as: 'Cara' })).status, 204, 'others aren\'t affected');
 });
 
 test('moving through a song: only whoever added it while they\'re here (or it\'d be a skip without a vote), anyone once they\'ve gone', async () => {

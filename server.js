@@ -1,15 +1,26 @@
 // ---------- Setup ----------
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const net = require('net');
 const { spawn } = require('child_process');
 
 const FAKE_TOOLS = process.env.COUCHWAVE_FAKE_TOOLS;
-const run = (name, args) => (FAKE_TOOLS ? spawn(process.execPath, [path.join(FAKE_TOOLS, name + '.js'), ...args]) : spawn(name, args));
 const TIME_SCALE = Number(process.env.COUCHWAVE_TIME_SCALE) > 0 ? Number(process.env.COUCHWAVE_TIME_SCALE) : 1;
 const secs = n => n * 1000 * TIME_SCALE;
+function run(name, args, limit, what = name) {
+  const p = FAKE_TOOLS ? spawn(process.execPath, [path.join(FAKE_TOOLS, name + '.js'), ...args]) : spawn(name, args);
+  if (limit) {
+    const timer = setTimeout(() => { p.timedOut = true; logOut(`${what} was still going after ${Math.round(limit / secs(60))} minutes: stopped`); killTree(p); }, limit);
+    p.on('close', () => clearTimeout(timer));
+    p.on('error', () => clearTimeout(timer));
+  }
+  return p;
+}
+const TOOL_LIMIT = secs(60 * (Number(process.env.COUCHWAVE_TOOL_MINUTES) || 30));
 
 const WEB = path.join(__dirname, 'public');
 const DATA = path.join(__dirname, 'data');
@@ -34,7 +45,7 @@ function readAccounts() {
 }
 const writeAccounts = list => writeAtomic(ACCOUNTS, JSON.stringify(list, null, 1));
 
-const cleanName = name => String(name || '').normalize('NFKC').replace(/[\p{Cf}\p{Cc}]/gu, '').trim().replace(/\s+/g, ' ').slice(0, 30);
+const cleanName = name => [...String(name || '').normalize('NFKC').replace(/[\p{Cf}\p{Cc}\p{Cs}]/gu, '').trim().replace(/\s+/g, ' ')].slice(0, 30).join('').trim();
 const nameKey = name => String(name).toLowerCase();
 const mixedAlphabets = name => [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u].filter(r => r.test(name)).length > 1;
 
@@ -67,17 +78,44 @@ if (adminCommand) {
     writeAccounts(list);
     console.log(`Done: "${acc.name}" is deleted and logged out. Whoever joins with that nickname next starts fresh.`);
   } else {
-    const password = String(process.argv[at + 2] || '');
-    if (password.length < MIN_OWN_PASSWORD) {
-      console.log(`Usage: node server.js --set-password ${acc.name} <new password>   (at least ${MIN_OWN_PASSWORD} characters)`);
-      process.exit(1);
-    }
-    const salt = crypto.randomBytes(16).toString('hex');
-    list[nameKey(name)] = { ...acc, salt, hash: crypto.scryptSync(password, salt, 32).toString('hex') };
-    writeAccounts(list);
-    console.log(`Done: "${acc.name}" has a new password and is logged out everywhere. Send them the new password.`);
+    const setPassword = password => {
+      if (password.length < MIN_OWN_PASSWORD) {
+        console.log(`That's too short: it needs at least ${MIN_OWN_PASSWORD} characters. Nothing was changed.`);
+        process.exit(1);
+      }
+      const now = readAccounts(), salt = crypto.randomBytes(16).toString('hex');
+      now[nameKey(name)] = { ...now[nameKey(name)], salt, hash: crypto.scryptSync(password, salt, 32).toString('hex') };
+      writeAccounts(now);
+      console.log(`Done: "${acc.name}" has a new password and is logged out everywhere. Send them the new password.`);
+      process.exit(0);
+    };
+    if (process.argv[at + 2] !== undefined) setPassword(String(process.argv[at + 2]));
+    askQuietly(`New password for "${acc.name}" (it won't show as you type): `).then(setPassword);
+    return;
   }
   process.exit(0);
+}
+
+function askQuietly(question) {
+  const input = process.stdin;
+  process.stdout.write(question);
+  input.setEncoding('utf8');
+  return new Promise(resolve => {
+    let typed = '', finished = false;
+    const done = () => { if (finished) return; finished = true; input.off('data', onData); if (input.isTTY) input.setRawMode(false); input.pause(); process.stdout.write('\n'); resolve(typed); };
+    const onData = text => {
+      for (const c of text) {
+        if (c === '\r' || c === '\n') return done();
+        if (c === '\u0003') { process.stdout.write('\n'); process.exit(1); }
+        if (c === '\u007f' || c === '\b') typed = typed.slice(0, -1);
+        else typed += c;
+      }
+    };
+    if (input.isTTY) input.setRawMode(true);
+    input.on('data', onData);
+    input.on('end', done);
+    input.resume();
+  });
 }
 
 // ---------- Log file ----------
@@ -135,6 +173,7 @@ const PASSWORD = String(config.password || '');
 const PUBLIC = config.public === true;
 if (!PASSWORD && !PUBLIC) fatal('No password set: put one in config.json');
 if (PUBLIC) console.log('config.json: "public" is on: there\'s no room password, so anyone who has the address can join');
+else if (PASSWORD.length < 8) console.log(`config.json: the room password is short (${PASSWORD.length} characters), so it's easy to guess. Use 8 or more`);
 function setting(key, valid, should) {
   if (config[key] == null) return DEFAULTS[key];
   const v = Number(config[key]);
@@ -154,6 +193,48 @@ const MAX_LENGTH_TEXT = (() => {
 })();
 const tooLong = song => song.duration > MAX_SECONDS;
 
+// ---------- Visitors' addresses ----------
+const subnets = list => { const b = new net.BlockList(); for (const [ip, bits] of list) b.addSubnet(ip, bits, net.isIPv6(ip) ? 'ipv6' : 'ipv4'); return b; };
+const PRIVATE = [['127.0.0.0', 8], ['10.0.0.0', 8], ['172.16.0.0', 12], ['192.168.0.0', 16], ['169.254.0.0', 16], ['100.64.0.0', 10],
+  ['::1', 128], ['fc00::', 7], ['fe80::', 10]];
+const CLOUDFLARE = subnets([
+  ['173.245.48.0', 20], ['103.21.244.0', 22], ['103.22.200.0', 22], ['103.31.4.0', 22], ['141.101.64.0', 18], ['108.162.192.0', 18],
+  ['190.93.240.0', 20], ['188.114.96.0', 20], ['197.234.240.0', 22], ['198.41.128.0', 17], ['162.158.0.0', 15], ['104.16.0.0', 13],
+  ['104.24.0.0', 14], ['172.64.0.0', 13], ['131.0.72.0', 22],
+  ['2400:cb00::', 32], ['2606:4700::', 32], ['2803:f800::', 32], ['2405:b500::', 32], ['2405:8100::', 32], ['2a06:98c0::', 29], ['2c0f:f248::', 32],
+]);
+const plainIp = ip => String(ip || '').trim().replace(/^\[([^\]]*)\](:\d+)?$/, '$1').replace(/%.*$/, '')
+  .replace(/^(\d+\.\d+\.\d+\.\d+):\d+$/, '$1').replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+const inside = (list, ip) => net.isIP(ip) > 0 && list.check(ip, net.isIPv6(ip) ? 'ipv6' : 'ipv4');
+function trustedProxies() {
+  const v = config.trustProxy;
+  if (v == null || v === true) return PRIVATE;
+  if (v === false) return [];
+  const extra = (Array.isArray(v) ? v : [null]).map(e => {
+    const [ip, bits, more] = String(e ?? '').split('/').map((x, i) => (i ? x : plainIp(x)));
+    const max = net.isIPv6(ip) ? 128 : 32;
+    if (!net.isIP(ip) || more !== undefined || (bits !== undefined && !/^\d+$/.test(bits)) || +(bits ?? max) > max) return null;
+    return [ip, +(bits ?? max)];
+  });
+  if (extra.every(Boolean)) return [...PRIVATE, ...extra];
+  console.log(`config.json: trustProxy should be true, false, or a list of addresses like ["203.0.113.5", "10.8.0.0/24"], not ${JSON.stringify(v)}; using true`);
+  return PRIVATE;
+}
+const PROXIES = subnets(trustedProxies());
+const viaProxy = req => inside(PROXIES, plainIp(req.socket.remoteAddress));
+function visitor(req) {
+  let ip = plainIp(req.socket.remoteAddress);
+  if (inside(PROXIES, ip)) {
+    const hops = String(req.headers['x-forwarded-for'] || '').split(',').map(plainIp).filter(Boolean);
+    while (hops.length) { ip = hops.pop(); if (!inside(PROXIES, ip)) break; }
+  }
+  if (inside(CLOUDFLARE, ip)) { const cf = plainIp(req.headers['cf-connecting-ip']); if (net.isIP(cf)) ip = cf; }
+  if (!net.isIPv6(ip) || ip === '::1') return ip.slice(0, 64);
+  const [head, tail] = ip.split('::'), a = head ? head.split(':') : [], b = tail ? tail.split(':') : [];
+  const groups = ip.includes('::') ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b] : a;
+  return groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':') + '::/64';
+}
+
 // ---------- Logins ----------
 let keyCache = { mtime: -1, key: '' };
 function loginKey() {
@@ -165,8 +246,7 @@ function loginKey() {
 const same = (a, b) => { a = Buffer.from(String(a ?? '')); b = Buffer.from(String(b)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 const AUTH_COOKIE = 'auth=%s; Path=/; Max-Age=%d; SameSite=Lax; HttpOnly';
 const NAME_COOKIE = 'name=%s; Path=/; Max-Age=31536000; SameSite=Lax';
-const fromThisMachine = req => /^(::1|127\.|::ffff:127\.)/.test(req.socket.remoteAddress || '');
-const viaHttps = req => fromThisMachine(req) && (
+const viaHttps = req => viaProxy(req) && (
   String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https' ||
   /"scheme"\s*:\s*"https"/.test(String(req.headers['cf-visitor'] || '')));
 const cookie = (req, template, value, maxAge = 31536000) =>
@@ -198,31 +278,77 @@ function addAccount(acc) {
 const account = name => { const list = accounts(), key = nameKey(name); return !RESERVED.has(key) && Object.hasOwn(list, key) && isAccount(list[key]) ? list[key] : null; };
 const wasDeleted = name => { const list = accounts(), key = nameKey(name); return Object.hasOwn(list, key) && !!list[key].deleted; };
 const RESERVED = new Set(['server', 'someone', 'dj', '__proto__', 'constructor', 'prototype']);
-const scramble = (password, salt) => new Promise((ok, fail) =>
-  crypto.scrypt(String(password), salt, 32, (err, key) => (err ? fail(err) : ok(key.toString('hex')))));
-
-const userToken = acc => Buffer.from(acc.name).toString('base64url') + '.' +
-  crypto.createHmac('sha256', loginKey()).update(`${PASSWORD}\n${nameKey(acc.name)}\n${acc.salt}`).digest('base64url');
-function loggedIn(cookie) {
-  cookie = String(cookie || '');
-  const dot = cookie.lastIndexOf('.');
-  if (dot < 1) return null;
-  const acc = account(Buffer.from(cookie.slice(0, dot), 'base64url').toString());
-  return acc && same(cookie, userToken(acc)) ? acc : null;
+const CHECKS_AT_ONCE = 2, CHECKS_WAITING = 50;
+let checking = 0;
+const waitingChecks = [];
+function scramble(password, salt) {
+  return new Promise((ok, fail) => {
+    const go = () => {
+      checking++;
+      crypto.scrypt(String(password), salt, 32, (err, key) => {
+        checking--;
+        if (waitingChecks.length) waitingChecks.shift()();
+        if (err) fail(err); else ok(key.toString('hex'));
+      });
+    };
+    if (checking < CHECKS_AT_ONCE) go();
+    else if (waitingChecks.length < CHECKS_WAITING) waitingChecks.push(go);
+    else fail(Object.assign(new Error('too many logins at once'), { busy: true }));
+  });
 }
 
-const fails = new Map();
-const FAIL_WINDOW = 15 * 60 * 1000, FAIL_MAX = 20;
-const ipOf = req => {
-  const direct = req.socket.remoteAddress || '';
-  if (!fromThisMachine(req)) return direct;
-  const h = req.headers;
-  return h['cf-connecting-ip'] || h['x-real-ip'] || String(h['x-forwarded-for'] || '').split(',')[0].trim() || direct;
-};
-setInterval(() => { for (const [ip, f] of fails) if (Date.now() - f.since > FAIL_WINDOW) fails.delete(ip); }, 60 * 1000);
+const DAY = 24 * 3600 * 1000, LOGIN_LIFE = 365 * DAY, RENEW_AFTER = DAY, OLD_LOGINS_FOR = 30 * DAY;
+const LOGINS = path.join(DATA, 'logins.json');
+let logins = { oldLoginsUntil: 0, loggedOut: {} };
+function saveLogins() {
+  const now = Date.now();
+  for (const [id, until] of Object.entries(logins.loggedOut)) if (!(until > now)) delete logins.loggedOut[id];
+  try { writeAtomic(LOGINS, JSON.stringify(logins)); } catch (err) { console.error('saving logins failed:', err.message); }
+}
+try {
+  const saved = JSON.parse(fs.readFileSync(LOGINS, 'utf8'));
+  logins = { oldLoginsUntil: Number(saved.oldLoginsUntil) || 0, loggedOut: saved.loggedOut && typeof saved.loggedOut === 'object' ? saved.loggedOut : {} };
+} catch (err) {
+  if (err.code !== 'ENOENT') { console.error(`Can't read ${LOGINS} (${err.message}): everyone has to log in again`); newLoginKey(); }
+  logins.oldLoginsUntil = Date.now() + OLD_LOGINS_FOR;
+  saveLogins();
+}
+const signed = (acc, extra) => crypto.createHmac('sha256', loginKey()).update(`${PASSWORD}\n${nameKey(acc.name)}\n${acc.salt}${extra}`).digest('base64url');
+function newLogin(acc, id = crypto.randomBytes(16).toString('base64url')) {
+  const made = Date.now().toString(36);
+  return [Buffer.from(acc.name).toString('base64url'), id, made, signed(acc, `\n${id}\n${made}`)].join('.');
+}
+function loggedIn(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 2 && parts.length !== 4) return null;
+  const acc = account(Buffer.from(parts[0], 'base64url').toString());
+  if (!acc) return null;
+  if (parts.length === 2) return Date.now() < logins.oldLoginsUntil && same(parts[1], signed(acc, '')) ? { acc, old: true } : null;
+  const [, id, made, mac] = parts;
+  if (!same(mac, signed(acc, `\n${id}\n${made}`)) || !(Date.now() - parseInt(made, 36) < LOGIN_LIFE) || Object.hasOwn(logins.loggedOut, id)) return null;
+  return { acc, id, made: parseInt(made, 36), token };
+}
+const renewed = login => (login.old ? newLogin(login.acc) : Date.now() - login.made > RENEW_AFTER ? newLogin(login.acc, login.id) : null);
+function endLogin(login) {
+  if (!login.id) return;
+  logins.loggedOut[login.id] = Date.now() + LOGIN_LIFE;
+  saveLogins();
+}
+
+const fails = new Map(), nameFails = new Map(), newNames = new Map();
+const FAIL_WINDOW = 15 * 60 * 1000, FAIL_MAX = 20, NEW_NAMES_WINDOW = 60 * 60 * 1000, NEW_NAMES_MAX = 10;
+const windowOf = map => (map === newNames ? NEW_NAMES_WINDOW : FAIL_WINDOW);
+function strikes(map, key) {
+  let f = map.get(key);
+  if (!f || Date.now() - f.since > windowOf(map)) { f = { n: 0, since: Date.now() }; map.set(key, f); }
+  return f;
+}
+function tellOnce(f, text) { if (!f.told) { f.told = true; logOut(text); } }
+setInterval(() => { for (const map of [fails, nameFails, newNames]) for (const [k, f] of map) if (Date.now() - f.since > windowOf(map)) map.delete(k); }, 60 * 1000);
 
 // ---------- Speed limits ----------
-const LIMITS = { chat: [8, secs(10)], add: [10, secs(60)] };
+const LIMITS = { chat: [8, secs(10)], add: [10, secs(60)], control: [30, secs(60)], react: [60, secs(10)] };
+const LIMITED = { 'POST /pause': 'control', 'POST /play': 'control', 'POST /seek': 'control', 'POST /react': 'react' };
 const recent = new Map();
 function tooFast(kind, who) {
   const [max, windowMs] = LIMITS[kind], key = `${kind}\n${who}`, now = Date.now();
@@ -266,18 +392,37 @@ let wasHere = null;
 let savedSkip = null;
 let savedRemove = null;
 let playlistJobs = [];
+let newestTold = '';
 let reactions = [];
 let reactId = Date.now();
 let logRev = Date.now(), chatRev = Date.now(), historyRev = Date.now();
 const running = new Map();
 const trash = new Map();
-const UNDO_MS = 10 * 60 * 1000;
+const UNDO_MS = secs(600);
 
-try {
-  ({ nextId, queue, current, startedAt, paused = false, pausedAt = 0, log = [], chat = [], history = [], colors = {}, faces = {}, here: wasHere = null, skip: savedSkip = null, removeVotes: savedRemove = null, playlists: playlistJobs = [] } =
-    JSON.parse(fs.readFileSync(STATE, 'utf8')));
-} catch {}
-for (const item of [current, ...queue]) {
+let saved = {};
+try { saved = JSON.parse(fs.readFileSync(STATE, 'utf8')) || {}; }
+catch (err) {
+  if (err.code !== 'ENOENT') {
+    const copy = `${STATE}.broken-${Date.now()}`;
+    try { fs.copyFileSync(STATE, copy); } catch {}
+    console.error(`Can't read ${STATE} (${err.message}): starting with an empty queue. The old file is kept as ${path.basename(copy)}`);
+  }
+}
+const listOf = v => (Array.isArray(v) ? v.filter(x => x && typeof x === 'object' && !Array.isArray(x)) : []);
+const objectOf = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
+queue = listOf(saved.queue); current = objectOf(saved.current);
+log = listOf(saved.log); chat = listOf(saved.chat); history = listOf(saved.history); playlistJobs = listOf(saved.playlists);
+colors = objectOf(saved.colors) || {}; faces = objectOf(saved.faces) || {};
+startedAt = Number(saved.startedAt) || 0; paused = saved.paused === true; pausedAt = Number(saved.pausedAt) || 0;
+newestTold = typeof saved.newestTold === 'string' ? saved.newestTold : '';
+wasHere = objectOf(saved.here); savedSkip = objectOf(saved.skip); savedRemove = objectOf(saved.removeVotes);
+for (const e of listOf(saved.trash)) {
+  if (objectOf(e.item) && typeof e.t === 'number' && typeof e.by === 'string') trash.set(e.item.id, { item: e.item, index: Number(e.index) || 0, t: e.t, by: e.by });
+}
+const trashed = () => [...trash.values()].map(e => e.item);
+nextId = Math.max(Number.isInteger(saved.nextId) ? saved.nextId : 1, ...[current, ...queue, ...trashed()].filter(Boolean).map(q => (Number(q.id) || 0) + 1));
+for (const item of [current, ...queue, ...trashed()]) {
   if (!item) continue;
   for (const k of ['file', 'audio', 'out']) if (item[k]) item[k] = path.join(DL, path.basename(item[k]));
 }
@@ -291,7 +436,7 @@ function save() {
     const herePlus = Object.fromEntries([...here].map(n => [n, seen[n] || 0]));
     const skip = current ? { song: current.id, voters: [...skipVotes] } : null;
     const removeVotesSaved = Object.fromEntries([...removeVotes].map(([id, votes]) => [id, [...votes]]));
-    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, history, colors, faces, here: herePlus, skip, removeVotes: removeVotesSaved, playlists: playlistJobs }));
+    writeAtomic(STATE, JSON.stringify({ nextId, queue, current, startedAt, paused, pausedAt, log, chat, history, colors, faces, here: herePlus, skip, removeVotes: removeVotesSaved, playlists: playlistJobs, trash: [...trash.values()], newestTold }));
   } catch (err) {
     dirty = true;
     console.error('save failed:', err.message);
@@ -301,6 +446,7 @@ function save() {
 
 // ---------- Instant updates ----------
 const listeners = new Set();
+const STREAMS_EACH = 10;
 let nudgeTimer = null;
 function nudge() {
   if (nudgeTimer) return;
@@ -328,7 +474,7 @@ const gone = (who, now) => now - (seen[who] || 0) > LEAVE_AFTER || (closed[who] 
 function streamsSeen() {
   const now = Date.now();
   for (const res of listeners) {
-    if (loggedIn(res.auth)?.name !== res.who) { listeners.delete(res); res.end(); continue; }
+    if (loggedIn(res.auth)?.acc.name !== res.who) { listeners.delete(res); res.end(); continue; }
     seen[res.who] = now;
   }
 }
@@ -363,9 +509,11 @@ function addChat(by, text) {
 function addLog(by, text, id, t = Date.now()) {
   let i = log.length;
   while (i > 0 && log[i - 1].t > t) i--;
-  log.splice(i, 0, { t, by, text, id });
+  const entry = { t, by, text, id };
+  log.splice(i, 0, entry);
   if (log.length > 200) log.shift();
   logRev++;
+  return entry;
 }
 
 function logLook(who, text) {
@@ -406,22 +554,19 @@ const alreadyHere = id => !!id && [current, ...queue].find(q => q && videoId(q.u
 const songName = item => (/^https?:\/\//.test(item.title) ? 'That song' : `"${item.title}"`);
 const alreadyText = item => (item === current ? 'is playing right now' : 'is already in the queue');
 
-const LIST_TIMEOUT = 2 * 60 * 1000;
 function listSongs(target, max, cb) {
   const p = run('yt-dlp', [
     '--encoding', 'utf-8',
     '--flat-playlist', '--yes-playlist', '--playlist-end', String(max),
     '--print', '%(id)s\t%(duration)s\t%(title)s\t%(playlist_title)s', '--', target,
-  ]);
+  ], secs(120), `yt-dlp reading ${target}`);
   let stdout = '', finished = false;
-  const timer = setTimeout(() => { logOut(`yt-dlp took over ${LIST_TIMEOUT / 60000} minutes to read ${target}: stopped`); killTree(p); }, LIST_TIMEOUT);
   p.stdout.setEncoding('utf8');
   p.stdout.on('data', d => (stdout += d));
   p.stderr.on('data', d => logOut(d));
   const finish = () => {
     if (finished) return;
     finished = true;
-    clearTimeout(timer);
     const songs = [];
     for (const line of stdout.split('\n')) {
       const [id, duration, title, playlist] = line.trim().split('\t');
@@ -507,7 +652,7 @@ function search(item) {
 
 // ---------- Downloads ----------
 function cleanup() {
-  const keep = [current, ...queue, ...[...trash.values()].map(x => x.item)].filter(Boolean)
+  const keep = [current, ...queue, ...trashed()].filter(Boolean)
     .map(q => (q.status === 'downloading' ? q.out : q.file))
     .filter(Boolean).map(f => path.basename(f, '.mp4'));
   for (const f of fs.readdirSync(DL)) {
@@ -515,7 +660,26 @@ function cleanup() {
   }
 }
 
+const MIN_FREE = 2 * 1024 ** 3;
+let diskFull = false;
+function freeSpace() {
+  if (process.env.COUCHWAVE_FAKE_FREE_DISK) return Number(process.env.COUCHWAVE_FAKE_FREE_DISK);
+  try { const s = fs.statfsSync(DL); return s.bavail * s.bsize; } catch { return Infinity; }
+}
+function roomOnDisk() {
+  const full = freeSpace() < MIN_FREE;
+  if (full !== diskFull) {
+    diskFull = full;
+    const text = full ? 'paused downloads: this computer has less than 2 GB of disk space left' : 'downloads are back on: there is enough disk space again';
+    addLog('server', text);
+    logOut(text);
+    dirty = true;
+  }
+  return !full;
+}
+
 function pump() {
+  if (!roomOnDisk()) return;
   for (const [i, q] of queue.slice(0, PREFETCH).entries()) {
     if (q.status !== 'waiting') continue;
     if (running.size >= MAX_DOWNLOADS) {
@@ -564,7 +728,7 @@ function failed(item, reason, permanent) {
 }
 
 function probeDuration(file, cb) {
-  const p = run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file]);
+  const p = run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], TOOL_LIMIT);
   let out = '', fin = false;
   const end = () => { if (fin) return; fin = true; cb(parseFloat(out) || 0); };
   p.stdout.on('data', d => (out += d));
@@ -581,7 +745,7 @@ function gainFrom(ffmpegOutput) {
 function measureLoudness(item) {
   const file = item.audio || item.file;
   if (!file || item.gain != null) return;
-  const p = run('ffmpeg', ['-hide_banner', '-nostats', '-i', file, ...MEASURE]);
+  const p = run('ffmpeg', ['-hide_banner', '-nostats', '-i', file, ...MEASURE], TOOL_LIMIT);
   let err = '', fin = false;
   p.stderr.on('data', d => (err = (err + d).slice(-8000)));
   const end = () => { if (fin) return; fin = true; item.gain = gainFrom(err); dirty = true; };
@@ -589,6 +753,7 @@ function measureLoudness(item) {
   p.on('close', end);
 }
 
+const STALL_AFTER = secs(300);
 function download(item) {
   const out = path.join(DL, `${item.id}-${Date.now()}.mp4`);
   item.out = out;
@@ -603,11 +768,23 @@ function download(item) {
     '-o', out, '--print', 'after_move:%(duration)s|%(title)s', '--', item.url,
   ]);
   running.set(item.id, p);
-  let stdout = '', stderr = '', done = false;
+  const prefix = path.basename(out, '.mp4');
+  let stdout = '', stderr = '', done = false, size = -1, grewAt = Date.now(), stalled = false;
+  const watch = setInterval(() => {
+    let now = 0;
+    try { for (const f of fs.readdirSync(DL)) if (f.startsWith(prefix)) now += fs.statSync(path.join(DL, f)).size; } catch {}
+    if (now !== size) { size = now; grewAt = Date.now(); return; }
+    if (Date.now() - grewAt < STALL_AFTER) return;
+    stalled = true;
+    clearInterval(watch);
+    logOut(`downloading ${item.url} stalled (nothing new for ${Math.round(STALL_AFTER / secs(60))} minutes): stopped`);
+    killTree(p);
+  }, secs(15));
   p.stdout.setEncoding('utf8');
   p.stdout.on('data', d => (stdout += d));
   p.stderr.on('data', d => { logOut(d); stderr = (stderr + d).slice(-4000); });
   const finish = code => {
+    clearInterval(watch);
     if (done) return;
     done = true;
     if (item.removed || item.out !== out) return pump();
@@ -616,7 +793,8 @@ function download(item) {
     const line = stdout.trim().split('\n').pop() || '';
     const i = line.indexOf('|');
     if (code !== 0 || i < 0) {
-      if (code === 0) failed(item, "Livestreams aren't supported", true);
+      if (stalled) failed(item, 'Download stalled', false);
+      else if (code === 0) failed(item, "Livestreams aren't supported", true);
       else if (code === 101) failed(item, `Longer than ${MAX_LENGTH_TEXT}`, true);
       else failed(item, ...failReason(stderr));
       return pump();
@@ -629,10 +807,10 @@ function download(item) {
     item.file = out;
     const audio = out.replace(/\.mp4$/, '.m4a');
     const ffmpeg = (args, done) => {
-      const f = run('ffmpeg', args);
+      const f = run('ffmpeg', args, TOOL_LIMIT);
       let err = '', fin = false;
       f.stderr.on('data', d => (err = (err + d).slice(-8000)));
-      const end = code => { if (fin) return; fin = true; if (code !== 0) logOut(err); done(code === 0, err); };
+      const end = code => { if (fin) return; fin = true; if (code !== 0) logOut(err); done(code === 0, err, f.timedOut); };
       f.on('error', () => end(-1));
       f.on('close', end);
     };
@@ -658,8 +836,9 @@ function download(item) {
       if (item.duration) isReady();
       else probeDuration(out, d => { item.duration = d; isReady(); });
     };
-    ffmpeg(['-y', '-hide_banner', '-nostats', '-i', out, '-map', '0:a:0', '-c:a', 'copy', audio, ...MEASURE], (ok, err) => {
+    ffmpeg(['-y', '-hide_banner', '-nostats', '-i', out, '-map', '0:a:0', '-c:a', 'copy', audio, ...MEASURE], (ok, err, timedOut) => {
       if (ok) { item.gain = gainFrom(err); return ready(true); }
+      if (timedOut) { item.gain = 1; return ready(false); }
       ffmpeg(['-y', '-loglevel', 'error', '-i', out, '-vn', '-c:a', 'copy', audio], ready);
     });
     pump();
@@ -690,16 +869,15 @@ if (savedRemove && typeof savedRemove === 'object') {
     if (Array.isArray(names) && queue.some(q => q.id === +id)) removeVotes.set(+id, new Set(names.filter(n => typeof n === 'string')));
   }
 }
-function removeFromQueue(item, who, text) {
+function removeFromQueue(item, who, text, undoable) {
   const i = queue.indexOf(item);
   if (i < 0) return;
   queue.splice(i, 1);
   item.removed = true;
   removeVotes.delete(item.id);
   if (running.has(item.id)) stopDownload(item);
-  trash.set(item.id, { item, index: i, t: Date.now(), by: who });
-  addLog(who, text);
-  log[log.length - 1].undo = item.id;
+  const entry = addLog(who, text);
+  if (undoable) { trash.set(item.id, { item, index: i, t: Date.now(), by: who }); entry.undo = item.id; }
   dirty = true;
   pump();
 }
@@ -745,7 +923,7 @@ setInterval(() => {
   checkRemoves();
   if (!current) { if (nextUp()) advance(); }
   else if (!paused && elapsed() > current.duration + GRACE) advance(Math.min(elapsed() - current.duration, GRACE + 1));
-  for (const [id, { t }] of trash) if (Date.now() - t > UNDO_MS) { trash.delete(id); logRev++; }
+  for (const [id, { t }] of trash) if (Date.now() - t > UNDO_MS) { trash.delete(id); logRev++; dirty = true; }
   const due = queue.filter(q => q.status === 'failed' && q.retryAt && Date.now() >= q.retryAt);
   for (const q of due) { q.status = 'waiting'; q.retryAt = null; dirty = true; }
   if (due.length) pump();
@@ -757,14 +935,14 @@ for (const job of playlistJobs) readPlaylist(job);
 for (const e of log) {
   if (e.text === 'is adding a playlist…' && !playlistJobs.some(j => j.id === e.id)) { e.text = 'didn\'t finish adding a playlist (Couchwave restarted): add it again'; logRev++; }
 }
-for (const q of queue) {
+for (const q of [...queue, ...trashed()]) {
   if (q.status === 'downloading') q.status = 'waiting';
   if (q.status === 'searching' && q.query) search(q);
 }
 for (const q of [current, ...queue]) if (q && q.status === 'ready') measureLoudness(q);
 pump();
 cleanup();
-setInterval(cleanup, 60 * 1000);
+setInterval(() => { cleanup(); pump(); }, 60 * 1000);
 
 // ---------- The DJ ----------
 dj = require('./dj')({
@@ -780,10 +958,42 @@ dj = require('./dj')({
   say: (by, text) => { addChat(by, text); dirty = true; },
 });
 
+// ---------- Checking the tools ----------
+const TOOLS = [
+  ['yt-dlp', '--version', "songs can't be found or downloaded"],
+  ['ffmpeg', '-version', "songs won't download properly"],
+  ['ffprobe', '-version', "some songs' lengths can't be read"],
+];
+for (const [tool, flag, effect] of process.env.COUCHWAVE_CHECK_TOOLS === 'no' ? [] : TOOLS) {
+  const p = run(tool, [flag], secs(60));
+  let out = '', fin = false;
+  p.stdout.on('data', d => (out += d));
+  const end = code => {
+    if (fin) return;
+    fin = true;
+    const version = String(out).trim().split(/\r?\n/)[0];
+    if (code === 0 && version) return logOut(`found ${tool}: ${version}`);
+    const text = `can't find ${tool}, so ${effect}. Install it (see docs/INSTALL.md) and restart Couchwave`;
+    logOut(text);
+    addLog('server', text);
+    dirty = true;
+  };
+  p.on('error', () => end(-1));
+  p.on('close', end);
+}
+{
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (major < 18 || (major === 18 && minor < 11)) {
+    const text = `Couchwave needs Node.js 18.11 or newer, and this is ${process.versions.node}: some things won't work. Install a newer Node.js (see docs/INSTALL.md)`;
+    logOut(text);
+    addLog('server', text);
+  }
+}
+
 // ---------- Keeping yt-dlp up to date ----------
 function updateYtdlp() {
-  if (running.size) return setTimeout(updateYtdlp, 5 * 60 * 1000);
-  const p = run('yt-dlp', ['-U']);
+  if (running.size) return setTimeout(updateYtdlp, secs(300));
+  const p = run('yt-dlp', ['-U'], secs(300));
   let out = '', fin = false;
   p.stdout.on('data', d => (out += d));
   p.stderr.on('data', d => (out += d));
@@ -797,8 +1007,42 @@ function updateYtdlp() {
   p.on('error', end);
   p.on('close', end);
 }
-setTimeout(updateYtdlp, 60 * 1000);
-setInterval(updateYtdlp, 24 * 60 * 60 * 1000);
+setTimeout(updateYtdlp, secs(60));
+setInterval(updateYtdlp, secs(24 * 3600));
+
+// ---------- New versions of Couchwave ----------
+const VERSION = '0.2.0-beta';
+const RELEASES = process.env.COUCHWAVE_RELEASES_URL || 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10';
+const numbers = tag => (/(\d+)\.(\d+)\.(\d+)/.exec(tag || '') || []).slice(1).map(Number);
+function newer(tag, than) {
+  const a = numbers(tag), b = numbers(than);
+  if (a.length < 3 || b.length < 3) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+}
+function checkForUpdate() {
+  if (config.updateCheck === false) return;
+  const req = (RELEASES.startsWith('https:') ? https : http).get(RELEASES, { headers: { 'User-Agent': 'Couchwave', Accept: 'application/vnd.github+json' }, timeout: 15000 }, res => {
+    let body = '';
+    res.setEncoding('utf8');
+    res.on('data', d => { body += d; if (body.length > 2e6) req.destroy(); });
+    res.on('end', () => {
+      let list;
+      try { list = JSON.parse(body); } catch { return; }
+      const newest = Array.isArray(list) && list.find(r => r && !r.draft && typeof r.tag_name === 'string');
+      if (!newest || !newer(newest.tag_name, VERSION) || newestTold === newest.tag_name) return;
+      newestTold = newest.tag_name;
+      dirty = true;
+      const text = `a newer Couchwave is out: ${newest.tag_name.slice(0, 40)} (this is v${VERSION}). Whoever runs it can update: see docs/INSTALL.md#updating`;
+      logOut(text);
+      addLog('server', text);
+    });
+  });
+  req.on('timeout', () => req.destroy());
+  req.on('error', () => {});
+}
+setTimeout(checkForUpdate, secs(120));
+setInterval(checkForUpdate, secs(24 * 3600));
 
 // ---------- What pages see ----------
 const pub = i => i && { id: i.id, url: i.url, title: i.title, by: i.by, duration: i.duration, gain: i.gain ?? 1 };
@@ -812,7 +1056,7 @@ function state(q) {
     elapsed: current ? elapsed() : 0,
     paused,
     next: pub(nextUp()),
-    queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt,
+    queue: queue.map(({ id, url, title, by, status, error, retryAt }) => ({ id, url, title, by, status, error, retrying: !!retryAt, held: diskFull && status === 'waiting',
       removeVoters: removeVotes.has(id) ? users.filter(n => removeVotes.get(id).has(n)) : [] })),
     colors, faces,
     reactions: reactions.filter(r => now - r.t < secs(6)),
@@ -962,15 +1206,31 @@ function parseCookies(header) {
   }));
 }
 
+// ---------- Plain http from the internet ----------
+const PRIVATE_NETS = subnets(PRIVATE);
+let warnedPlainAt = 0;
+function plainFromInternet(req) {
+  const peer = plainIp(req.socket.remoteAddress);
+  if (!net.isIP(peer) || inside(PRIVATE_NETS, peer) || inside(PROXIES, peer) || inside(CLOUDFLARE, peer)) return;
+  if (Date.now() - warnedPlainAt < 24 * 3600 * 1000) return;
+  warnedPlainAt = Date.now();
+  logOut(`someone (${peer}) reached Couchwave straight from the internet over plain http, so passwords and logins travel unencrypted. Put it behind Cloudflare Tunnel or Caddy for https: see docs/INSTALL.md#letting-friends-in`);
+}
+
 // ---------- Routes ----------
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   const route = req.method + ' ' + url.pathname;
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+  if (viaHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  plainFromInternet(req);
+  if (req.method === 'POST' && /^(cross-site|same-site)$/.test(String(req.headers['sec-fetch-site'] || ''))) {
+    res.writeHead(403); return res.end('Only Couchwave\'s own page can do that');
+  }
 
   if (route === 'GET /') {
-    const auth = parseCookies(req.headers.cookie).auth;
-    const headers = viaHttps(req) && auth && loggedIn(auth) ? { 'Set-Cookie': cookie(req, AUTH_COOKIE, auth) } : {};
+    const login = loggedIn(parseCookies(req.headers.cookie).auth), fresh = login && renewed(login);
+    const headers = login && (fresh || viaHttps(req)) ? { 'Set-Cookie': cookie(req, AUTH_COOKIE, fresh || login.token) } : {};
     return sendStatic(req, res, 'index.html', headers);
   }
 
@@ -984,15 +1244,20 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && asset) return sendStatic(req, res, asset[1]);
 
   if (route === 'POST /login') {
-    const ip = ipOf(req), f = fails.get(ip);
-    if (f && Date.now() - f.since > FAIL_WINDOW) fails.delete(ip);
-    else if (f && f.n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
+    const ip = visitor(req);
+    if (strikes(fails, ip).n >= FAIL_MAX) { res.writeHead(429); return res.end('Too many wrong passwords, try again later'); }
     return readJson(req, 2000, async ({ password, name, own }) => {
-      const say = (status, msg) => { res.writeHead(status); res.end(msg); };
-      const g = fails.get(ip) || { n: 0, since: Date.now() };
-      g.n++; fails.set(ip, g);
-      let counted = true;
+      const say = (status, msg) => {
+        res.writeHead(status); res.end(msg);
+        if (counted && g.n >= FAIL_MAX) tellOnce(g, `logins: ${ip} got a password wrong ${FAIL_MAX} times in 15 minutes, so it waits 15 minutes before trying again`);
+        if (nameStrike && nameStrike.n >= FAIL_MAX) tellOnce(nameStrike, `logins: ${FAIL_MAX} wrong passwords for "${nameStrike.name}" in 15 minutes, so new logins with it wait 15 minutes (devices already logged in carry on)`);
+      };
+      const g = strikes(fails, ip);
+      g.n++;
+      let counted = true, nameStrike = null, newStrike = null;
+      const newRight = () => { if (newStrike) { newStrike.n = Math.max(0, newStrike.n - 1); newStrike = null; } };
       const right = () => { if (counted) { counted = false; g.n = Math.max(0, g.n - 1); } };
+      const nameRight = () => { if (nameStrike) { nameStrike.n = Math.max(0, nameStrike.n - 1); nameStrike = null; } };
       try {
         if (!PUBLIC && !same(password, PASSWORD)) return say(401, 'Wrong room password');
         name = cleanName(name);
@@ -1002,10 +1267,20 @@ http.createServer((req, res) => {
         let acc = account(name);
         if (accCache.broken) { right(); return say(503, 'Logins are paused: the server can\'t read its accounts file. Try again in a moment'); }
         if (acc) {
+          const f = strikes(nameFails, nameKey(acc.name));
+          if (f.n >= FAIL_MAX) { right(); return say(429, `Too many wrong passwords for "${acc.name}". Try again in a few minutes`); }
+          f.n++; f.name = acc.name; nameStrike = f;
           if (!same(await scramble(own, acc.salt), acc.hash)) return say(401, `"${acc.name}" is taken. If it's yours, that's not its password`);
+          nameRight();
         } else {
           right();
           if (own.length < MIN_OWN_PASSWORD) return say(400, `Choose a password for your nickname (at least ${MIN_OWN_PASSWORD} characters)`);
+          const from = ip === '127.0.0.1' || ip === '::1' ? null : strikes(newNames, ip);
+          if (from && from.n >= NEW_NAMES_MAX) {
+            tellOnce(from, `logins: ${NEW_NAMES_MAX} new nicknames from ${ip} in the last hour, so it waits before making more`);
+            return say(429, 'Lots of new nicknames have been made from here in the last hour. Try again later, or ask whoever runs Couchwave');
+          }
+          if (from) { from.n++; newStrike = from; }
           if (wasDeleted(name)) {
             for (const list of [colors, faces]) for (const n of Object.keys(list)) if (nameKey(n) === nameKey(name)) delete list[n];
             dirty = true;
@@ -1014,34 +1289,42 @@ http.createServer((req, res) => {
           acc = { name, salt, hash: await scramble(own, salt), created: Date.now() };
           let added;
           try { added = addAccount(acc); }
-          catch (err) { console.error('saving accounts failed:', err.message); return say(503, 'Couldn\'t save your nickname. Try again in a moment'); }
-          if (!added) return say(401, `"${name}" was just taken by someone else`);
+          catch (err) { newRight(); console.error('saving accounts failed:', err.message); return say(503, 'Couldn\'t save your nickname. Try again in a moment'); }
+          if (!added) { newRight(); return say(401, `"${name}" was just taken by someone else`); }
         }
         right();
         res.writeHead(204, { 'Set-Cookie': [
-          cookie(req, AUTH_COOKIE, userToken(acc)),
+          cookie(req, AUTH_COOKIE, newLogin(acc)),
           cookie(req, NAME_COOKIE, encodeURIComponent(acc.name)),
         ] });
         res.end();
       } catch (err) {
+        right(); nameRight(); newRight();
+        if (err.busy) { if (!res.headersSent) say(503, 'Lots of people are logging in right now. Try again in a moment'); return; }
         console.error('login failed:', err.message);
         if (!res.headersSent) say(500, 'Something went wrong. Try again');
       }
     });
   }
   if (route === 'POST /logout') {
-    const acc = loggedIn(parseCookies(req.headers.cookie).auth);
-    if (acc) {
-      for (const r of listeners) if (r.who === acc.name) { listeners.delete(r); r.end(); }
-      delete seen[acc.name]; departed(acc.name);
+    const login = loggedIn(parseCookies(req.headers.cookie).auth);
+    if (login) {
+      const who = login.acc.name;
+      endLogin(login);
+      for (const r of listeners) if (!loggedIn(r.auth)) { listeners.delete(r); r.end(); }
+      if (![...listeners].some(r => r.who === who)) { delete seen[who]; departed(who); }
     }
     res.writeHead(204, { 'Set-Cookie': cookie(req, AUTH_COOKIE, '', 0) });
     return res.end();
   }
 
-  const acc = loggedIn(parseCookies(req.headers.cookie).auth);
-  if (!acc) { res.writeHead(401); return res.end('Not logged in'); }
-  const who = acc.name;
+  const login = loggedIn(parseCookies(req.headers.cookie).auth);
+  if (!login) { res.writeHead(401); return res.end('Not logged in'); }
+  const fresh = renewed(login);
+  if (fresh) res.setHeader('Set-Cookie', cookie(req, AUTH_COOKIE, fresh));
+  const who = login.acc.name;
+  const limited = LIMITED[route];
+  if (limited && tooFast(limited, who)) { res.writeHead(429); return res.end('Slow down a little'); }
 
   switch (route) {
     case 'GET /state':
@@ -1049,9 +1332,10 @@ http.createServer((req, res) => {
       return sendJson(req, res, { ...state(url.searchParams), me: who });
 
     case 'GET /events':
+      if ([...listeners].filter(r => r.who === who).length >= STREAMS_EACH) { res.writeHead(429); return res.end(); }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' });
       res.write('retry: 3000\n\n');
-      res.who = who; res.auth = parseCookies(req.headers.cookie).auth;
+      res.who = who; res.auth = fresh || parseCookies(req.headers.cookie).auth;
       seen[who] = Date.now();
       listeners.add(res);
       req.on('close', () => { if (listeners.delete(res)) seen[who] = Date.now(); });
@@ -1125,7 +1409,7 @@ http.createServer((req, res) => {
         const item = queue.find(q => q.id === id);
         if (item) {
           checkIn(who);
-          if (item.by === who) removeFromQueue(item, who, `removed "${item.title}"`);
+          if (item.by === who) removeFromQueue(item, who, `removed "${item.title}"`, true);
           else {
             const votes = removeVotes.get(item.id) || new Set();
             if (vote === false) votes.delete(who); else votes.add(who);
@@ -1139,7 +1423,7 @@ http.createServer((req, res) => {
     case 'POST /undo':
       return readJson(req, 200, ({ id }) => {
         const entry = trash.get(id);
-        if (entry && entry.item.by !== who && entry.by !== who) { res.writeHead(403); return res.end('Only whoever deleted a song can bring it back'); }
+        if (entry && entry.by !== who) { res.writeHead(403); return res.end('Only whoever deleted a song can bring it back'); }
         const twin = entry && alreadyHere(videoId(entry.item.url));
         if (twin) { res.writeHead(409); return res.end(`${songName(twin)} ${alreadyText(twin)}`); }
         if (entry) {

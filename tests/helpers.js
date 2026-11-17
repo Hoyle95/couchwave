@@ -47,7 +47,8 @@ class Server {
     }
     this.out = '';
     this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: {
-      ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME), ...this.env,
+      ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME),
+      COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests', COUCHWAVE_CHECK_TOOLS: 'no', ...this.env,
     } });
     this.proc.stdout.on('data', d => (this.out += d));
     this.proc.stderr.on('data', d => (this.out += d));

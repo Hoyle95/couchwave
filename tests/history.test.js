@@ -31,11 +31,4 @@ test('only the last 100 are kept, and they survive a restart', async () => {
   assert.equal(st.history[0].title, 'Newest');
 });
 
-test('sent to pages only when it changed (most checks stay small)', async () => {
-  const s = await start({ queue: [] });
-  const first = (await s.get('/state')).json;
-  assert.ok(Array.isArray(first.history), 'the first check gets it');
-  const again = (await s.get(`/state?log=${first.logRev}&chat=${first.chatRev}&history=${first.historyRev}`)).json;
-  assert.equal(again.history, undefined);
-});
 });

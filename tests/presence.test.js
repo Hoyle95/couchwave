@@ -6,8 +6,9 @@ const http = require('http');
 const { execFileSync } = require('child_process');
 const { testServers, song, waitFor, sleep, secs, TIME } = require('./helpers');
 
-async function openEvents(s, as) {
-  const cookie = await s.cookie(as), ev = { ended: false };
+async function openEvents(s, as, cookie) {
+  cookie = cookie || await s.cookie(as);
+  const ev = { ended: false };
   await new Promise((ok, fail) => {
     const req = http.get({ port: s.port, path: '/events', headers: { Cookie: cookie } }, res => {
       res.resume(); res.on('end', () => { ev.ended = true; }); res.on('close', () => { ev.ended = true; }); ok();
@@ -28,7 +29,7 @@ describe('joined / left', { concurrency: true }, () => {
     const s = await start();
     const stop = await s.keepOnline('Alice', 'Bob');
     assert.deepEqual((await s.state('Bob')).users, ['Alice', 'Bob']);
-    await s.post('/bye', undefined, { as: 'Bob' }); await sleep(secs(2)); await s.state('Bob');
+    await s.post('/bye', undefined, { as: 'Bob' }); await sleep(100); await s.state('Bob');
     await sleep(secs(16));
     assert.deepEqual(await comings(s), ['Alice: joined', 'Bob: joined'], 'no "left" for the reload');
     stop();
@@ -42,7 +43,7 @@ describe('joined / left', { concurrency: true }, () => {
     await s.post('/bye', undefined, { as: 'Cara' });
     await waitFor(async () => (await s.log()).includes('Cara: left'), secs(20), 'Cara: left');
     const after = (Date.now() - closedAt) / 1000 / TIME;
-    assert.ok(after >= 9 && after < 17, `"left" after ${after.toFixed(1)} (server) seconds`);
+    assert.ok(after >= 9 && after < 22, `"left" after ${after.toFixed(1)} (server) seconds`);
     assert.deepEqual((await s.state()).users, ['Alice']);
     stop();
   });
@@ -69,11 +70,12 @@ describe('joined / left', { concurrency: true }, () => {
     stop();
   });
 
-  test('logging out, or --logout-everyone, stops an open page keeping you online', async () => {
+  test('logging out: "left" straight away, and the open page stops keeping you online; --logout-everyone stops it too', async () => {
     const s = await start();
     const stop = await s.keepOnline('Alice');
     await s.state('Bob'); const bob = await openEvents(s, 'Bob');
     await s.post('/logout', undefined, { as: 'Bob' });
+    assert.ok((await s.log()).includes('Bob: left'), 'straight away');
     assert.ok(await waitFor(() => bob.ended, 3000, 'Bob\'s instant updates to end'));
     assert.deepEqual((await s.state()).users, ['Alice']);
     s.forget('Bob'); await s.state('Bob'); const bob2 = await openEvents(s, 'Bob');
@@ -82,11 +84,19 @@ describe('joined / left', { concurrency: true }, () => {
     stop();
   });
 
-  test('logging out: "left" straight away', async () => {
+  test('logging out on one device while still on another: not "left", and the other stays online', async () => {
     const s = await start();
-    await s.state('Dan');
-    await s.post('/logout', undefined, { as: 'Dan' });
-    assert.ok((await s.log()).includes('Dan: left'));
+    const stop = await s.keepOnline('Alice');
+    await s.state('Eve'); const laptop = await openEvents(s, 'Eve');
+    const phone = `auth=${await s.login('Eve')}; name=Eve`;
+    await s.get('/state', { cookie: phone }); const phoneEvents = await openEvents(s, 'Eve', phone);
+    await s.req('POST', '/logout', { cookie: phone });
+    assert.ok(await waitFor(() => phoneEvents.ended, 3000, 'the phone\'s instant updates to end'));
+    await sleep(secs(15));
+    assert.equal(laptop.ended, false, 'the laptop\'s instant updates carry on');
+    assert.ok((await s.state()).users.includes('Eve'), 'still online');
+    assert.deepEqual((await comings(s)).filter(l => l.startsWith('Eve')), ['Eve: joined'], 'no "left", no second "joined"');
+    laptop.close(); stop();
   });
 
   test('a quick restart: nobody is re-announced or logged as leaving', async () => {

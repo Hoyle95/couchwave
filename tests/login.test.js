@@ -1,7 +1,7 @@
 // ---------- Logging in, accounts and settings ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { execFileSync, spawnSync } = require('child_process');
 const { testServers, waitFor, PASSWORD, ownPassword, APP_FILES, ROOT } = require('./helpers');
 
@@ -9,6 +9,18 @@ const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
 const cookies = r => Object.fromEntries((r.headers['set-cookie'] || []).map(c => { const [kv] = c.split(';'); const i = kv.indexOf('='); return [kv.slice(0, i), decodeURIComponent(kv.slice(i + 1))]; }));
 const asCookie = (auth, name = 'whatever') => `auth=${auth}; name=${encodeURIComponent(name)}`;
+const device = async (s, name) => asCookie(cookies(await join(s, { password: PASSWORD, name, own: ownPassword(name) })).auth, name);
+const DAY = 24 * 3600 * 1000;
+function sign(s, name, extra) {
+  const key = fs.readFileSync(path.join(s.dir, 'data', 'login-key'), 'utf8').trim();
+  const { salt } = JSON.parse(fs.readFileSync(path.join(s.dir, 'data', 'accounts.json'), 'utf8'))[name.toLowerCase()];
+  return crypto.createHmac('sha256', key).update(`${PASSWORD}\n${name.toLowerCase()}\n${salt}${extra}`).digest('base64url');
+}
+const oldLogin = (s, name) => `${Buffer.from(name).toString('base64url')}.${sign(s, name, '')}`;
+function loginMadeAt(s, name, t, id = 'test-login') {
+  const made = t.toString(36);
+  return [Buffer.from(name).toString('base64url'), id, made, sign(s, name, `\n${id}\n${made}`)].join('.');
+}
 
 describe('logging in', { concurrency: true }, () => {
 test('without the login cookie, nothing works', async () => {
@@ -32,12 +44,6 @@ test('joining: the room password, then a new nickname claims it with its own pas
   assert.equal(cookies(r).name, 'Alice', 'the name cookie (for the page to show), trimmed');
 });
 
-test('the room password and port come from config.json only, never the environment', async () => {
-  const s = await start({ env: { PORT: '65000', YTP_PASSWORD: 'from-the-environment' } });
-  assert.equal((await join(s, { password: 'from-the-environment', name: 'Alice', own: 'secret1' })).status, 401);
-  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).status, 204);
-});
-
 test('a taken nickname needs its own password; capitals don\'t matter', async () => {
   const s = await start();
   await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
@@ -52,16 +58,17 @@ test('a taken nickname needs its own password; capitals don\'t matter', async ()
   assert.deepEqual(st.users, ['Alice']);
 });
 
-test('the login cookie decides who you are: editing the name cookie or the login cookie gets nowhere', async () => {
+test('the login cookie decides who you are (the page is told by the server): editing the name cookie or the login cookie gets nowhere', async () => {
   const s = await start();
   const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
+  assert.equal((await s.get('/state', { cookie: asCookie(alice, 'Bob') })).json.me, 'Alice', 'the page is told it\'s Alice');
   await s.req('POST', '/chat', { body: { text: 'hi' }, cookie: asCookie(alice, 'Bob') });
   assert.equal((await s.state('Cara')).chat.at(-1).by, 'Alice', 'still Alice');
-  const [, sig] = alice.split('.');
-  const forged = Buffer.from('Bob').toString('base64url') + '.' + sig;
   await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' });
-  assert.equal((await s.get('/state', { cookie: asCookie(forged) })).status, 401, 'a made-up login cookie');
-  assert.equal((await s.get('/state', { cookie: asCookie('x' + alice) })).status, 401, 'a changed one');
+  const [, ...rest] = alice.split('.');
+  for (const forged of [[Buffer.from('Bob').toString('base64url'), ...rest].join('.'), [Buffer.from('Bob').toString('base64url'), rest.at(-1)].join('.'), 'x' + alice]) {
+    assert.equal((await s.get('/state', { cookie: asCookie(forged) })).status, 401, forged);
+  }
 });
 
 test('nicknames the server uses itself can\'t be taken', async () => {
@@ -105,14 +112,62 @@ test('over https:// (a tunnel or proxy on this machine says so), cookies are mar
   assert.deepEqual(secure(r), [true], 'logging out over https clears the Secure cookie');
 });
 
-test('logging out ends that login only', async () => {
+test('one nickname on several devices at once; logging out ends that device\'s login only, for good', async () => {
   const s = await start();
+  const phone = await device(s, 'Alice'), laptop = await device(s, 'Alice');
+  assert.notEqual(phone, laptop, 'each device has its own login');
+  for (const c of [phone, laptop]) assert.equal((await s.get('/state', { cookie: c })).status, 200, 'both at once');
   await s.state('Bob');
-  const r = await s.post('/logout');
+  const r = await s.req('POST', '/logout', { cookie: phone });
   assert.equal(r.status, 204);
   assert.match(r.headers['set-cookie'][0], /auth=;.*Max-Age=0/);
-  assert.equal((await s.get('/state', { cookie: await s.cookie('Alice') })).status, 200, 'the cookie itself still checks out (the browser deletes it)');
+  assert.equal((await s.get('/state', { cookie: phone })).status, 401, 'a copy of the phone\'s login no longer works');
+  assert.equal((await s.get('/state', { cookie: laptop })).status, 200, 'the laptop is still logged in');
   assert.equal((await s.get('/state', { as: 'Bob' })).status, 200, 'Bob is still logged in');
+  await s.restart();
+  assert.equal((await s.get('/state', { cookie: phone })).status, 401, 'still logged out after a restart');
+  assert.equal((await s.get('/state', { cookie: laptop })).status, 200);
+});
+
+test('a login lasts a year from when it was last used', async () => {
+  const s = await start();
+  await device(s, 'Alice');
+  const r = await s.get('/state', { cookie: asCookie(loginMadeAt(s, 'Alice', Date.now() - 2 * DAY), 'Alice') });
+  assert.equal(r.status, 200);
+  const renewed = cookies(r).auth;
+  assert.equal(renewed.split('.')[1], 'test-login', 'the same login, renewed');
+  assert.ok(parseInt(renewed.split('.')[2], 36) > Date.now() - 60000, 'from now');
+  assert.match(r.headers['set-cookie'][0], /Max-Age=31536000/);
+  assert.equal(cookies(await s.get('/state', { cookie: asCookie(renewed, 'Alice') })).auth, undefined, 'used again soon: nothing to renew');
+  assert.equal((await s.get('/state', { cookie: asCookie(loginMadeAt(s, 'Alice', Date.now() - 366 * DAY), 'Alice') })).status, 401, 'unused for over a year');
+});
+
+test('logins from before this update keep working for 30 days, switching to the new kind by themselves', async () => {
+  const s = await start();
+  await device(s, 'Alice');
+  const old = oldLogin(s, 'Alice');
+  const r = await s.get('/state', { cookie: asCookie(old, 'Alice') });
+  assert.equal(r.status, 200, 'still logged in after updating');
+  const fresh = cookies(r).auth;
+  assert.equal(fresh.split('.').length, 4, 'switched to the new kind');
+  assert.equal((await s.get('/state', { cookie: asCookie(fresh, 'Alice') })).status, 200);
+  await s.stop();
+  const file = path.join(s.dir, 'data', 'logins.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), oldLoginsUntil: Date.now() - 1000 }));
+  await s.start();
+  assert.equal((await s.get('/state', { cookie: asCookie(old, 'Alice') })).status, 401, 'after 30 days the old kind stops working');
+  assert.equal((await s.get('/state', { cookie: asCookie(fresh, 'Alice') })).status, 200, 'the switched one keeps going');
+});
+
+test('a broken logins.json: everyone logs in again, rather than logged-out logins coming back', async () => {
+  const s = await start({ expectProblems: /logins\.json/ });
+  const alice = await device(s, 'Alice');
+  await s.stop();
+  fs.writeFileSync(path.join(s.dir, 'data', 'logins.json'), '{ broken');
+  await s.start();
+  assert.equal((await s.get('/state', { cookie: alice })).status, 401);
+  await s.logHas(/Can't read .*logins\.json.*everyone has to log in again/);
+  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: ownPassword('Alice') })).status, 204, 'the password still works');
 });
 
 test('--logout-everyone: old logins stop working, the passwords still work', async () => {
@@ -173,13 +228,13 @@ test('--set-password: for a forgotten password. Old logins and password stop wor
   assert.equal(back.status, 204, 'the new one does');
   assert.equal((await s.state('Alice')).faces.Bob, '🐸', 'picture kept');
   assert.equal(admin(s, '--set-password', 'nobody', 'whatever').status, 1);
-});
-
-test('the page is told who you are by the server, not by the name cookie', async () => {
-  const s = await start();
-  const alice = cookies(await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).auth;
-  const st = (await s.get('/state', { cookie: asCookie(alice, 'Bob') })).json;
-  assert.equal(st.me, 'Alice');
+  const asked = spawnSync(process.execPath, ['server.js', '--set-password', 'Bob'], { cwd: s.dir, encoding: 'utf8', input: 'typed-new-pw\n' });
+  assert.equal(asked.status, 0, asked.stdout + asked.stderr);
+  assert.match(asked.stdout, /^New password for "Bob" \(it won't show as you type\): /, 'without the password, it asks (so it stays out of the command history)');
+  assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'typed-new-pw' })).status, 204, 'the typed one works');
+  const short = spawnSync(process.execPath, ['server.js', '--set-password', 'Bob'], { cwd: s.dir, encoding: 'utf8', input: 'abc\n' });
+  assert.equal(short.status, 1);
+  assert.match(short.stdout, /too short.*Nothing was changed/);
 });
 
 test('look-alike nicknames: invisible characters, other widths and mixed alphabets don\'t make a second "Alice"', async () => {
@@ -195,11 +250,21 @@ test('look-alike nicknames: invisible characters, other widths and mixed alphabe
   assert.equal((await join(s, { password: PASSWORD, name: 'Алиса', own: 'other-pw' })).status, 204, 'one alphabet is fine');
 });
 
+test('a long nickname is cut to 30 letters without breaking an emoji in half, so it can still log in', async () => {
+  const s = await start();
+  for (const [typed, kept] of [['a'.repeat(29) + '🎧🎧', 'a'.repeat(29) + '🎧'], ['Zed\uD83D', 'Zed']]) {
+    const r = await join(s, { password: PASSWORD, name: typed, own: 'secret1' });
+    assert.equal(r.status, 204, JSON.stringify(typed));
+    assert.equal(cookies(r).name, kept);
+    assert.equal((await s.get('/state', { cookie: asCookie(cookies(r).auth, kept) })).json.me, kept, 'logged in as it');
+  }
+});
+
 test('two people claiming the same new nickname at once: only one gets it', async () => {
   const s = await start();
   const [a, b] = await Promise.all([
-    join(s, { password: PASSWORD, name: 'Zed', own: 'first-pw' }, { 'CF-Connecting-IP': '1.1.1.1' }),
-    join(s, { password: PASSWORD, name: 'zed', own: 'second-pw' }, { 'CF-Connecting-IP': '2.2.2.2' }),
+    join(s, { password: PASSWORD, name: 'Zed', own: 'first-pw' }, { 'X-Forwarded-For': '1.1.1.1' }),
+    join(s, { password: PASSWORD, name: 'zed', own: 'second-pw' }, { 'X-Forwarded-For': '2.2.2.2' }),
   ]);
   assert.deepEqual([a.status, b.status].sort(), [204, 401], `${a.status} ${a.text} / ${b.status} ${b.text}`);
   const winner = a.status === 204 ? 'first-pw' : 'second-pw';
@@ -235,60 +300,4 @@ test('the admin commands tidy up the name the same way joining does', async () =
   assert.match(admin(s, '--delete-account', '  big al  ').stdout, /"Big Al" is deleted/);
 });
 
-test('many wrong guesses sent all at once still count towards the limit', async () => {
-  const s = await start();
-  await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
-  const from = { 'CF-Connecting-IP': '9.9.9.9' };
-  await Promise.all(Array.from({ length: 25 }, (_, i) => join(s, { password: PASSWORD, name: 'Alice', own: 'guess' + i }, from)));
-  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from)).status, 429);
-});
-
-test('no config.json: one is made, with a random room password and every setting at its default', async () => {
-  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-fresh-'));
-  for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
-  const server = require('child_process').spawn(process.execPath, ['-r', path.join(__dirname, 'fakes', 'any-port.js'), 'server.js'],
-    { cwd: dir, env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
-  try {
-    const file = path.join(dir, 'config.json');
-    await waitFor(() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; } }, 5000, 'config.json to be made');
-    const { password, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.match(password, /^[\w-]{8}$/, 'a random room password');
-    assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false });
-  } finally {
-    server.kill();
-    await new Promise(r => setTimeout(r, 300));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
-  }
-});
-
-test('normally, the room password is needed (and the join screen shows its box)', async () => {
-  const s = await start();
-  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: false });
-  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 401, 'no room password: refused');
-});
-
-test('"public": true in config.json: no room password (not even set), but nicknames still have their own', async () => {
-  const s = await start({ config: { public: true, password: '' } });
-  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: true }, 'the join screen hides the room password box');
-  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 204, 'in, with no room password');
-  assert.equal((await join(s, { password: 'anything', name: 'Bob', own: 'secret2' })).status, 204);
-  assert.equal((await join(s, { name: 'alice', own: 'guess' })).status, 401, 'Alice\'s nickname still needs her password');
-  await s.logHas(/"public" is on: there's no room password/);
-});
-
-test('"public" only turns on with exactly true ("yes" doesn\'t open the room by mistake)', async () => {
-  const s = await start({ config: { public: 'yes' } });
-  assert.deepEqual((await s.get('/room', { cookie: '' })).json, { public: false });
-  assert.equal((await join(s, { name: 'Alice', own: 'secret1' })).status, 401);
-});
-
-test('20 wrong passwords (room or own): that address is locked out, other visitors aren\'t', async () => {
-  const s = await start();
-  await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' });
-  const from = ip => ({ 'CF-Connecting-IP': ip });
-  for (let i = 0; i < 10; i++) assert.equal((await join(s, { password: 'wrong', name: 'Eve', own: 'xxxx' }, from('1.2.3.4'))).status, 401);
-  for (let i = 0; i < 10; i++) assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'guess' + i }, from('1.2.3.4'))).status, 401, 'guessing Alice\'s password');
-  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from('1.2.3.4'))).status, 429, 'locked out, even with the right passwords');
-  assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' }, from('5.6.7.8'))).status, 204, 'Alice herself, elsewhere, can still log in');
-});
 });

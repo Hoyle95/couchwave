@@ -89,8 +89,8 @@ async function join(e) {
   if (!$('joinForm').reportValidity() || !$('pw').reportValidity()) return;
   const r = await fetch('/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value, name: $('name').value.trim(), own: $('ownPw').value }) }).catch(() => null);
   if (!r || !r.ok) {
-    $('err').textContent = !r ? "Can't reach the server" : r.status === 429 ? 'Too many wrong tries, wait a few minutes'
-      : (await r.text().catch(() => '')) || 'Wrong password';
+    $('err').textContent = !r ? "Can't reach the server"
+      : (await r.text().catch(() => '')) || (r.status === 429 ? 'Too many wrong tries, wait a few minutes' : 'Wrong password');
     return;
   }
   await Promise.all([
@@ -880,7 +880,8 @@ async function poll() {
         : '<span class="copygap" aria-hidden="true"></span>'}
       <span class="qtitle">${esc(q.title)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>` : ''}</span>
       <span class="by">${avatar(q.by)} ${esc(q.by)}</span>
-      ${q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
+      ${q.held ? '<span class="badge failed" title="Downloads are paused: the computer running Couchwave is nearly out of disk space">Disk full</span>'
+        : q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
         : `<span class="badge ${esc(q.status)}">${QUEUE_BADGE[q.status] || esc(q.status)}</span>`}
       ${q.status === 'failed' && !q.retrying ? `<button class="ghost retry" title="Try downloading again" aria-label="Try downloading again">${icon('retry')}</button>` : ''}
       ${delButton(q, s)}

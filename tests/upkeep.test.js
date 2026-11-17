@@ -1,0 +1,148 @@
+// ---------- Saved state, the log file, stuck downloads, disk space, the tools, and updates ----------
+const { test, describe, after } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs'), os = require('os'), path = require('path'), http = require('http');
+const { testServers, song, yt, waitFor, sleep, ROOT } = require('./helpers');
+
+const start = testServers({ after });
+const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
+const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
+
+describe('upkeep', { concurrency: true }, () => {
+test('a download that stops getting anywhere is stopped after 5 minutes and tried again later, so the queue keeps moving', async () => {
+  const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' }, config: { downloadsAtOnce: 1 }, initial: playing });
+  await s.post('/add', { url: yt('stall_00001') });
+  await s.post('/add', { url: yt('okay_000005') }, { as: 'Bob' });
+  const stuck = await waitFor(() => inQueue(s, q => q.url === yt('stall_00001') && q.status === 'failed'), 8000, 'the stuck download to be stopped');
+  assert.deepEqual([stuck.error, stuck.retrying], ['Download stalled', true]);
+  await waitFor(() => inQueue(s, q => q.url === yt('okay_000005') && q.status === 'ready'), 5000, 'the next song to download meanwhile');
+  await s.logHas(/downloading .*stall_00001 stalled \(nothing new for 5 minutes\): stopped/);
+});
+
+test('ffmpeg getting stuck is stopped (after 30 minutes), and the song still plays, without its audio-only copy', async () => {
+  const s = await start({ env: { COUCHWAVE_TOOL_MINUTES: '0.02', COUCHWAVE_FAKE_HANG: 'ffmpeg' }, initial: playing, expectProblems: /ffmpeg was still going/ });
+  await s.post('/add', { url: yt('okay_000006') });
+  const q = await waitFor(() => inQueue(s, x => x.status === 'ready'), 5000, 'the song to be ready anyway');
+  assert.equal(q.status, 'ready');
+  await s.logHas(/ffmpeg was still going after \d+ minutes: stopped/);
+  assert.equal((await s.get(`/audio/${q.id}`)).headers['content-type'], 'video/mp4', 'no audio-only copy: the page gets the video file');
+});
+
+test('nearly out of disk space: downloads wait (shown in the queue and Activity) instead of filling the disk', async () => {
+  const s = await start({ env: { COUCHWAVE_FAKE_FREE_DISK: String(1024 ** 3) }, initial: playing });
+  await s.post('/add', { url: yt('okay_000007') });
+  const q = await waitFor(() => inQueue(s, x => x.url === yt('okay_000007')), 3000, 'the song');
+  await new Promise(r => setTimeout(r, 500));
+  assert.deepEqual([(await inQueue(s, x => x.id === q.id)).status, (await inQueue(s, x => x.id === q.id)).held], ['waiting', true], 'waiting, marked as held up');
+  assert.ok((await s.log()).includes('server: paused downloads: this computer has less than 2 GB of disk space left'));
+  s.env = {};
+  await s.restart();
+  await waitFor(() => inQueue(s, x => x.id === q.id && x.status === 'ready' && !x.held), 5000, 'it to download once there\'s room');
+});
+
+test('when starting: the tools are checked, and a missing one is named in the log and Activity', async () => {
+  const s = await start({ env: { COUCHWAVE_CHECK_TOOLS: 'yes' } });
+  await s.logHas(/found yt-dlp: 2026\.10\.26/, 8000);
+  await s.logHas(/found ffmpeg: ffmpeg version 7\.1-test/, 8000);
+  const fakes = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-fakes-'));
+  for (const f of ['yt-dlp.js', 'ffprobe.js']) fs.copyFileSync(path.join(__dirname, 'fakes', f), path.join(fakes, f));
+  const t = await start({ env: { COUCHWAVE_FAKE_TOOLS: fakes, COUCHWAVE_CHECK_TOOLS: 'yes' }, expectProblems: /ffmpeg/ });
+  await t.logHas(/can't find ffmpeg, so songs won't download properly\. Install it \(see docs\/INSTALL\.md\) and restart Couchwave/, 8000);
+  assert.ok((await t.log()).some(l => /^server: can't find ffmpeg/.test(l)));
+  assert.ok(!(await t.log()).some(l => /can't find (yt-dlp|ffprobe)/.test(l)));
+  fs.rmSync(fakes, { recursive: true, force: true });
+});
+
+test('a broken state.json: kept aside, the log says so, and Couchwave starts afresh instead of not at all', async () => {
+  const s = await start({ expectProblems: /state\.json/ });
+  await s.stop();
+  fs.writeFileSync(s.statePath, '{ "queue": [ broken');
+  await s.start();
+  await s.logHas(/Can't read .*state\.json .*starting with an empty queue\. The old file is kept as state\.json\.broken-\d+/);
+  const kept = fs.readdirSync(path.join(s.dir, 'data')).filter(f => f.startsWith('state.json.broken-'));
+  assert.equal(kept.length, 1);
+  assert.equal(fs.readFileSync(path.join(s.dir, 'data', kept[0]), 'utf8'), '{ "queue": [ broken', 'the old file, untouched');
+  assert.deepEqual((await s.state()).queue, []);
+  assert.equal((await s.post('/add', { url: yt('okay_000001') })).status, 204, 'and carries on as normal');
+});
+
+test('a state.json with missing or odd parts: what makes sense is kept, and new songs never reuse an id', async () => {
+  const s = await start();
+  await s.stop();
+  fs.writeFileSync(s.statePath, JSON.stringify({
+    nextId: 3, current: 5, chat: null, queue: [song(50, 'Kept song', 'Zed', { status: 'waiting', file: undefined, url: yt('kept_000050') }), 'junk', null],
+    history: [1, { url: yt('hist_000001'), title: 'Kept history', by: 'Zed', t: Date.now() }],
+  }));
+  await s.start();
+  const st = await s.state();
+  assert.ok([st.current, ...st.queue].some(q => q?.id === 50), 'the queued song');
+  assert.equal(st.history.at(-1).title, 'Kept history', 'the history entry that made sense (the queued song may already be playing, ahead of it)');
+  assert.ok(st.history.every(h => h && typeof h === 'object'), 'and not the junk');
+  assert.deepEqual(st.chat, []);
+  await s.post('/add', { url: yt('okay_000002') });
+  const added = [(await s.state()).current, ...(await s.state()).queue].find(q => q?.url === yt('okay_000002'));
+  assert.ok(added.id > 50, `a new id (${added.id}), not one already taken`);
+});
+
+test('the log file is trimmed to its newest 2 MB once it passes 5 MB', async () => {
+  const s = await start();
+  await s.stop();
+  fs.writeFileSync(s.logFile, 'OLDEST LINE\n' + ('x'.repeat(99) + '\n').repeat(60000) + 'NEWEST OLD LINE\n');
+  await s.start();
+  await waitFor(() => /Running on[\s\S]*$/.test(fs.readFileSync(s.logFile, 'utf8').slice(-500)), 3000, 'the server to log that it started');
+  const text = fs.readFileSync(s.logFile, 'utf8');
+  assert.ok(text.length < 2.1 * 1024 * 1024, `${(text.length / 1024 / 1024).toFixed(1)} MB`);
+  assert.match(text, /^---- .*: older lines trimmed, keeping the newest ----\n/);
+  assert.ok(!text.includes('OLDEST LINE') && text.includes('NEWEST OLD LINE'));
+});
+
+test('leftover downloads are cleared away; the files of songs still queued or playing are kept', async () => {
+  const s = await start({
+    initial: { current: song(1, 'Playing', 'Zed', { duration: 100000 }), queue: [song(2, 'Next', 'Zed')] },
+    files: { '77-1700000000000.mp4': Buffer.alloc(10), '77-1700000000000.m4a': Buffer.alloc(10), 'stray.mp4.part': Buffer.alloc(10) },
+  });
+  const dl = path.join(s.dir, 'data', 'downloads');
+  await waitFor(() => !['77-1700000000000.mp4', '77-1700000000000.m4a', 'stray.mp4.part'].some(f => fs.existsSync(path.join(dl, f))), 3000, 'the leftovers to go');
+  const saved = JSON.parse(fs.readFileSync(s.statePath, 'utf8'));
+  for (const q of [saved.current, ...saved.queue]) assert.ok(fs.existsSync(path.join(dl, path.basename(q.file))), `${q.title}: kept`);
+});
+
+test('keeps yt-dlp up to date: checks a minute after starting (then daily), and Activity says when it updated', async () => {
+  const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
+  await s.logHas(/yt-dlp update check: yt-dlp is up to date/, 5000);
+  assert.ok(!(await s.log()).some(l => /updated yt-dlp/.test(l)), 'nothing in Activity when there was nothing new');
+  fs.writeFileSync(path.join(s.dir, 'yt-dlp-update'), '');
+  await s.restart();
+  await waitFor(async () => (await s.log()).includes('server: updated yt-dlp to 2026.11.01'), 5000, 'Activity to say so');
+});
+
+test('a newer Couchwave: Activity says so once (not after every restart); nothing when up to date, or with updateCheck false', async () => {
+  const version = /const VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'))[1];
+  let reply = [{ tag_name: 'v' + version, draft: false }], asked = 0;
+  const releases = http.createServer((req, res) => { asked++; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(reply)); });
+  await new Promise(r => releases.listen(0, '127.0.0.1', r));
+  const env = { COUCHWAVE_TIME_SCALE: '0.01', COUCHWAVE_RELEASES_URL: `http://127.0.0.1:${releases.address().port}/releases` };
+  const told = async s => (await s.log()).filter(l => /newer Couchwave/.test(l));
+  try {
+    const s = await start({ env });
+    await waitFor(() => asked >= 1, 5000, 'the first check');
+    await sleep(300);
+    assert.deepEqual(await told(s), [], 'up to date: nothing said');
+    reply = [{ tag_name: 'v99.0.0-beta', draft: true }, { tag_name: 'v98.0.0-beta', draft: false }];
+    await s.restart();
+    await waitFor(async () => (await told(s)).length, 5000, 'Activity to say so');
+    assert.deepEqual(await told(s), [`server: a newer Couchwave is out: v98.0.0-beta (this is v${version}). Whoever runs it can update: see docs/INSTALL.md#updating`], 'the newest that isn\'t a draft');
+    await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"newestTold":"v98.0.0-beta"'), 3000, 'it to be saved');
+    await s.restart();
+    const n = asked;
+    await waitFor(() => asked > n, 5000, 'the check after the restart');
+    await sleep(300);
+    assert.equal((await told(s)).length, 1, 'said once');
+    const off = await start({ env, config: { updateCheck: false } });
+    const before = asked;
+    await sleep(2000);
+    assert.equal(asked, before, 'updateCheck false: never asks');
+    assert.deepEqual(await told(off), []);
+  } finally { releases.close(); }
+});
+});

@@ -23,8 +23,10 @@
 - **Moving through a song**: while you're online, only you can move through your song, so nobody can skip
   it by jumping to the end. Once you've gone, anyone can. The DJ's songs can only be moved by someone who's
   the only one online.
-- **Undo**: a removed song can be put back from the Activity log for 10 minutes, by whoever removed it.
-- **Failed downloads** show why in the queue, with a retry button. YouTube's hiccups are retried by themselves.
+- **Undo**: removed one of your own songs by mistake? Put it back from the Activity log within 10 minutes
+  (even if Couchwave restarts in between). Songs voted out of the queue stay out.
+- **Failed downloads** show why in the queue (unavailable, private, age-restricted, members only…), with a
+  retry button. YouTube's hiccups, and downloads that stop getting anywhere, are retried by themselves.
 - **History** of the last 100 songs played, with thumbnails, who asked and when, a copy link and a + to
   queue a song again.
 - **A DJ** that keeps the music going with songs like the ones you've played (see
@@ -32,13 +34,15 @@
 
 **Together**
 
-- **Chat and emoji reactions** that float over the video, all instant. Chatting and adding songs have a
-  speed limit, so nobody can flood the room.
+- **Chat and emoji reactions** that float over the video, all instant. Chatting, adding songs, pausing and
+  reactions have a speed limit, so nobody can flood the room.
 - **Who's online** (anyone with the page open, even in a background tab), and an **Activity log** of who
   added, removed or skipped songs, paused, and joined or left, with a sound for comings and goings (its own
   volume and mute).
 - **Profile pictures**: an emoji and a colour of your choice.
-- **Your own nickname** with its own password, so nobody can join as you.
+- **Your own nickname** with its own password, so nobody can join as you. Use it on as many devices as you
+  like, at the same time; logging out only logs out that one. A login lasts a year from when you last used
+  it, and wrong passwords are limited (for each visitor and each nickname), so nobody can sit there guessing.
 
 **Watching**
 
@@ -59,9 +63,15 @@
   reuse what they already have, and a phone in your pocket gets just the sound, not the video.
 - **Limits you choose**: the longest video allowed, how many songs download ahead and at once (see
   [settings](INSTALL.md#settings)).
-- **Keeps yt-dlp up to date** by itself, since YouTube changes often.
+- **Keeps yt-dlp up to date** by itself, since YouTube changes often, and says in Activity when there's a
+  new Couchwave (see `updateCheck` in the [settings](INSTALL.md#settings)).
+- **Looks after itself**: a download or ffmpeg that gets stuck is stopped and tried again, downloads pause
+  before the disk fills up, a missing yt-dlp or ffmpeg is named in Activity when Couchwave starts, a damaged
+  save file is kept aside instead of stopping Couchwave, and its log file trims itself.
 - **Locked down**: browsers only run Couchwave's own scripts (so even a bug letting code into a chat message
-  couldn't run it), other sites can't show it inside theirs, and YouTube isn't told your room's address.
+  couldn't run it), other sites can't show it inside theirs or act as someone who's logged in, and YouTube
+  isn't told your room's address. Over `https://`, browsers are told to always use it; if friends reach it
+  over plain http from the internet, the log warns you. Wrong passwords and new nicknames are limited.
 
 ## Server commands
 
@@ -71,7 +81,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 |---|---|
 | `node server.js` | Starts Couchwave. On Windows, `start.cmd` does this, and restarts it when you save `config.json`. |
 | `node server.js --logout-everyone` | Everyone has to log in again. Accounts and passwords are kept. |
-| `node server.js --set-password <name> <password>` | For a forgotten password (4+ characters). Logs them out everywhere; send them the new one. |
+| `node server.js --set-password <name>` | For a forgotten password: asks for the new one (4+ characters, hidden as you type, and kept out of your command history). Logs them out everywhere; send them the new one. You can also put the password after the name. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
@@ -110,7 +120,13 @@ Comments in the code are only short section headers; how things should behave is
 The page's security policy blocks inline scripts, including `onclick="…"`: give an element
 `data-click="name"` (or `data-submit`, `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `app.js`.
 
-After changing the code, run `node --test` (about 10 seconds). Each test runs against its own throwaway
+After changing the code, run `node --test` (about 15 seconds). Each test runs against its own throwaway
 Couchwave (temporary folder, password and port), so your real server and data are never touched, even while
 it's running. The stand-ins mean it needs no internet. The test servers run their clock 4x faster
-(`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10.
+(`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10. Other
+`COUCHWAVE_…` variables in `tests/helpers.js` and `server.js` are only for the tests. Every push to `main`
+also runs them on Linux and Windows (`.github/workflows/tests.yml`).
+
+Releasing: first set `VERSION` (in the "New versions of Couchwave" part of `server.js`) to the new version:
+it's what the "a newer Couchwave is out" check compares. Publishing a GitHub release runs the tests on
+Linux, then builds `couchwave-<tag>.zip` and attaches it (`.github/workflows/release-zip.yml`).

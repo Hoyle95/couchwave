@@ -4,7 +4,75 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- **A limit on wrong passwords for each nickname**: after 20 wrong passwords for the same nickname within 15
+  minutes, from anywhere, new logins with it wait 15 minutes. Devices already logged in with it carry on as
+  normal.
+- **`trustProxy` in config.json**, for a proxy that isn't on your computer or home network (like one on a
+  rented server). Most setups don't need it: see [docs/INSTALL.md](docs/INSTALL.md#letting-friends-in).
+- **A warning in the log if the room password is short** (under 8 characters), since it's easy to guess.
+- **Other websites can't use Couchwave through your friends' browsers**: a page elsewhere (even another one
+  on your own computer or home network) can no longer send chat messages, votes or songs as someone who's
+  logged in to Couchwave.
+- **Stuck downloads are stopped and tried again**: a download that gets nowhere for 5 minutes shows
+  "Download stalled" and is retried, instead of holding up every download after it until a restart. ffmpeg
+  getting stuck on a song is stopped too (after 30 minutes), and the song still plays.
+- **Downloads pause before the disk fills up**: with under 2 GB free, songs show "Disk full" in the queue and
+  Activity says so. They carry on by themselves once there's room.
+- **Missing tools are named when Couchwave starts**: if yt-dlp, ffmpeg or ffprobe can't be found (or Node.js
+  is too old), Activity and the log say so and point to the setup guide, instead of every song just failing.
+- **"A newer Couchwave is out"** in Activity and the log when there's a new release (checked daily on
+  GitHub; nothing is installed or sent about you). `"updateCheck": false` in config.json turns it off.
+- **The log notes lockouts**: when someone's had 20 wrong passwords, for an address or a nickname.
+- **A warning in the log if friends reach Couchwave over plain http from the internet** (a port opened on
+  the router), since passwords then travel unencrypted.
+- **New nicknames are limited to 10 an hour from any one address**, so nobody can make endless accounts.
+  The computer running Couchwave isn't limited.
+- **Speed limits on pausing, moving through songs and reactions**, like the ones on chat and adding songs.
+- **Over `https://`, browsers are told to always use it** for your Couchwave address.
+- **`--set-password` asks for the new password** when you leave it off, hidden as you type, so it stays out
+  of your command history.
+
+### Changed
+
+- **Logging out only logs out that device**: use your nickname on your phone and your computer at once, and
+  logging out on one leaves the other logged in. Logging out now also really ends that login: before, a copy
+  of it (say, on a shared computer) kept working.
+- **Logins last a year from when they were last used**, instead of a year from logging in, so people who
+  come back regularly never have to log in again. Everyone stays logged in through this update; anyone who
+  doesn't come back within 30 days logs in once more.
+- **Undo is just for your own songs**: removed one of your own songs by mistake? Put it back from Activity
+  within 10 minutes, now even if Couchwave restarts in between (it's ready to play straight away, without
+  downloading again). Songs voted out of the queue stay out: before, whoever cast the deciding vote could
+  put them back, undoing everyone else's vote.
+- **Lots of people logging in at once** no longer slows songs and the page down for everyone else: a few at
+  a time are checked, and the rest are asked to try again in a moment.
+- **Each person can have up to 10 pages getting instant updates at once.** Any more still work; they just
+  check in every few seconds.
+- **The join screen shows why a login was refused** when it's a limit, instead of always "Too many wrong
+  tries".
+- **Release zips are built automatically** when a release is published, after the tests pass, with
+  `start.cmd` in the format Windows expects (the v0.2.0 zip's `start.cmd` wasn't).
+- **Clearer install and update steps** for the release zip: unzip it into a new folder of its own, and stop
+  Couchwave before unzipping an update over it.
+
+### Fixed
+
+- **The limit on wrong passwords could be dodged behind Caddy or nginx**, or by changing address on IPv6, so
+  someone who knew the room password could keep guessing a nickname's password. Couchwave now works out
+  who's visiting the way proxies actually report it.
+- **Everyone locked out at once behind some proxies**: with a proxy in Docker, on another computer or over
+  Tailscale, every visitor looked like the same one, so 20 wrong passwords from anyone stopped everyone
+  logging in for 15 minutes. Those proxies now work like one on the same computer (logins through them are
+  marked HTTPS-only too). Plain nginx needs one extra line: see
+  [docs/INSTALL.md](docs/INSTALL.md#letting-friends-in).
+- **Logging out on one device showed you leaving and joining again** on your other devices, with the sounds.
+- **A damaged `data/state.json` emptied the queue, chat and history without a word**, and was then saved
+  over. Now the log says so, and the old file is kept beside it as `state.json.broken-…`. A file with only
+  some parts missing keeps the parts that are fine, instead of stopping Couchwave from starting.
+- **A long nickname ending in an emoji** could be cut in the middle of the emoji, leaving a nickname that
+  could never log in.
 
 ## v0.2.0 beta (2026-11-17)
 

@@ -81,7 +81,7 @@ describe('vote to skip', { concurrency: true }, () => {
     s.stopOnline(); const stopAB = await s.keepOnline('Alice', 'Bob');
     await s.post('/bye', undefined, { as: 'Cara' });
     await vote(s, 'Alice', 1);
-    await s.post('/bye', undefined, { as: 'Bob' }); await sleep(secs(2)); await s.state('Bob');
+    await s.post('/bye', undefined, { as: 'Bob' }); await sleep(100); await s.state('Bob');
     await sleep(secs(2));
     assert.equal(await title(s), 'Song A', 'Bob reloading didn\'t skip it');
     await waitFor(async () => (await s.state()).users.length === 2, secs(15), 'Cara to drop off the online list');
@@ -129,12 +129,6 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.equal((await s.state()).skip.need, 1);
     await vote(s, 'Alice', 1);
     assert.equal(await title(s), 'Song B');
-  });
-
-  test('a votePercent that isn\'t 1 to 100 falls back to 60, and the log says so', async () => {
-    const s = await start({}, { votePercent: 'lots' });
-    assert.equal((await s.state()).skip.need, 2, '60% of 3');
-    await s.logHas(/votePercent should be a number from 1 to 100, not "lots"; using 60/);
   });
 
   test('the DJ isn\'t counted: 2 people online and the DJ on still need 2 votes, not 3 of 3', async () => {

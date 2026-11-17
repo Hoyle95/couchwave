@@ -6,8 +6,12 @@ const idOf = url => (/[?&]v=([\w-]{11})/.exec(url) || /youtu\.be\/([\w-]{11})/.e
 const utf8 = args[args.indexOf('--encoding') + 1] === 'utf-8' && args.includes('--encoding');
 const text = t => (utf8 ? t : t.replace(/[^\x00-\x7e]/gu, '�'));
 
+if (args[0] === '--version') { console.log('2026.10.26'); process.exit(0); }
+
 if (args.includes('-U')) {
-  console.log('yt-dlp is up to date (stable@2026.10.26 from yt-dlp/yt-dlp)');
+  fs.appendFileSync('update-checks.log', 'checked\n');
+  if (fs.existsSync('yt-dlp-update')) console.log('Updating to stable@2026.11.01 from yt-dlp/yt-dlp ...\nUpdated yt-dlp to stable@2026.11.01 from yt-dlp/yt-dlp');
+  else console.log('yt-dlp is up to date (stable@2026.10.26 from yt-dlp/yt-dlp)');
   process.exit(0);
 }
 
@@ -57,14 +61,19 @@ if (args.includes('--flat-playlist')) {
   const id = idOf(target);
   const part = out + '.part';
   try { fs.writeFileSync(part, ''); } catch {}
+  if (id.startsWith('stall_')) { fs.writeFileSync(part, Buffer.alloc(1000)); setTimeout(() => process.exit(1), 20000); return; }
   const finish = () => {
     fs.rmSync(part, { force: true });
     if (id.startsWith('fail_perm')) { console.error(`ERROR: [youtube] ${id}: Video unavailable`); process.exit(1); }
     if (id.startsWith('fail_sign')) { console.error(`ERROR: [youtube] ${id}: Please sign in. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication.`); process.exit(1); }
     if (id.startsWith('fail_temp')) { console.error('ERROR: unable to download video data: HTTP Error 403: Forbidden'); process.exit(1); }
+    if (id.startsWith('fail_rate')) { console.error('ERROR: unable to download video data: HTTP Error 429: Too Many Requests'); process.exit(1); }
+    if (id.startsWith('fail_age')) { console.error(`ERROR: [youtube] ${id}: Sign in to confirm your age. This video may be inappropriate for some users.`); process.exit(1); }
+    if (id.startsWith('fail_priv')) { console.error(`ERROR: [youtube] ${id}: Private video. Sign in if you've been granted access to this video`); process.exit(1); }
+    if (id.startsWith('fail_memb')) { console.error(`ERROR: [youtube] ${id}: Join this channel to get access to members-only content like this video, and other exclusive perks.`); process.exit(1); }
     if (id.startsWith('live_')) process.exit(0);
     const duration = id.startsWith('shrt_') ? 3 : id.startsWith('nolen') ? 'NA' : id.startsWith('long_') ? 14400 : 200;
-    const max = /^duration <=? (d+)$/.exec(args[args.indexOf('--break-match-filters') + 1] || '');
+    const max = /^duration <=\? (\d+)$/.exec(args[args.indexOf('--break-match-filters') + 1] || '');
     if (args.includes('--break-match-filters') && max && typeof duration === 'number' && duration > +max[1]) process.exit(101);
     fs.writeFileSync(out, Buffer.alloc(64 * 1024, 7));
     console.log(text(`${duration}|${id.startsWith('uni_') ? 'Café – Déjà Vu 🎵' : `Song ${id}`}`));

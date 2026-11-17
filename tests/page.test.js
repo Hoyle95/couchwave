@@ -21,7 +21,7 @@ test('the page has no scripts of its own (so the security policy can block every
   }
 });
 
-test('security headers on everything: a strict script policy, no framing, no sniffing, no referrer', async () => {
+test('security headers on everything: a strict script policy, no framing, no sniffing, no referrer, and https-only once it\'s served over https', async () => {
   for (const [url, opts] of [['/', { cookie: '' }], ['/js/app.js', { cookie: '' }], ['/state', {}], ['/nope', { cookie: '' }]]) {
     const h = (await s.get(url, opts)).headers;
     assert.match(h['content-security-policy'], /(^|; )script-src 'self'(;|$)/, url);
@@ -29,6 +29,9 @@ test('security headers on everything: a strict script policy, no framing, no sni
     assert.equal(h['x-content-type-options'], 'nosniff', url);
     assert.equal(h['x-frame-options'], 'DENY', url);
     assert.equal(h['referrer-policy'], 'no-referrer', url);
+    assert.equal(h['strict-transport-security'], undefined, url + ': not on plain http (it would lock a home network out)');
+    const https = (await s.get(url, { ...opts, headers: { 'X-Forwarded-Proto': 'https' } })).headers;
+    assert.equal(https['strict-transport-security'], 'max-age=31536000', url + ': over https');
   }
 });
 
@@ -38,34 +41,38 @@ test('app.js, theme.js, server.js and dj.js have no syntax errors', () => {
   }
 });
 
-test('the page is served, always re-checked by the browser', async () => {
-  const r = await s.get('/', { cookie: '' });
-  assert.equal(r.status, 200);
-  assert.match(r.headers['content-type'], /text\/html/);
-  assert.equal(r.headers['cache-control'], 'no-cache');
-  assert.match(r.text, /<title>/);
+test('every element and icon app.js uses is on the page', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8'), app = fs.readFileSync(path.join(ROOT, 'public', 'js', 'app.js'), 'utf8');
+  const ids = new Set([...html.matchAll(/ id="([\w-]+)"/g)].map(m => m[1]));
+  const used = new Set([...app.matchAll(/\$\('([\w-]+)'\)/g)].map(m => m[1]));
+  assert.ok(used.size > 50, `found ${used.size} uses`);
+  assert.deepEqual([...used].filter(id => !ids.has(id)), [], 'missing from index.html');
+  const icons = [...app.matchAll(/icon\(([^)]*)\)/g)].flatMap(m => [...m[1].matchAll(/'([\w-]+)'/g)].map(x => x[1]));
+  assert.deepEqual(icons.filter(i => !html.includes(`<symbol id="i-${i}"`)), [], 'icons missing from index.html');
 });
 
-test('its style and script are public, and always re-checked too', async () => {
-  for (const [url, type] of [['/css/style.css', /^text\/css/], ['/js/app.js', /^text\/javascript/]]) {
+test('the page, its style, script, manifest, icons and font are public; the page, style and script are always re-checked', async () => {
+  for (const [url, type, file] of [['/', /^text\/html/, 'index.html'], ['/css/style.css', /^text\/css/], ['/js/app.js', /^text\/javascript/],
+    ['/manifest.json', /^application\/manifest\+json/], ['/icons/icon-192.png', /^image\/png$/], ['/fonts/inter-latin.woff2', /^font\/woff2$/]]) {
     const r = await s.get(url, { cookie: '' });
     assert.equal(r.status, 200, url);
     assert.match(r.headers['content-type'], type, url);
-    assert.equal(r.headers['cache-control'], 'no-cache', url);
-    assert.equal(r.text, fs.readFileSync(path.join(ROOT, 'public', url.slice(1)), 'utf8'), url);
+    if (/^text\//.test(r.headers['content-type'])) {
+      assert.equal(r.headers['cache-control'], 'no-cache', url);
+      assert.equal(r.text, fs.readFileSync(path.join(ROOT, 'public', file || url.slice(1)), 'utf8'), url);
+    }
   }
+  assert.equal((await s.get('/manifest.json', { cookie: '' })).json.name, 'Couchwave');
 });
 
-test('app manifest, icons and font are public', async () => {
-  const m = await s.get('/manifest.json', { cookie: '' });
-  assert.equal(m.status, 200);
-  assert.equal(m.json.name, 'Couchwave');
-  const icon = await s.get('/icons/icon-192.png', { cookie: '' });
-  assert.equal(icon.status, 200);
-  assert.equal(icon.headers['content-type'], 'image/png');
-  const font = await s.get('/fonts/inter-latin.woff2', { cookie: '' });
-  assert.equal(font.status, 200);
-  assert.equal(font.headers['content-type'], 'font/woff2');
+test('other sites can\'t make a visitor\'s browser do things in Couchwave (even another site on the same computer)', async () => {
+  for (const site of ['cross-site', 'same-site']) {
+    const r = await s.req('POST', '/chat', { as: 'Mallory', body: { text: 'sent by another site' }, headers: { 'Sec-Fetch-Site': site } });
+    assert.equal(r.status, 403, site);
+  }
+  assert.equal((await s.req('POST', '/logout', { cookie: '', headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403, 'not even logging out');
+  assert.equal((await s.req('POST', '/chat', { as: 'Mallory', body: { text: 'from the page' }, headers: { 'Sec-Fetch-Site': 'same-origin' } })).status, 204);
+  assert.deepEqual((await s.state('Mallory')).chat.filter(m => m.by === 'Mallory').map(m => m.text), ['from the page']);
 });
 
 test('unknown files and routes are 404, and paths can\'t escape the folder', async () => {

@@ -109,7 +109,9 @@ describe('the DJ', { concurrency: true }, () => {
     assert.deepEqual((await djSongs(s)).find(q => q.id === first.id)?.removeVoters, ['Cara'], 'one vote: still there, and shown');
     for (const who of ['Bob', 'Dan']) await s.post('/remove', { id: first.id, vote: true }, { as: who });
     assert.ok(!(await djSongs(s)).some(q => q.id === first.id), '3 of 4: removed');
-    assert.equal((await s.post('/undo', { id: first.id }, { as: 'Alice' })).status, 403, 'only the deciding voter can undo it (the DJ isn\'t a person)');
+    assert.ok(!(await s.state('Dan')).log.some(e => e.undo === first.id), 'voted out: no Undo');
+    await s.post('/undo', { id: first.id }, { as: 'Dan' });
+    assert.ok(!(await djSongs(s)).some(q => q.id === first.id), 'not even for the deciding voter');
     const playing = await waitFor(async () => { const st = await s.state('Dan'); return st.current?.by === 'DJ' && st.current; }, 15000, 'a DJ song to play');
     await s.post('/skip', { id: playing.id }, { as: 'Dan' });
     const st = await s.state('Dan');

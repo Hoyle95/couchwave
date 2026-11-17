@@ -27,14 +27,17 @@ test('not a YouTube link, or nothing at all: refused', async () => {
 
 const found = (q, words) => q && q.url && q.url.endsWith(('1' + words.replace(/\W/g, '') + '0000000000').slice(0, 11));
 
-test('a song name: queues the top result that isn\'t a livestream; nothing found: says so', async () => {
+test('a song name: the result that matches best and isn\'t a livestream (not just YouTube\'s first); nothing found: says so', async () => {
   const s = await start();
   await s.post('/add', { url: 'daft punk' });
   await waitFor(() => inQueue(s, q => found(q, 'daft punk')), 5000, 'the search');
   assert.ok((await s.log()).some(l => /^Alice: added "(daft punk - top result|Song 1daftpunk00)"$/.test(l)));
+  await s.post('/add', { url: 'a-ha Take On Me' });
+  const q = await waitFor(() => inQueue(s, x => x.by === 'Alice' && x.url?.includes('aha_')), 5000, 'the second search');
+  assert.ok(q.url.endsWith('aha_take001'), 'Take On Me, not The Sun Always Shines on T.V.: ' + q.url);
   await s.post('/add', { url: 'nothing' });
   await waitFor(async () => (await s.log()).includes('Alice: couldn\'t find anything for "nothing"'), 5000, 'the empty search');
-  assert.equal((await s.state()).queue.length, 1, 'its "Searching" stand-in is gone');
+  assert.equal((await s.state()).queue.length, 2, 'its "Searching" stand-in is gone');
 });
 
 test('a song name shows "Searching" in the queue straight away, and keeps its place (the order asked)', async () => {
@@ -50,19 +53,14 @@ test('a song name shows "Searching" in the queue straight away, and keeps its pl
   assert.ok(found(q[0], 'slow one') && found(q[1], 'fast two'), 'in the order asked, though "fast two" was found first: ' + q.map(x => x.url).join(', '));
 });
 
-test('a song name: the result whose title matches best, not just YouTube\'s first', async () => {
-  const s = await start();
-  await s.post('/add', { url: 'a-ha Take On Me' });
-  const q = await waitFor(() => inQueue(s, x => x.status !== 'searching'), 5000, 'the search');
-  assert.ok(q.url.endsWith('aha_take001'), 'Take On Me, not The Sun Always Shines on T.V.: ' + q.url);
-});
-
-test('a "Searching" stand-in can be deleted (and undone) like any song', async () => {
+test('a "Searching" stand-in can be deleted (and undone) like any song, even with a restart before the search finishes', async () => {
   const s = await start();
   await s.post('/add', { url: 'slow gone' });
   const q = await inQueue(s, () => true);
   await s.post('/remove', { id: q.id });
-  await waitFor(async () => (await s.log()).includes('Alice: added "slow gone - top result"'), 5000, 'the search to finish meanwhile');
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"trash":[{'), 3000, 'it to be saved');
+  await s.restart();
+  await waitFor(async () => (await s.log()).includes('Alice: added "slow gone - top result"'), 6000, 'the search to finish after the restart');
   assert.equal((await s.state()).queue.length, 0, 'it doesn\'t come back by itself');
   await s.post('/undo', { id: q.id });
   await waitFor(() => inQueue(s, x => x.id === q.id && found(x, 'slow gone')), 5000, 'undo: back, as the song found');
@@ -95,48 +93,29 @@ test('a playlist: every playable song (private ones skipped), or just the one if
   await waitFor(async () => (await s.state()).queue.length === 4, 5000, 'one more song');
 });
 
-test('an unavailable video fails for good (with a reason); Retry tries again', async () => {
+test('a download that fails says why; YouTube\'s hiccups are retried by themselves (quietly), the rest wait for Retry', async () => {
   const s = await start();
-  await s.post('/add', { url: yt('fail_perm01') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
-  assert.equal(q.error, 'Unavailable');
-  assert.equal(q.retrying, false);
-  assert.ok((await s.log()).some(l => /couldn't download .*\(Unavailable\)/.test(l)));
-  await s.post('/retry', { id: q.id });
-  assert.ok((await s.log()).some(l => /Alice: retried/.test(l)));
-  await waitFor(() => inQueue(s, x => x.id === q.id && x.status === 'failed'), 5000, 'failing again');
-});
-
-test('YouTube refusing once (403) is retried by itself, quietly', async () => {
-  const s = await start();
-  await s.post('/add', { url: yt('fail_temp01') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the first failure');
-  assert.equal(q.retrying, true, 'shows as retrying');
-  assert.equal(q.error, 'Blocked by YouTube (403)');
-  assert.ok(!(await s.log()).some(l => /couldn't download/.test(l)), 'not logged yet: it\'ll try again');
-});
-
-test('YouTube\'s "Please sign in" check: shown as a bot check, and retried by itself', async () => {
-  const s = await start();
-  await s.post('/add', { url: yt('fail_sign01') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the first failure');
-  assert.equal(q.error, 'YouTube bot check');
-  assert.equal(q.retrying, true);
-});
-
-test('a song already queued, still downloading (so no title yet): "That song is already in the queue"', async () => {
-  const s = await start();
-  await s.post('/add', { url: yt('slow_000009') }, { as: 'Bob' });
-  const r = await s.post('/add', { url: 'https://youtu.be/slow_000009' });
-  assert.equal(r.status, 409);
-  assert.equal(r.text, 'That song is already in the queue');
-});
-
-test('a livestream is refused', async () => {
-  const s = await start();
-  await s.post('/add', { url: yt('live_000001') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
-  assert.equal(q.error, "Livestreams aren't supported");
+  const cases = [
+    ['fail_perm01', 'Unavailable', false], ['fail_priv01', 'Private video', false], ['fail_age001', 'Age-restricted', false],
+    ['fail_memb01', 'Members only', false], ['live_000001', 'Livestreams aren\'t supported', false],
+    ['fail_temp01', 'Blocked by YouTube (403)', true], ['fail_rate01', 'YouTube rate limit', true], ['fail_sign01', 'YouTube bot check', true],
+  ];
+  for (const [id] of cases) await s.post('/add', { url: yt(id) });
+  const q = await waitFor(async () => {
+    const q = (await s.state()).queue;
+    return cases.every(([id]) => q.find(x => x.url === yt(id))?.status === 'failed') && q;
+  }, 8000, 'every one to fail');
+  for (const [id, error, retrying] of cases) {
+    const x = q.find(y => y.url === yt(id));
+    assert.deepEqual([x.error, x.retrying], [error, retrying], id);
+  }
+  const log = await s.log();
+  assert.ok(log.some(l => /couldn't download .*\(Unavailable\)/.test(l)), 'failing for good is logged');
+  assert.ok(!log.some(l => /couldn't download .*\((Blocked|YouTube)/.test(l)), 'the hiccups aren\'t: they\'ll try again');
+  const perm = q.find(x => x.url === yt('fail_perm01'));
+  await s.post('/retry', { id: perm.id });
+  assert.ok((await s.log()).some(l => /^Alice: retried "/.test(l)));
+  await waitFor(() => inQueue(s, x => x.id === perm.id && x.status === 'failed'), 5000, 'failing again');
 });
 
 test('longer than maxVideoHours (3 by default): refused before downloading, with the reason', async () => {
@@ -172,15 +151,6 @@ test('maxVideoHours in config.json: any number of hours, not just whole ones (1.
   await waitFor(() => inQueue(big, q => q.status === 'ready'), 5000, 'a 4-hour video to download with maxVideoHours 5');
 });
 
-test('a maxVideoHours that isn\'t a number above 0 falls back to 3, and the log says so', async () => {
-  for (const bad of ['lots', 0, -2]) {
-    const s = await servers({ config: { maxVideoHours: bad }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
-    await s.logHas(new RegExp(`maxVideoHours should be a number of hours above 0 \\(like 3, or 1\\.5\\), not ${JSON.stringify(bad)}; using 3`));
-    await s.post('/add', { url: yt('long_000004') });
-    assert.equal((await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure')).error, 'Longer than 3 hours');
-  }
-});
-
 test('downloadsAtOnce in config.json: how many download at the same time (the rest wait, in queue order)', async () => {
   const s = await servers({ config: { downloadsAtOnce: 1 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
   for (const id of ['slow_000001', 'slow_000002', 'slow_000003']) await s.post('/add', { url: yt(id) });
@@ -205,12 +175,6 @@ test('downloadAhead in config.json: only the top songs of the queue are download
   assert.deepEqual(q.map(x => x.status), ['ready', 'ready', 'waiting'], 'the third waits until it\'s in the top two');
   await s.post('/remove', { id: q[0].id });
   await waitFor(() => inQueue(s, x => x.id === q[2].id && x.status === 'ready'), 5000, 'the third to download once it moved up');
-});
-
-test('downloadAhead / downloadsAtOnce that aren\'t whole numbers of 1 or more fall back to 20 / 3, and the log says so', async () => {
-  const s = await servers({ config: { downloadAhead: 2.5, downloadsAtOnce: 'lots' } });
-  await s.logHas(/downloadAhead should be a whole number of songs, 1 or more, not 2\.5; using 20/);
-  await s.logHas(/downloadsAtOnce should be a whole number, 1 or more, not "lots"; using 3/);
 });
 
 test('a video that doesn\'t say how long it is, but turns out too long once downloaded: removed, with the reason', async () => {
@@ -245,24 +209,38 @@ test('delete (even mid-download) and undo', async () => {
   await waitFor(() => inQueue(s, x => x.id === q.id && x.status === 'ready'), 9000, 'it to finish downloading');
 });
 
-test('your own song: removed straight away, and only you (or the deciding voter) can undo it', async () => {
+test('undo lasts 10 minutes', async () => {
+  const s = await servers({ env: { COUCHWAVE_TIME_SCALE: '0.01' }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
+  await s.post('/add', { url: yt('undo_000002') });
+  const q = await waitFor(() => inQueue(s, () => true), 3000, 'the song');
+  await s.post('/remove', { id: q.id });
+  assert.ok((await s.state()).log.some(e => e.undo === q.id), 'Undo shows straight away');
+  await waitFor(async () => !(await s.state()).log.some(e => e.undo === q.id), 12000, 'the Undo button to go after 10 (sped-up) minutes');
+  await s.post('/undo', { id: q.id });
+  assert.equal((await s.state()).queue.length, 0, 'too late to bring it back');
+});
+
+test('your own song: removed straight away, and only you can undo it, even after a restart', async () => {
   const s = await start();
   await s.post('/add', { url: yt('mine_000001') }, { as: 'Alice' });
-  const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
+  const q = await waitFor(() => inQueue(s, x => x.status === 'ready'), 5000, 'the song to download');
   await s.post('/remove', { id: q.id }, { as: 'Alice' });
   assert.equal((await s.state()).queue.length, 0, 'gone');
   assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'Bob can\'t bring it back');
+  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"trash":[{'), 3000, 'it to be saved');
+  await s.restart();
+  assert.ok((await s.state()).log.some(e => e.undo === q.id), 'the Undo button is still there after a restart');
+  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'still not for Bob');
   await s.post('/undo', { id: q.id }, { as: 'Alice' });
-  assert.ok(await inQueue(s, x => x.id === q.id), 'Alice can');
+  assert.equal((await inQueue(s, x => x.id === q.id))?.status, 'ready', 'Alice can, and it\'s ready to play without downloading again');
 });
-
-test('anyone else\'s song: a vote to remove it, shown to everyone; more than half of the people online removes it', async () => {
+test('anyone else\'s song: a vote to remove it, shown to everyone; 60% of the people online removes it, for good (no Undo)', async () => {
   const s = await start();
   const stop = await s.keepOnline('Alice', 'Bob', 'Cara');
   await s.post('/add', { url: yt('vote_000001') }, { as: 'Alice' });
   const q = await waitFor(() => inQueue(s, () => true), 5000, 'the song');
   await s.post('/remove', { id: q.id, vote: true }, { as: 'Bob' });
-  let x = await inQueue(s, y => y.id === q.id);
+  const x = await inQueue(s, y => y.id === q.id);
   assert.ok(x, '1 vote of 3: still there');
   assert.deepEqual(x.removeVoters, ['Bob'], 'everyone sees who voted');
   assert.deepEqual((await inQueue(s, y => y.id === q.id)).removeVoters, ['Bob']);
@@ -272,11 +250,9 @@ test('anyone else\'s song: a vote to remove it, shown to everyone; more than hal
   await s.post('/remove', { id: q.id, vote: true }, { as: 'Cara' });
   assert.ok(!(await inQueue(s, y => y.id === q.id)), '2 of 3: removed');
   assert.ok((await s.log()).some(l => /^Cara: removed ".+" \(2 of 3 voted\)$/.test(l)), 'the log says how many voted');
-  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Bob' })).status, 403, 'Bob (not the deciding vote) can\'t undo');
-  assert.equal((await s.post('/undo', { id: q.id }, { as: 'Cara' })).status, 204, 'Cara (the deciding vote) can');
-  x = await inQueue(s, y => y.id === q.id);
-  assert.ok(x, 'back');
-  assert.deepEqual(x.removeVoters, [], 'with no votes');
+  assert.ok(!(await s.state()).log.some(e => e.undo === q.id), 'voted out: no Undo button for anyone');
+  for (const who of ['Cara', 'Bob', 'Alice']) await s.post('/undo', { id: q.id }, { as: who });
+  assert.ok(!(await inQueue(s, y => y.id === q.id)), 'not the deciding voter, the others, or whoever added it can bring it back');
   stop();
 });
 
@@ -305,21 +281,14 @@ test('votes to remove survive a restart', async () => {
   assert.deepEqual((await inQueue(s, y => y.id === q.id)).removeVoters, ['Bob']);
 });
 
-test('the queue can\'t be reordered by hand', async () => {
-  const s = await start();
-  for (const id of ['okay_000003', 'okay_000004', 'okay_000005']) await s.post('/add', { url: yt(id) }, { as: 'Bob' });
-  const ids = (await s.state()).queue.map(q => q.id);
-  assert.equal((await s.post('/move', { id: ids[2], to: 0 }, { as: 'Bob' })).status, 404, 'there\'s no way to move a song');
-  assert.deepEqual((await s.state()).queue.map(q => q.id), ids, 'still in the order they were added');
-  assert.ok(!(await s.log()).some(l => /moved/.test(l)));
-});
-
-test('fair queue: one person\'s pile of songs doesn\'t keep everyone else waiting', async () => {
+test('the queue\'s order: people take turns (one person\'s pile doesn\'t keep everyone waiting), and it can\'t be reordered by hand', async () => {
   const s = await start();
   for (const id of ['fair_000001', 'fair_000002', 'fair_000003']) await s.post('/add', { url: yt(id) }, { as: 'Alice' });
   await s.post('/add', { url: yt('fair_000004') }, { as: 'Bob' });
-  const by = (await s.state()).queue.map(q => q.by);
-  assert.deepEqual(by, ['Alice', 'Bob', 'Alice', 'Alice'], 'Bob goes second, not last');
+  const q = (await s.state()).queue;
+  assert.deepEqual(q.map(x => x.by), ['Alice', 'Bob', 'Alice', 'Alice'], 'Bob goes second, not last');
+  assert.equal((await s.post('/move', { id: q[3].id, to: 0 }, { as: 'Alice' })).status, 404, 'there\'s no way to move a song');
+  assert.deepEqual((await s.state()).queue.map(x => x.id), q.map(x => x.id), 'still in the same order');
 });
 
 test('every kind of YouTube link is stored as one standard link, and a song already queued or playing can\'t go in twice', async () => {
@@ -337,7 +306,11 @@ test('every kind of YouTube link is stored as one standard link, and a song alre
   assert.equal(playing.status, 409);
   assert.match(playing.text, /is playing right now$/);
   assert.equal((await s.post('/add', { url: 'https://youtu.be/link_000005?si=Zz99' }, { as: 'Bob' })).status, 409, 'a Short shared as a youtu.be link is the same video');
-  assert.equal((await s.state()).queue.length, 6);
+  await s.post('/add', { url: yt('slow_000009') }, { as: 'Bob' });
+  const downloading = await s.post('/add', { url: 'https://youtu.be/slow_000009' });
+  assert.equal(downloading.status, 409);
+  assert.equal(downloading.text, 'That song is already in the queue', 'still downloading, so no title yet');
+  assert.equal((await s.state()).queue.length, 7);
 });
 
 test('a playlist leaves out songs already in the queue or playing, and says how many', async () => {

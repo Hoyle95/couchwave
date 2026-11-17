@@ -40,8 +40,10 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
    (The yt-dlp package brings ffmpeg with it.) Close and reopen PowerShell afterwards.
 
 2. Get Couchwave: on the [Releases page](https://github.com/Hoyle95/couchwave/releases), download
-   **couchwave-…zip** under **Assets** of the newest release (not "Source code"). Right-click it, choose
-   **Extract All**, and pick where you want Couchwave to live: that folder is your Couchwave folder.
+   **couchwave-…zip** under **Assets** of the newest release (not "Source code"). The zip has no folder of
+   its own inside, so first make a new, empty folder where you want Couchwave to live (like
+   `Documents\Couchwave`): that's your Couchwave folder. Then right-click the zip, choose **Extract All**,
+   click **Browse**, and pick that folder.
 
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open.
 
@@ -76,8 +78,16 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
    node server.js
    ```
 
-   (Or download **couchwave-…zip** from the newest release on the
-   [Releases page](https://github.com/Hoyle95/couchwave/releases) and `unzip` it into a new folder.)
+   Or download **couchwave-…zip** from the newest release on the
+   [Releases page](https://github.com/Hoyle95/couchwave/releases) and unzip it into a new folder of its own
+   (the zip has no folder inside), then start it from there:
+
+   ```sh
+   mkdir ~/couchwave
+   unzip ~/Downloads/couchwave-v*.zip -d ~/couchwave
+   cd ~/couchwave
+   node server.js
+   ```
 
 3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The room
    password is printed on the first run and saved in **`config.json`**, along with the other
@@ -99,6 +109,15 @@ itself when you save it; otherwise, restart it.
 - `downloadsAtOnce`: how many of those download at the same time. 3 by default. Fewer is gentler on a
   slow connection.
 - `public`: see below. Keep it `false`.
+- `trustProxy`: which proxies Couchwave believes when they say who's visiting and that the visit came over
+  `https://` (see [Letting friends in](#letting-friends-in)). Most setups don't need it: by default it trusts
+  proxies on this computer and on private networks (your home network, Docker, Tailscale). For a proxy
+  anywhere else, like a rented server, list its address, or a range of them, and they're trusted as well:
+  `"trustProxy": ["203.0.113.5"]` or `["10.8.0.0/24"]`. `false` trusts no proxy at all: only use it if nothing
+  sits in front of Couchwave.
+- `updateCheck`: once a day Couchwave asks GitHub whether there's a newer release, and if there is, says so in
+  Activity and the log (it doesn't install anything, and nothing about you or your room is sent). `false`
+  turns this off.
 
 A setting missing from an older `config.json` uses its default.
 
@@ -111,7 +130,9 @@ A setting missing from an older `config.json` uses its default.
 ## Your data
 
 Everything Couchwave saves is in `data/`: the queue, chat and history, the accounts (passwords scrambled,
-never stored as typed), the downloaded songs and the logs. **To back up, copy `data/`** (and `config.json`).
+never stored as typed) and who's logged in, the downloaded songs and the logs. **To back up, copy `data/`**
+(and `config.json`). Downloads pause by themselves if the disk gets down to its last 2 GB, so Couchwave
+never fills it.
 
 ## Keep it running
 
@@ -180,9 +201,21 @@ To host it publicly, we recommend either:
   ```
 
 Either way, use `https://`: the passwords and everyone's login are sent over it, and phones only offer
-"Install app" on secure sites. Both tell Couchwave the visit came over `https://`, so it marks logins
-HTTPS-only (never sent unencrypted). Another proxy has to run on the same machine and send
-`X-Forwarded-Proto` (nginx: `proxy_set_header X-Forwarded-Proto $scheme;`).
+"Install app" on secure sites. Both tell Couchwave who's visiting and that the visit came over `https://`,
+so it marks logins HTTPS-only (never sent unencrypted) and counts wrong passwords for each visitor, not for
+everyone at once. They can run on this computer or another one on your home network (in Docker, on a NAS,
+over Tailscale).
+
+Other proxies work too, as long as they send `X-Forwarded-For` (who's visiting) and `X-Forwarded-Proto`
+(`http` or `https`). For nginx, add these two lines next to its `proxy_pass`:
+
+```
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+```
+
+A proxy that isn't on this computer or your home network (say, on a rented server) also needs its address
+in [`trustProxy`](#settings).
 
 Then send your friends the address and the room password. The first time they join, they pick a nickname
 and a password for it. To log someone out, reset a forgotten password or delete an account, see the
@@ -190,20 +223,25 @@ and a password for it. To log someone out, reset a forgotten password or delete 
 
 ## Updating
 
-Your settings and everything people have done are kept: `config.json` and `data/` aren't part of the
-download, so updating never touches them. To see what's changed first, read the
+Couchwave tells you when there's a new release: a line in Activity (and the log) says "a newer Couchwave
+is out". Your settings and everything people have done are kept: `config.json` and `data/` aren't part of
+the download, so updating never touches them. To see what's changed first, read the
 [changelog](../CHANGELOG.md).
 
 **Recommended: the newest release.**
 
 1. Download **couchwave-…zip** (not "Source code") from the newest release on the
    [Releases page](https://github.com/Hoyle95/couchwave/releases).
-2. Unzip it straight into your Couchwave folder, replacing the old files (on Windows: **Extract All**, pick
-   your Couchwave folder, and choose to replace the files; on Linux: `unzip -o couchwave-…zip -d <folder>`).
-   Your `config.json` and `data/` aren't in the zip, so they stay as they are.
-3. Restart Couchwave. On Windows, `start.cmd` notices the new files and restarts by itself (if the page
-   doesn't come back, stop and start it as in [Keep it running](#keep-it-running)). On Linux,
-   `sudo systemctl restart couchwave`.
+2. Stop Couchwave first, so it doesn't start up halfway through with some old files and some new ones. On
+   Windows, close the `start.cmd` window (if it starts with the PC: `Stop-ScheduledTask Couchwave`, then end
+   the leftover **Node.js** process in Task Manager). On Linux, `sudo systemctl stop couchwave`.
+3. Unzip it into your Couchwave folder, replacing the old files. On Windows: **Extract All**, **Browse** to
+   your Couchwave folder, and choose to replace the files. On Linux:
+   `unzip -o ~/Downloads/couchwave-v*.zip -d ~/couchwave` (or wherever your Couchwave folder is). Your
+   `config.json` and `data/` aren't in the zip, so they stay as they are. If the changelog says some files
+   moved or were removed, delete the old ones it names.
+4. Start it again: double-click `start.cmd` (or `Start-ScheduledTask Couchwave`), or on Linux
+   `sudo systemctl start couchwave`.
 
 **With `git`, staying on releases** (as set up in the Linux steps above), from the Couchwave folder:
 
@@ -212,7 +250,7 @@ git fetch --tags
 git checkout "$(git describe --tags --abbrev=0 origin/main)"
 ```
 
-then restart as above.
+then restart Couchwave (on Linux, `sudo systemctl restart couchwave`).
 
 **The very latest code** (not recommended): `git checkout main`, then `git pull`. This gets every change
 as soon as it's made, before it's been released, so now and then something may not work yet. If `git`
@@ -232,5 +270,27 @@ them to `config.json` (see [Settings](#settings)).
   this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
   **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On
   Linux with `ufw` turned on: `sudo ufw allow 3000/tcp`.
+- **Activity says "can't find yt-dlp" (or ffmpeg, or ffprobe)**: that program isn't installed, or Couchwave
+  can't see it. Install it as in the steps for [Windows](#windows) or
+  [Linux](#linux-debian-ubuntu-raspberry-pi-os), then restart Couchwave. On Windows, close and reopen PowerShell (or restart the PC) after installing.
+- **Songs show "Disk full"**: the disk Couchwave is on has less than 2 GB free, so downloads have paused.
+  Free up some space and they carry on by themselves within a minute.
+- **A song shows "Download stalled"**: its download stopped getting anywhere for 5 minutes, so Couchwave
+  stopped it and tries again shortly. If it keeps happening, check this computer's internet connection.
 - **Won't start**: the reason is in `data/server.log`. Usually it's a broken `config.json`.
 - **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.
+- **The queue, chat and history are suddenly empty**: `data/state.json` couldn't be read (the log says why).
+  The old file is kept beside it as `state.json.broken-…`, in case you want to look at it or put it back.
+- **"Too many wrong passwords for …"**: someone typed the wrong password for that nickname 20 times in 15
+  minutes, so new logins with it wait 15 minutes (restarting Couchwave clears it straight away). Devices
+  already logged in with it carry on as normal. If it's a forgotten password, see `--set-password` in the
+  [server commands](FEATURES.md#server-commands).
+- **"Too many wrong passwords, try again later"** for everyone at once, behind a proxy: Couchwave can't tell
+  your visitors apart. Check the proxy sends `X-Forwarded-For`, and if it isn't on this computer or your home
+  network, add its address to `trustProxy` (see [Letting friends in](#letting-friends-in)).
+- **"Lots of new nicknames have been made from here"**: 10 new nicknames came from the same address within
+  an hour (a guard against someone making endless accounts). It clears after an hour, or when Couchwave
+  restarts. The computer running Couchwave isn't limited.
+- **The log says someone reached Couchwave "straight from the internet over plain http"**: a port on your
+  router leads straight to Couchwave, so passwords travel unencrypted. Close that port and use Cloudflare
+  Tunnel or Caddy instead (see [Letting friends in](#letting-friends-in)).

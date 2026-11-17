@@ -32,7 +32,7 @@ async function listen(s, as) {
   return got;
 }
 
-test('instant updates: everyone is nudged the moment someone sends a message, or reacts', async () => {
+test('instant updates: everyone is nudged the moment someone sends a message or reacts, and nudges close together go out as one', async () => {
   const s = await start();
   const bob = await listen(s, 'Bob'), cara = await listen(s, 'Cara');
   assert.equal(bob.status, 200);
@@ -43,35 +43,43 @@ test('instant updates: everyone is nudged the moment someone sends a message, or
   await s.post('/chat', { text: 'hello' }, { as: 'Alice' });
   await waitFor(() => bob.length > before && cara.length > 0, 1000, 'both pages to be nudged');
   assert.ok(bob.at(-1) - sent < 1000, `within ${bob.at(-1) - sent}ms, not on the next 2-second check`);
-  const n = bob.length;
+  let n = bob.length;
   await s.post('/react', { e: '🔥', n: 1 }, { as: 'Alice' });
   await waitFor(() => bob.length > n, 1000, 'a nudge for the reaction');
+  await sleep(100);
+  n = bob.length;
+  await Promise.all([1, 2, 3, 4, 5].map(i => s.post('/chat', { text: 'msg ' + i }, { as: 'Alice' })));
+  await waitFor(() => bob.length > n, 3000, 'a nudge for the 5 messages');
+  await sleep(200);
+  assert.ok(bob.length - n >= 1 && bob.length - n <= 2, `5 messages at once: ${bob.length - n} nudge(s)`);
   bob.close(); cara.close();
 });
 
-test('nudges close together go out as one', async () => {
+test('up to 10 pages each get instant updates at once (any more just check in every few seconds)', async () => {
   const s = await start();
-  const bob = await listen(s, 'Bob');
-  await s.cookie('Alice');
-  await sleep(100);
-  const before = bob.length;
-  await Promise.all([1, 2, 3, 4, 5].map(i => s.post('/chat', { text: 'msg ' + i }, { as: 'Alice' })));
-  await sleep(200);
-  assert.ok(bob.length - before >= 1 && bob.length - before <= 2, `5 messages at once: ${bob.length - before} nudge(s)`);
-  bob.close();
+  const pages = [];
+  for (let i = 0; i < 10; i++) pages.push(await listen(s, 'Bob'));
+  assert.ok(pages.every(p => p.status === 200));
+  const extra = await listen(s, 'Bob');
+  assert.equal(extra.status, 429, 'an 11th is turned away');
+  const cara = await listen(s, 'Cara');
+  assert.equal(cara.status, 200, 'other people aren\'t affected');
+  pages.shift().close();
+  const again = await waitFor(async () => { const p = await listen(s, 'Bob'); if (p.status === 200) return p; p.close(); return null; }, 3000, 'room for one more once a page closes');
+  for (const p of [...pages, extra, cara, again]) p.close();
 });
 
-test('the log and chat are only sent when they changed (most checks are tiny)', async () => {
+test('the log, chat and history are only sent when they changed (most checks are tiny)', async () => {
   const s = await start();
   const first = (await s.get('/state')).json;
-  assert.ok(first.log && first.chat, 'the first check gets everything');
-  const again = (await s.get(`/state?log=${first.logRev}&chat=${first.chatRev}`)).json;
-  assert.equal(again.log, undefined);
-  assert.equal(again.chat, undefined);
+  assert.ok(first.log && first.chat && Array.isArray(first.history), 'the first check gets everything');
+  const revs = `log=${first.logRev}&chat=${first.chatRev}&history=${first.historyRev}`;
+  const again = (await s.get(`/state?${revs}`)).json;
+  assert.deepEqual([again.log, again.chat, again.history], [undefined, undefined, undefined]);
   await s.post('/chat', { text: 'new' }, { as: 'Bob' });
-  const later = (await s.get(`/state?log=${first.logRev}&chat=${first.chatRev}`)).json;
+  const later = (await s.get(`/state?${revs}`)).json;
   assert.equal(later.chat.at(-1).text, 'new', 'chat sent again once it changed');
-  assert.equal(later.log, undefined, 'the log didn\'t change');
+  assert.deepEqual([later.log, later.history], [undefined, undefined], 'the log and history didn\'t change');
 });
 
 test('profile pictures: a colour and an emoji, checked, and quick changes are one log entry', async () => {
@@ -101,6 +109,9 @@ test('reactions: shown for a few seconds, emoji only', async () => {
   const shown = Date.now();
   await waitFor(async () => (await s.state()).reactions.length === 0, secs(6) + 1000, 'the reactions to go');
   assert.ok(Date.now() - shown >= secs(6) - 200, 'after 6 (server) seconds, not straight away');
+  await s.cookie('Bob');
+  const statuses = await Promise.all(Array.from({ length: 61 }, () => s.post('/react', { e: '🔥' }, { as: 'Bob' }).then(x => x.status)));
+  assert.deepEqual([statuses.filter(x => x === 204).length, statuses.filter(x => x === 429).length], [60, 1], 'a speed limit: 60 every 10 seconds each');
 });
 
 test('chat has a speed limit: 8 messages in 10 seconds, then a 30-second cooldown, twice as long if it happens again soon', async () => {
