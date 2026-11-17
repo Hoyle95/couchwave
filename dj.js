@@ -10,7 +10,7 @@ const IDEAS_FROM = 10;
 const FROM_ONE_MIX = 3;
 const TIME_SCALE = Number(process.env.COUCHWAVE_TIME_SCALE) > 0 ? Number(process.env.COUCHWAVE_TIME_SCALE) : 1;
 const CHECK_EVERY = 3000 * TIME_SCALE, RETRY_AFTER = 30000 * TIME_SCALE, LONGEST_WAIT = 600000 * TIME_SCALE;
-const NO_MIX_FOR = 3600000 * TIME_SCALE;
+const NO_MIX_FOR = 3600000 * TIME_SCALE, MIX_GAP = 10000 * TIME_SCALE;
 const SAY_NOTHING = 'Nothing to go on yet: add a song you like, and I\'ll keep the music going with more like it.';
 const SAY_NO_MUSIC = 'I can only find songs like music, and YouTube has no Mix for the other videos here. Add a song you like, and I\'ll keep the music going from there.';
 const SAY_RUN_OUT = 'I\'ve run out of new songs like the ones you\'ve played: add one, and I\'ll keep going from there.';
@@ -96,10 +96,13 @@ module.exports = function startDj(app) {
     if (!starts.length) return ask(noMusic ? SAY_NO_MUSIC : SAY_NOTHING);
     busy = true;
     try {
-      let added = 0;
+      let added = 0, looked = 0;
+      const stillWanted = () => (on ? KEEP_QUEUED - app.queue().filter(q => q.by === NAME).length : 0);
       for (const seed of starts) {
-        const wanted = KEEP_QUEUED - app.queue().filter(q => q.by === NAME).length;
-        if (!on || wanted <= 0) break;
+        if (stillWanted() <= 0) break;
+        if (looked++) await new Promise(r => setTimeout(r, MIX_GAP));
+        const wanted = stillWanted();
+        if (wanted <= 0) break;
         const current = app.current();
         const avoid = new Set([...app.history().map(h => idOf(h.url)), ...app.queue().map(q => idOf(q.url)), current && idOf(current.url)]);
         const mix = await app.mix(seed.id);

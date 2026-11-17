@@ -265,7 +265,8 @@ them to `config.json` (see [Settings](#settings)).
 - **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
   button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
   YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
-  hours.
+  hours. If it's just **one song**, again and again, while others download fine, YouTube wants a signed-in
+  account for that video: remove it and pick another version of the song.
 - **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
   this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
   **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On

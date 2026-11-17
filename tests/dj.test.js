@@ -120,6 +120,7 @@ describe('the DJ', { concurrency: true }, () => {
     for (const who of ['Cara', 'Bob']) await s.post('/skip', { id: playing.id }, { as: who });
     assert.notEqual((await s.state()).current?.id, playing.id, 'skipped by the vote');
     assert.ok((await s.log()).some(l => /^: ".+" was skipped \(\d of \d voted\)$/.test(l)), 'logged as a vote');
+    await waitFor(() => djCount(1)(s), 15000, 'the DJ to have a song queued again');
     await say(s, 'Bob', '!dj off');
     const kept = (await djSongs(s)).length;
     assert.ok(kept > 0, 'off: what it queued stays, until it\'s voted out');
@@ -184,7 +185,7 @@ describe('the DJ', { concurrency: true }, () => {
   test('videos that aren\'t music have no Mix: says so once, never asks YouTube about them again, and carries on from music', async () => {
     const now = Date.now(), notMusic = ['nomx_000001', 'nomx_000002'];
     const s = await start({ here: {}, history: notMusic.map((id, i) => ({ url: yt(id), title: `Not music ${id}`, by: 'Alice', t: now - i * 60000 })) });
-    const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n'); } catch { return []; } };
+    const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n').map(l => l.split('\t')[0]); } catch { return []; } };
     await say(s, 'Bob', '!dj on');
     await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /no Mix for the other videos/.test(m.text)), 8000, 'the DJ to say it needs music');
     assert.deepEqual(asked().sort(), notMusic, 'asked YouTube once about each');
@@ -205,5 +206,17 @@ describe('the DJ', { concurrency: true }, () => {
     const picks = (await s.log()).filter(l => l.startsWith('DJ: added')).join('\n');
     assert.match(picks, /Fourth Band - Long Song/, 'a 15-minute song is fine:\n' + picks);
     assert.doesNotMatch(picks, /Too Long|Too Short|Full Album/, 'not 25 minutes, 30 seconds, or an album');
+  });
+
+  test('turning it on doesn\'t rush YouTube: its first picks come straight away, then a Mix every 10 seconds', async () => {
+    const now = Date.now();
+    const s = await start({ here: {}, history: ['gapa_000001', 'gapb_000001', 'gapc_000001'].map((id, i) => ({ url: yt(id), title: `Song ${id}`, by: 'Alice', t: now - i * 60000 })) });
+    const turnedOn = Date.now();
+    await say(s, 'Bob', '!dj on');
+    await waitFor(() => djCount(4)(s), 20000, 'picks from a second Mix');
+    const times = fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n').map(l => +l.split('\t')[1]);
+    assert.ok(times[0] - turnedOn < secs(10), `the first Mix straight away (${times[0] - turnedOn} ms)`);
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    assert.ok(gaps.length >= 1 && gaps.every(g => g >= secs(10) - 100), `time between Mixes: ${gaps.join(', ')} ms (at least ${secs(10)})`);
   });
 });

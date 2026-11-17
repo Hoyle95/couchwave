@@ -22,7 +22,7 @@ if (args.includes('--flat-playlist')) {
   const q = target.replace(/^ytsearch\d*:/, '');
   setTimeout(() => {
     const mix = /[?&]list=RD([\w-]{11})/.exec(target);
-    if (mix) fs.appendFileSync('mix-requests.log', mix[1] + '\n');
+    if (mix) fs.appendFileSync('mix-requests.log', `${mix[1]}\t${Date.now()}\n`);
     if (mix && mix[1].startsWith('nomx')) {
       console.error(`WARNING: [youtube:tab] Unable to recognize playlist. Downloading just video ${mix[1]}`);
       row(mix[1], '30', `Not music ${mix[1]}`);

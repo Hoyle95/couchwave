@@ -722,7 +722,8 @@ function failed(item, reason, permanent) {
   item.status = 'failed';
   item.error = reason;
   item.tries = (item.tries || 0) + 1;
-  if (!permanent && item.tries <= 2) { item.retryAt = Date.now() + 10000 * item.tries; return; }
+  const patient = /bot check|rate limit/.test(reason);
+  if (!permanent && item.tries <= 2) { item.retryAt = Date.now() + (patient ? secs(item.tries === 1 ? 60 : 300) : 10000 * item.tries); return; }
   item.retryAt = null;
   addLog(item.by, `couldn't download "${item.title}" (${reason})`);
 }

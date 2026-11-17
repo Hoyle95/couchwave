@@ -4,7 +4,13 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Changed
+
+- **The DJ fills up gently**: turning it on brings its first songs straight away, then it asks YouTube for
+  one more Mix every 10 seconds until it has 10 queued, instead of asking for them all within a few seconds
+  (a burst like that can make YouTube start checking for bots).
+- **YouTube's bot check and rate limit are given time**: a song that hits one is tried again after a minute,
+  then 5 minutes, instead of 10 and 20 seconds, so Couchwave doesn't keep pushing while YouTube is pushing back.
 
 ## v0.2.1 beta (2026-11-17)
 

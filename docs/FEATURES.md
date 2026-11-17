@@ -102,6 +102,8 @@ The DJ:
 - **Picks** from YouTube's Mix of songs people asked for or played, preferring other artists. It never
   starts from its own picks, even after they've played. It only picks songs between 1 and 20 minutes long,
   and skips repeats, albums and mixes.
+- **Fills up gently**: its first songs come straight away, then it asks YouTube for one more Mix every 10
+  seconds until it has 10 queued, so it doesn't rush YouTube.
 - **Queues its songs after everyone else's**, as "DJ" 🎧. Skipping or removing them is a vote, like any song.
 - **Only plays music**: YouTube has no Mix for other videos (music Shorts work, other Shorts don't). With
   nothing to go on, or only other videos, it says so once in the chat and waits for a song.
