@@ -41,6 +41,20 @@ test('app.js, theme.js, server.js and dj.js have no syntax errors', () => {
   }
 });
 
+test('the one-line installers have no syntax errors (install.ps1 checked on Windows, install.sh elsewhere)', () => {
+  const { spawnSync } = require('child_process');
+  if (process.platform === 'win32') {
+    const file = path.join(ROOT, 'install.ps1').replace(/'/g, "''");
+    const r = spawnSync('powershell', ['-NoProfile', '-Command',
+      `$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('${file}', [ref]$null, [ref]$e); if ($e) { $e | ForEach-Object { $_.ToString() }; exit 1 }`], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  } else {
+    const r = spawnSync('bash', ['-n', path.join(ROOT, 'install.sh')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  }
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'install.sh'), 'latin1'), /\r/, 'install.sh has Unix line endings (bash can\'t run it otherwise)');
+});
+
 test('every element and icon app.js uses is on the page', () => {
   const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8'), app = fs.readFileSync(path.join(ROOT, 'public', 'js', 'app.js'), 'utf8');
   const ids = new Set([...html.matchAll(/ id="([\w-]+)"/g)].map(m => m[1]));
