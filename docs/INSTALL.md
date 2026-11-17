@@ -1,10 +1,11 @@
 # Getting started and setup
 
-You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
+You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**. The one-line install sets all of it up for you.
 
 - [Quick start](#quick-start)
-- [Windows](#windows)
-- [Linux (Debian, Ubuntu, Raspberry Pi OS)](#linux-debian-ubuntu-raspberry-pi-os)
+- [One-line install](#one-line-install)
+- [Windows, step by step](#windows)
+- [Linux, step by step (Debian, Ubuntu, Raspberry Pi OS)](#linux-debian-ubuntu-raspberry-pi-os)
 - [Settings](#settings)
 - [Your data](#your-data)
 - [Keep it running](#keep-it-running)
@@ -21,12 +22,54 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**.
 
 ## Quick start
 
-1. Install it and start it: [Windows](#windows) or [Linux](#linux-debian-ubuntu-raspberry-pi-os).
-2. Open <http://localhost:3000>. The room password is in `config.json`, made on the first run.
+1. Install it with the [one-line install](#one-line-install) (or step by step: [Windows](#windows) or
+   [Linux](#linux-debian-ubuntu-raspberry-pi-os)).
+2. Open <http://localhost:3000>. The room password is shown at the end of the install, and kept in
+   `config.json`.
 3. Send your friends the address and the room password (see [Letting friends in](#letting-friends-in)).
    The first time they join, they pick a nickname and a password for it.
 
 <p align="center"><img src="screenshot-join.png" alt="The join screen: a profile picture and nickname with its own password under &quot;You&quot;, the room password below, and a Join the party button" width="450"></p>
+
+## One-line install
+
+**Windows**: open **PowerShell** (from the Start menu) and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.ps1 | iex
+```
+
+**Linux** (Debian, Ubuntu, Raspberry Pi OS): open a terminal and paste:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.sh | bash
+```
+
+It does everything the step-by-step guides below do, with good defaults:
+
+- installs Node.js, yt-dlp and ffmpeg if they're missing (with winget on Windows, apt on Linux),
+- downloads the newest Couchwave release into a `Couchwave` folder in your home folder (`couchwave` on
+  Linux),
+- makes it start with the computer (a scheduled task on Windows, a service on Linux), and lets friends on
+  your home network in (a Windows Firewall rule for private networks, or ufw rules if ufw is on),
+- starts it, then shows its address, the address for friends on your network, and the room password. If
+  port 3000 is already used by another program, a new install takes the next free one (3001, 3002…) and
+  shows it.
+
+On Windows it asks for administrator rights once (for starting with the PC and the firewall rule); on Linux
+it asks for your password for `sudo`. **To update, run the same line again**: it stops Couchwave, puts the new
+version in place and starts it again, keeping your `config.json` and `data/`.
+
+Like any script you paste from the internet, you can read it first:
+[install.ps1](https://github.com/Hoyle95/couchwave/blob/main/install.ps1) and
+[install.sh](https://github.com/Hoyle95/couchwave/blob/main/install.sh). Options: set `COUCHWAVE_DIR` to
+install somewhere else, or `COUCHWAVE_PORT` to pick the port of a new install (in PowerShell,
+`$env:COUCHWAVE_PORT = 3001` before the line; on Linux, end the line with `| COUCHWAVE_PORT=3001 bash`).
+
+**To uninstall**: on Windows, double-click `stop.cmd` in the Couchwave folder, then in an administrator
+PowerShell run `Unregister-ScheduledTask Couchwave` and `Remove-NetFirewallRule -DisplayName Couchwave`, and
+delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
+`sudo rm /etc/systemd/system/couchwave.service` and `rm -r ~/couchwave`.
 
 ## Windows
 
@@ -248,7 +291,11 @@ is out". Your settings and everything people have done are kept: `config.json` a
 the download, so updating never touches them. To see what's changed first, read the
 [changelog](../CHANGELOG.md).
 
-**Recommended: the newest release.**
+**Easiest: run the [one-line install](#one-line-install) again.** It does the steps below for you (it works
+for a Couchwave installed by hand too, as long as it's in the same folder: set `COUCHWAVE_DIR` if it isn't
+the default).
+
+**By hand: the newest release.**
 
 1. Download **couchwave-…zip** (not "Source code") from the newest release on the
    [Releases page](https://github.com/Hoyle95/couchwave/releases).

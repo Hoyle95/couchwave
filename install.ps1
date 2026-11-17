@@ -124,8 +124,9 @@ $port = Port
 $up = $false
 for ($i = 0; $i -lt 60 -and -not $up; $i++) { if (IsCouchwave $port) { $up = $true } else { Start-Sleep -Seconds 1 } }
 $password = try { (Get-Content $config -Raw | ConvertFrom-Json).password } catch { '' }
-$ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-  Where-Object { $_.PrefixOrigin -in 'Dhcp', 'Manual' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -ExpandProperty IPAddress
+$ips = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } |
+  ForEach-Object { $_.IPv4Address.IPAddress } | Where-Object { $_ -and $_ -notlike '169.254.*' } | Select-Object -Unique
 
 Write-Host ''
 if ($up) { Write-Host 'Couchwave is running!' -ForegroundColor Green }

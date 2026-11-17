@@ -111,7 +111,9 @@ elif ! free "$PORT"; then
   echo "  Pick another port: change \"port\" in $DIR/config.json, then run this line again."
 else printf '\033[33mCouchwave is installed, but it has not started yet. If it does not, the reason is in %s/data/server.log\033[0m\n' "$DIR"; fi
 echo "  Open it:          http://localhost:$PORT"
-for ip in $(hostname -I 2>/dev/null); do case "$ip" in *:*) ;; *) echo "  Friends at home:  http://$ip:$PORT" ;; esac; done
+IPS=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1) }')
+[ -n "$IPS" ] || IPS=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v ':' | head -1)
+for ip in $IPS; do echo "  Friends at home:  http://$ip:$PORT"; done
 [ -n "$PASSWORD" ] && echo "  Room password:    $PASSWORD   (in $DIR/config.json)"
 if [ "$HAS_SYSTEMD" = 1 ]; then echo "  It starts with the computer. To stop it: sudo systemctl stop $SERVICE"; fi
 echo "  Run the same line again any time to update. To let friends in from the internet, see"

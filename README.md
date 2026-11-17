@@ -23,6 +23,23 @@ guessing is shut down. All it needs is Node.js, yt-dlp and ffmpeg: no database, 
   <b><a href="CHANGELOG.md">What's new</a></b>
 </p>
 
+## Install in one line
+
+**Windows** (in PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.ps1 | iex
+```
+
+**Linux** (Debian, Ubuntu, Raspberry Pi OS):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.sh | bash
+```
+
+It installs what Couchwave needs, makes it start with the computer, starts it, and shows you its address and
+room password. Run it again to update. More in the [setup guide](docs/INSTALL.md#one-line-install).
+
 ## Feedback
 
 Ideas, bugs, or just saying hi: join our [Discord](https://discord.com/invite/pNtyzNkch6) or [open an issue](https://github.com/Hoyle95/couchwave/issues).

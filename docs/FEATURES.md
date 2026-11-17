@@ -134,7 +134,9 @@ Couchwave (temporary folder, password and port), so your real server and data ar
 it's running. The stand-ins mean it needs no internet. The test servers run their clock 4x faster
 (`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10. Other
 `COUCHWAVE_…` variables in `tests/helpers.js` and `server.js` are only for the tests. Every push to `main`
-also runs them on Linux and Windows (`.github/workflows/tests.yml`).
+also runs them on Linux and Windows (`.github/workflows/tests.yml`). The one-line installers (`install.ps1`,
+`install.sh`) are tried for real on fresh Linux and Windows machines whenever they change, and after each
+release (`.github/workflows/install.yml`): install, check it runs and starts with the computer, update, stop.
 
 Releasing: first set `VERSION` (near the top of `server.js`) to the new version:
 it's what the "a newer Couchwave is out" check compares. Publishing a GitHub release runs the tests on

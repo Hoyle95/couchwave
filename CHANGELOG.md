@@ -4,7 +4,14 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- **One-line install**: paste one line into PowerShell (Windows) or a terminal (Debian, Ubuntu, Raspberry Pi
+  OS), and it installs Node.js, yt-dlp and ffmpeg if they're missing, downloads the newest Couchwave, makes it
+  start with the computer, lets friends on your home network in, starts it, and shows the address and room
+  password. If port 3000 is already taken, it picks the next free one. Running it again updates Couchwave,
+  keeping your settings and data. See
+  [docs/INSTALL.md](docs/INSTALL.md#one-line-install).
 
 ## v0.3.0 beta (2026-11-17)
 
