@@ -4,6 +4,17 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.3.0 beta (2026-11-17)
+
+Still a beta. Tools for whoever runs Couchwave (`--status`, `--stop` and `stop.cmd`, `--remove-song`,
+`--clear`), a backup every day, a gentler DJ, and an important fix: one malformed request could stop Couchwave.
+**Download `couchwave-v0.3.0-beta.zip`** from the release (not "Source code"). **Updating?** Stop Couchwave,
+unzip it into your Couchwave folder, replacing the old files, and start it again: settings, data and logins
+are kept. On Windows, stop it the old way this one time (close the `start.cmd` window, or
+`Stop-ScheduledTask Couchwave` and end Node.js in Task Manager); from now on, `stop.cmd` does it.
+
 ### Added
 
 - **`node server.js --remove-song <song>`**, for whoever runs Couchwave: takes a song out of the queue

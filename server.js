@@ -8,7 +8,7 @@ const zlib = require('zlib');
 const net = require('net');
 const { spawn } = require('child_process');
 
-const VERSION = '0.2.1-beta';
+const VERSION = '0.3.0-beta';
 const RELEASES = process.env.COUCHWAVE_RELEASES_URL || 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10';
 function versionNumbers(tag) { return (/(\d+)\.(\d+)\.(\d+)/.exec(tag || '') || []).slice(1).map(Number); }
 function newer(tag, than) {

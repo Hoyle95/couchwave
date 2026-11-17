@@ -255,6 +255,10 @@ the download, so updating never touches them. To see what's changed first, read 
 2. Stop Couchwave first, so it doesn't start up halfway through with some old files and some new ones. On
    Windows, double-click `stop.cmd` in your Couchwave folder (or close the `start.cmd` window). On Linux,
    `sudo systemctl stop couchwave`.
+
+   Updating from v0.2.1 or older on Windows? Those don't have `stop.cmd` yet, so stop it the old way one last
+   time: close the `start.cmd` window, or if it starts with the PC, run `Stop-ScheduledTask Couchwave` in an
+   administrator PowerShell, then end the **Node.js** processes in Task Manager.
 3. Unzip it into your Couchwave folder, replacing the old files. On Windows: **Extract All**, **Browse** to
    your Couchwave folder, and choose to replace the files. On Linux:
    `unzip -o ~/Downloads/couchwave-v*.zip -d ~/couchwave` (or wherever your Couchwave folder is). Your
