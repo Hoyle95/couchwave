@@ -144,4 +144,62 @@ test('a message arriving in pieces, split in the middle of an emoji, comes throu
   });
   assert.equal((await s.state()).chat.at(-1).text, 'split 🎉 here');
 });
+
+const GIF = { url: 'https://static.klipy.com/ii/abc123/14/af/um0L4dFH.webp', width: 220, height: 124, title: 'Happy dance' };
+test('GIFs: off without a klipyKey (no GIF button, and a GIF sent anyway is refused)', async () => {
+  const s = await start();
+  assert.equal((await s.state()).gifs, undefined);
+  const r = await s.post('/chat', { gif: GIF }, { as: 'Bob' });
+  assert.deepEqual([r.status, r.text], [400, 'GIFs are off on this Couchwave']);
+  assert.equal((await s.state()).chat.length, 0);
+  assert.match((await s.get('/')).headers['content-security-policy'], /(^|; )connect-src 'self'(;|$)/, 'the page can only talk to Couchwave');
+});
+
+test('GIFs with a klipyKey: the page gets the key and an anonymous id per person, can reach KLIPY, and GIFs it sends show in the chat', async () => {
+  const s = await start({ config: { klipyKey: 'test_Key-123456' } });
+  const a = (await s.state('Alice')).gifs, b = (await s.state('Bob')).gifs;
+  assert.deepEqual({ ...a, customer: undefined }, { key: 'test_Key-123456', api: 'https://api.klipy.com', filter: 'medium', customer: undefined });
+  assert.match(a.customer, /^[0-9a-f]{32}$/);
+  assert.notEqual(a.customer, b.customer, 'each person has their own id');
+  const page = await s.get('/'), csp = page.headers['content-security-policy'];
+  assert.match(page.text, /<input id="gifSearch" placeholder="Search KLIPY"/, 'KLIPY requires "Search KLIPY" in the search box');
+  assert.match(csp, /(^|; )connect-src 'self' https:\/\/api\.klipy\.com(;|$)/);
+  assert.match(csp, /(^|; )img-src [^;]*https:\/\/static\.klipy\.com https:\/\/static1\.klipy\.com https:\/\/static2\.klipy\.com/);
+
+  assert.equal((await s.post('/chat', { gif: { ...GIF, title: '  ' + 'x'.repeat(200), extra: 1 } }, { as: 'Bob' })).status, 204);
+  const m = (await s.state()).chat.at(-1);
+  assert.deepEqual(m.gif, { ...GIF, title: 'x'.repeat(120) });
+  assert.deepEqual([m.by, m.text], ['Bob', '']);
+
+  for (const bad of [
+    { ...GIF, url: 'https://evil.example/x.gif' }, { ...GIF, url: 'https://static.klipy.com.evil.example/x.gif' },
+    { ...GIF, url: 'http://static.klipy.com/x.gif' }, { ...GIF, url: 'javascript:alert(1)' }, { ...GIF, url: 'https://static.klipy.com/x" onerror="alert(1)' },
+    { ...GIF, width: 0 }, { ...GIF, height: 'tall' }, 'a string', null,
+  ]) {
+    const r = await s.post('/chat', { gif: bad }, { as: 'Bob' });
+    assert.deepEqual([r.status, r.text], [400, 'That GIF can\'t be sent'], JSON.stringify(bad));
+  }
+  assert.equal((await s.state()).chat.length, 1, 'none of those were posted');
+
+  await s.restart();
+  assert.equal((await s.state('Alice')).gifs.customer, a.customer, 'the same id after a restart');
+  assert.deepEqual((await s.state()).chat.at(-1).gif, { ...GIF, title: 'x'.repeat(120) }, 'GIFs are saved like messages');
+});
+
+test('GIFs count towards the chat speed limit', async () => {
+  const s = await start({ config: { klipyKey: 'test_Key-123456' } });
+  for (let i = 1; i <= 8; i++) assert.equal((await s.post('/chat', i % 2 ? { gif: GIF } : { text: 'msg ' + i }, { as: 'Bob' })).status, 204);
+  assert.equal((await s.post('/chat', { gif: GIF }, { as: 'Bob' })).status, 429);
+});
+
+test('klipyKey and gifFilter in config.json: a wrong value says what\'s expected', async () => {
+  const s = await start({ config: { klipyKey: 'not a key!' } });
+  await s.logHas(/klipyKey should be the API key from partner\.klipy\.com \(letters and numbers\), not "not a key!"; GIFs are off/);
+  assert.equal((await s.state()).gifs, undefined);
+  const f = await start({ config: { klipyKey: 'test_Key-123456', gifFilter: 'strict' } });
+  await f.logHas(/gifFilter should be off, low, medium, high, not "strict"; using medium/);
+  assert.equal((await f.state()).gifs.filter, 'medium');
+  const off = await start({ config: { klipyKey: 'test_Key-123456', gifFilter: 'Off' } });
+  assert.equal((await off.state()).gifs.filter, 'off');
+});
 });

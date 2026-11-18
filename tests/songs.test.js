@@ -24,7 +24,12 @@ test('not a YouTube link, or nothing at all: refused', async () => {
   const s = await start();
   assert.equal((await s.post('/add', { url: 'https://example.com/video' })).status, 400);
   assert.equal((await s.post('/add', { url: '   ' })).status, 400);
+  for (const url of ['https://www.youtube.com/watch?v=R8wM-EaYVd', 'https://youtu.be/R8wM-Ea', 'https://youtube.com/shorts/abc123']) {
+    const r = await s.post('/add', { url });
+    assert.deepEqual([r.status, r.text], [400, 'That link looks cut off. Copy the whole link from YouTube again'], url);
+  }
   assert.equal((await s.state()).queue.length, 0);
+  assert.ok(!(await s.log()).some(l => /added/.test(l)), 'nothing in Activity');
 });
 
 const found = (q, words) => q && q.url && q.url.endsWith(('1' + words.replace(/\W/g, '') + '0000000000').slice(0, 11));

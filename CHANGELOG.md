@@ -24,6 +24,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **A thumbs-up for the DJ's songs**: in the played history, like a song the DJ picked and it finds more
   like it, as if someone had asked for it. Click again to take the like back. Likes are private: you see
   only your own.
+- **GIFs in the chat**: a GIF button next to the emoji opens trending GIFs and a search, from KLIPY (free).
+  Click one to send it. It's off until you add your own free KLIPY key as `klipyKey` in config.json: see
+  [docs/INSTALL.md](docs/INSTALL.md#gifs-in-the-chat) for how to get one, and what to know.
 
 ### Changed
 
@@ -42,6 +45,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   It's now taken out as soon as its length is known (before anything downloads), and its Activity line
   says why, like "tried to add …, but it's longer than 3 hours". Any left over from before are cleared when
   Couchwave starts.
+- **A YouTube link that was cut off when copied went in the queue** and failed with a confusing yt-dlp error.
+  Adding it now says "That link looks cut off. Copy the whole link from YouTube again".
 
 ## v0.3.0 beta (2026-11-17)
 

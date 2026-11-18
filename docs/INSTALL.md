@@ -7,6 +7,7 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**. The one-line ins
 - [Windows, step by step](#windows)
 - [Linux, step by step (Debian, Ubuntu, Raspberry Pi OS)](#linux-debian-ubuntu-raspberry-pi-os)
 - [Settings](#settings)
+- [GIFs in the chat](#gifs-in-the-chat)
 - [Your data](#your-data)
 - [Keep it running](#keep-it-running)
 - [Letting friends in](#letting-friends-in)
@@ -175,6 +176,10 @@ itself when you save it; otherwise, restart it.
     usually can't be read; Firefox or a cookies file work.
 
   Use a spare Google account, not your main one: YouTube can block an account it thinks is a bot.
+- `klipyKey`: your own KLIPY key, which turns on GIFs in the chat. Without it there's no GIF button. See
+  [GIFs in the chat](#gifs-in-the-chat).
+- `gifFilter`: how strict KLIPY is about what GIFs show up: `"off"`, `"low"`, `"medium"` (the default) or
+  `"high"`. You can also block words and searches for your key in KLIPY's partner panel.
 
 A setting missing from an older `config.json` uses its default.
 
@@ -183,6 +188,41 @@ A setting missing from an older `config.json` uses its default.
 > address can join, chat, and add songs that **your computer then downloads**. Nicknames still have their
 > own passwords, but strangers can simply make up new ones. We strongly recommend never turning it on,
 > especially if Couchwave can be reached from the internet.
+
+## GIFs in the chat
+
+Couchwave can show a GIF button next to the emoji in the chat, with trending GIFs and a search, from
+[KLIPY](https://klipy.com). It's off until you add **your own KLIPY key**. Couchwave doesn't come with one:
+each Couchwave uses its own, so your room's use stays on your key, and a problem with anyone else's key never
+affects yours. Keys are free.
+
+1. Sign up at [partner.klipy.com](https://partner.klipy.com/), go to **API Keys**, and create a key.
+2. Add it to `config.json`, with a comma after the line above it, and quotes around the key:
+
+   ```json
+     "public": false,
+     "klipyKey": "paste your key here"
+   }
+   ```
+
+3. Save. On Windows (`start.cmd`) Couchwave restarts by itself; otherwise, restart it. Refresh the page and
+   the **GIF** button appears next to the emoji. If it doesn't, `data/server.log` says what's wrong with the key.
+4. A new key is in **testing mode**: 100 searches an hour, shared by everyone in your room. Once it works, ask
+   for **Production** access in the partner panel. It's free, and has no limit.
+
+What to know:
+
+- **Your friends can see the key.** KLIPY asks that searches and GIFs load straight from each person's
+  browser, not through your server, so the page is given the key once someone has logged in. Anyone who can
+  log in to your room could copy it. That's how KLIPY keys are meant to be used (apps like Discord work the same
+  way), but only use this key for Couchwave. If it's ever misused, delete it in the partner panel, make a new
+  one, and put that in `config.json`.
+- **What KLIPY sees:** the searches, which GIFs are sent, and each person's IP address, as any website does. It's
+  given an id for each person that stays the same but doesn't say who they are; it never gets nicknames,
+  messages or anything about your room.
+- **What shows up:** `gifFilter` in `config.json` sets how strict KLIPY is: `"off"`, `"low"`, `"medium"`
+  (the default) or `"high"`. In the partner panel you can also block words and searches for your key.
+- GIFs that were sent stay in the chat if you remove the key later; the button just goes away.
 
 ## Your data
 

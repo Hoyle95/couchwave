@@ -189,7 +189,7 @@ function toggleColorPop(e) {
   if (!pop.hidden) { const hex = myHex(); cur = rgbToHsv(...hexToRgb(hex)); drawPicker(hex); }
 }
 $('colorPop').onclick = e => e.stopPropagation();
-document.addEventListener('click', () => { $('colorPop').hidden = true; $('emojiPop').hidden = true; $('reactPop').hidden = true; });
+document.addEventListener('click', () => { $('colorPop').hidden = true; $('emojiPop').hidden = true; $('reactPop').hidden = true; $('gifPop').hidden = true; });
 
 let dragging = false;
 function wheelAt(e) {
@@ -256,6 +256,7 @@ function toggleEmoji(e) {
   const pop = $('emojiPop');
   if (pop.hidden) drawEmoji();
   pop.hidden = !pop.hidden;
+  $('gifPop').hidden = true;
 }
 $('emojiPop').onclick = e => {
   e.stopPropagation();
@@ -649,16 +650,16 @@ async function sendChat(e) {
 
 let cooldownTimer = null;
 function chatCooldown(seconds) {
-  const input = $('chatText'), btn = $('sendBtn'), until = Date.now() + seconds * 1000;
+  const input = $('chatText'), btn = $('sendBtn'), gifBtn = $('gifBtn'), until = Date.now() + seconds * 1000;
   const typed = input.value, placeholder = input.placeholder;
   if (cooldownTimer) return;
   input.value = '';
-  input.disabled = btn.disabled = true;
+  input.disabled = btn.disabled = gifBtn.disabled = true;
   const tick = () => {
     const left = Math.ceil((until - Date.now()) / 1000);
     if (left > 0) { input.placeholder = `Chat again in ${left}s`; return; }
     clearInterval(cooldownTimer); cooldownTimer = null;
-    input.disabled = btn.disabled = false;
+    input.disabled = btn.disabled = gifBtn.disabled = false;
     input.placeholder = placeholder;
     if (!input.value) input.value = typed;
   };
@@ -666,7 +667,71 @@ function chatCooldown(seconds) {
   cooldownTimer = setInterval(tick, 1000);
 }
 
-const bigEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t)
+// ---------- GIFs (KLIPY) ----------
+let gifs = null, gifItems = [], gifCols = [0, 0], gifShown = null, gifPage = 1, gifMore = false, gifBusy = false, gifSeq = 0, gifTimer = null;
+const gifImg = (g, lazy = true) => `<img class="gif" src="${esc(g.url)}" width="${+g.width}" height="${+g.height}" alt="${esc(g.title || 'GIF')}" title="${esc(g.title || '')}"${lazy ? ' loading="lazy"' : ''} referrerpolicy="no-referrer">`;
+const gifFile = item => { const f = item && item.file && (item.file.sm || item.file.md); return f && (f.webp || f.gif); };
+const gifApi = path => `${gifs.api}/api/v1/${encodeURIComponent(gifs.key)}/gifs/${path}`;
+async function loadGifs(more) {
+  if (!gifs || (more && (gifBusy || !gifMore))) return;
+  const q = $('gifSearch').value.trim(), seq = ++gifSeq;
+  gifPage = more ? gifPage + 1 : 1;
+  gifBusy = true;
+  const params = new URLSearchParams({ page: gifPage, per_page: 24, customer_id: gifs.customer, content_filter: gifs.filter, format_filter: 'webp,gif' });
+  if (q) params.set('q', q);
+  let list = null;
+  try {
+    const r = await fetch(`${gifApi(q ? 'search' : 'trending')}?${params}`, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const j = await r.json();
+    if (r.ok && j && j.data) { list = (j.data.data || []).filter(gifFile); gifMore = !!j.data.has_next; }
+  } catch {}
+  if (seq !== gifSeq) return;
+  gifBusy = false;
+  const grid = $('gifGrid');
+  if (!more) { gifItems = []; gifCols = [0, 0]; grid.innerHTML = '<div class="gifCol"></div><div class="gifCol"></div>'; grid.scrollTop = 0; gifShown = q; }
+  if (!list) { if (!gifItems.length) grid.innerHTML = '<div class="empty">Couldn\'t reach KLIPY. Try again in a moment.</div>'; gifMore = false; return; }
+  if (!more && !list.length) { grid.innerHTML = `<div class="empty">No GIFs found for “${esc(q)}”.</div>`; return; }
+  for (const item of list) {
+    const f = gifFile(item), c = gifCols[0] <= gifCols[1] ? 0 : 1;
+    gifCols[c] += f.height / f.width;
+    grid.children[c].insertAdjacentHTML('beforeend', `<button type="button" class="gifItem" data-g="${gifItems.length}" title="${esc(item.title || '')}">${gifImg({ ...f, title: item.title })}</button>`);
+    gifItems.push({ item, q });
+  }
+  if (gifMore && grid.scrollHeight - grid.clientHeight < 200) loadGifs(true);
+}
+function toggleGifs(e) {
+  e.stopPropagation();
+  const pop = $('gifPop');
+  pop.hidden = !pop.hidden;
+  $('emojiPop').hidden = true;
+  if (pop.hidden) return;
+  if (gifShown !== $('gifSearch').value.trim()) loadGifs(false);
+  if (!matchMedia('(pointer: coarse)').matches) $('gifSearch').focus();
+}
+$('gifPop').onclick = e => {
+  e.stopPropagation();
+  const b = e.target.closest('button[data-g]');
+  if (b && gifItems[+b.dataset.g]) sendGif(gifItems[+b.dataset.g]);
+};
+$('gifSearch').oninput = () => { clearTimeout(gifTimer); gifTimer = setTimeout(() => loadGifs(false), 450); };
+$('gifSearch').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(gifTimer); loadGifs(false); } };
+$('gifGrid').onscroll = () => { const g = $('gifGrid'); if (g.scrollHeight - g.scrollTop - g.clientHeight < 200) loadGifs(true); };
+async function sendGif({ item, q }) {
+  $('gifPop').hidden = true;
+  const f = gifFile(item), gif = { url: f.url, width: f.width, height: f.height, title: item.title || '' };
+  const mine = { t: Date.now(), by: myName, text: '', gif, pending: true };
+  pendingChat.push(mine); drawChat();
+  const r = await fetch('/chat', { method: 'POST', body: JSON.stringify({ gif }) }).catch(() => null);
+  if (r && r.ok) {
+    await poll();
+    fetch(gifApi(`share/${encodeURIComponent(item.slug)}`), { method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: gifs.customer, q }) }).catch(() => {});
+  }
+  pendingChat = pendingChat.filter(m => m !== mine); drawChat();
+  if (r && r.status === 429) chatCooldown(+r.headers.get('Retry-After') || 30);
+}
+
+const bigEmoji = t =>/^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t)
   && [...t.replace(/\s|\uFE0F|\u200D/g, "")].filter(c => /\p{Extended_Pictographic}/u.test(c)).length <= 3;
 function drawChat() {
   const c = $('chat');
@@ -676,7 +741,7 @@ function drawChat() {
       ${avatar(m.by)}
       <div class="body">
         <div class="head"><b class="nm" style="color:${nameColor(m.by)}">${esc(m.by)}</b><span class="time">${hhmm(m.t)}</span></div>
-        <div class="text${bigEmoji(m.text) ? ' big' : ''}">${esc(m.text)}</div>
+        ${m.gif ? `<div class="text">${gifImg(m.gif)}</div>` : `<div class="text${bigEmoji(m.text) ? ' big' : ''}">${esc(m.text)}</div>`}
       </div>
     </div>`).join('') || '<div class="empty">No messages yet — say hi!</div>';
   chatDrawn = true;
@@ -911,6 +976,8 @@ async function poll() {
   if (s.log || recolor) drawLog();
 
   if (s.history) { historyList = s.history; historyRev = s.historyRev; }
+  gifs = s.gifs || null;
+  $('gifBtn').hidden = !gifs;
   if (s.version && $('version').textContent !== `v${s.version}`) $('version').textContent = `v${s.version}`;
   if (s.history || recolor) drawHistory();
 
@@ -987,7 +1054,7 @@ const live = () => events && events.readyState === EventSource.OPEN;
 setInterval(() => { if (!live() || Date.now() - lastPoll > 10000) poll(); }, 2000);
 // ---------- Buttons and forms ----------
 const ACTIONS = {
-  add, join, logout, sendChat, skip, toggleAudioOnly, toggleChat, toggleChatMute, toggleColorPop, toggleEmoji,
+  add, join, logout, sendChat, skip, toggleAudioOnly, toggleChat, toggleChatMute, toggleColorPop, toggleEmoji, toggleGifs,
   toggleFs, toggleMute, togglePause, toggleReactPop, toggleTheme, unmute,
   togglePw: (e, el) => togglePw(el),
   copyNow: (e, el) => copyLink(nowUrl, el),

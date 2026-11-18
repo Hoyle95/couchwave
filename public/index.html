@@ -191,7 +191,13 @@
         <div id="chat"></div>
         <form id="chatForm" data-submit="sendChat">
           <div id="emojiPop" class="pop" hidden></div>
+          <div id="gifPop" class="pop" hidden>
+            <input id="gifSearch" placeholder="Search KLIPY" aria-label="Search KLIPY for a GIF" maxlength="100" autocomplete="off" enterkeyhint="search">
+            <div id="gifGrid"></div>
+            <div class="gifBy">Powered by KLIPY</div>
+          </div>
           <button type="button" id="emojiBtn" class="iconbtn" data-click="toggleEmoji" title="Emoji" aria-label="Emoji"><svg><use href="#i-smile"/></svg></button>
+          <button type="button" id="gifBtn" class="iconbtn" data-click="toggleGifs" title="GIFs" aria-label="GIFs" hidden>GIF</button>
           <input id="chatText" placeholder="Message… or !dj on" title="Type !dj on for a DJ that keeps the music going, !dj off to stop it" maxlength="500" autocomplete="off">
           <button id="sendBtn" title="Send"><svg><use href="#i-send"/></svg></button>
         </form>

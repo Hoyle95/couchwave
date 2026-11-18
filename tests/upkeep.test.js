@@ -186,9 +186,8 @@ test('--clear, for whoever runs Couchwave: the chat, Activity or played history,
 
 test('--status: whether it\'s running, who\'s online, what\'s playing, the queue, the DJ, disk space, the tools and the newest release', async () => {
   const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Next up', 'Bob')] } });
-  await s.state('Alice');
-  const page = setInterval(() => s.state('Alice').catch(() => {}), 500);
-  let r = await command(s, '--status').finally(() => clearInterval(page));
+  const leave = await s.keepOnline('Alice');
+  let r = await command(s, '--status').finally(leave);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   for (const line of [
     new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 27:46:40$/m,

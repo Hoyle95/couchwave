@@ -36,6 +36,8 @@
 
 - **Chat and emoji reactions** that float over the video, all instant. Chatting, adding songs, pausing and
   reactions have a speed limit, so nobody can flood the room.
+- **GIFs in the chat**, searched from [KLIPY](https://klipy.com), with trending ones first, once you add your
+  own free KLIPY key (see [GIFs in the chat](INSTALL.md#gifs-in-the-chat)).
 - **Who's online** (anyone with the page open, even in a background tab), and an **Activity log** of who
   added, removed or skipped songs, paused, and joined or left, with a sound for comings and goings (its own
   volume and mute).

@@ -356,6 +356,17 @@ body.fs #chat { flex: 1 1 0; height: auto; }
 
 #emojiPop { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; max-height: 280px; overflow-y: auto; padding: 8px 10px; gap: 4px; }
 #emojiPop .pop-title { margin: 6px 2px 2px; font-size: 11px; }
+#chatForm #gifBtn { padding: 6px 7px; font-size: 12px; font-weight: 800; letter-spacing: .03em; }
+#gifPop { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; padding: 10px; gap: 8px; }
+#gifPop input { padding: 8px 11px; }
+#gifGrid { height: 300px; overflow-y: auto; display: flex; align-items: flex-start; gap: 6px; }
+#gifGrid .gifCol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+#gifGrid .gifItem { display: block; width: 100%; padding: 0; background: var(--surface2); border-radius: 8px; overflow: hidden; }
+#gifGrid .gifItem:hover { filter: brightness(1.1); }
+#gifGrid .gifItem img { display: block; width: 100%; height: auto; }
+#gifGrid .empty { flex: 1; }
+.gifBy { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: right; }
+.msg .text img.gif { display: block; width: auto; height: auto; max-width: min(100%, 240px); max-height: 240px; border-radius: 8px; margin-top: 3px; }
 .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); }
 #emojiPop .emoji-grid button, #reactPop .emoji-grid button { background: none; padding: 4px 0; font-size: 22px; line-height: 1.2; border-radius: 8px; font-weight: 400; touch-action: manipulation; }
 #emojiPop .emoji-grid button:hover, #reactPop .emoji-grid button:hover { background: var(--surface2); filter: none; }
