@@ -465,7 +465,11 @@ function toggleMute() {
 }
 a.onvolumechange = () => ($('muteBtn').innerHTML = icon(a.muted || a.volume === 0 ? 'mute' : 'vol'));
 
-const fmt = t => { t = Math.floor(t || 0); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); };
+const fmt = t => {
+  t = Math.floor(t || 0);
+  const ss = String(t % 60).padStart(2, '0');
+  return t >= 3600 ? `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${ss}` : `${Math.floor(t / 60)}:${ss}`;
+};
 const showTime = t => ($('time').textContent = fmt(t) + ' / ' + fmt(seek.max));
 
 seek.oninput = () => { seeking = true; showTime(seek.value); paint(seek); };
@@ -704,9 +708,13 @@ $('log').onclick = e => {
   if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(poll); }
 };
 $('history').onclick = e => {
-  const copy = e.target.closest('.copy'), again = e.target.closest('.requeue');
+  const copy = e.target.closest('.copy'), again = e.target.closest('.requeue'), like = e.target.closest('.like');
   if (copy) copyLink(copy.dataset.url, copy);
   if (again) requeue(again);
+  if (like && !like.disabled) {
+    like.disabled = true;
+    post('/like', { url: like.dataset.url, t: +like.dataset.t, like: !like.classList.contains('on') }).then(poll).finally(() => { like.disabled = false; });
+  }
 };
 $('history').addEventListener('wheel', e => {
   const el = e.currentTarget;
@@ -766,14 +774,19 @@ function whenPlayed(t) {
     : d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + hhmm(t);
 }
 const ytThumbSmall = url => ytThumb(url).replace('/hqdefault.', '/mqdefault.');
+function likeButton(h) {
+  const mine = h.liked === true;
+  const tip = mine ? 'You liked it, so the DJ finds more like it. Click to take it back' : 'Like it, and the DJ finds more like it';
+  return `<button class="ghost like${mine ? ' on' : ''}" data-url="${esc(h.url)}" data-t="${h.t}" aria-pressed="${mine}" title="${esc(tip)}" aria-label="${esc(tip)}">${icon('thumb')}</button>`;
+}
 function drawHistory() {
   $('historyCount').textContent = historyList.length;
   const html = historyList.map(h => `
     <li>
-      <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer"></a>
+      <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer">${h.duration > 0 ? `<span class="hlen" title="How long it is">${fmt(h.duration)}</span>` : ''}</a>
       <span class="htitle" title="${esc(h.title)}">${esc(h.title)}</span>
-      <span class="hmeta">${avatar(h.by)} <span class="nm" style="color:${nameColor(h.by)}">${esc(h.by)}</span></span>
-      <span class="hmeta htime">${whenPlayed(h.t)}<span class="hbtns"><button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
+      <span class="hmeta">${avatar(h.by)} <span class="nm" style="color:${nameColor(h.by)}">${esc(h.by)}</span><span class="hbtns">${h.by === DJ_NAME ? likeButton(h) : ''}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
+      <span class="hmeta htime"><span class="hwhen" title="When it played">${icon('clock')}${whenPlayed(h.t)}</span></span>
     </li>`).join('') || '<li class="empty">Nothing played yet</li>';
   if (html !== lastHistory) { $('history').innerHTML = html; lastHistory = html; }
 }
@@ -898,6 +911,7 @@ async function poll() {
   if (s.log || recolor) drawLog();
 
   if (s.history) { historyList = s.history; historyRev = s.historyRev; }
+  if (s.version && $('version').textContent !== `v${s.version}`) $('version').textContent = `v${s.version}`;
   if (s.history || recolor) drawHistory();
 
   $('userCount').textContent = s.users.length;

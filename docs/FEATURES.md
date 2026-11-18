@@ -89,6 +89,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --remove-song <song>` | Takes a song out of the queue straight away, with no vote (and no Undo): give its number in the queue, its YouTube link, or part of its name. It shows the song and asks before removing it. On its own, it lists the queue with the numbers. |
 | `node server.js --clear <what>` | Clears the `chat`, the `activity` log or the played `history` (one or more, like `--clear chat activity`), or `all` of them, for everyone, straight away. It asks first, since it can't be undone, and Activity notes that it was cleared. On its own, it says how much there is of each. |
 | `node server.js --status` | How Couchwave is doing: whether it's running, who's online, what's playing, the queue, the DJ, the free disk space, the versions of yt-dlp, ffmpeg and Node.js, and whether there's a newer Couchwave. |
+| `node server.js --version` | Shows which version of Couchwave this is. |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
 also logs everyone out.
@@ -105,9 +106,13 @@ Anyone can type these in the chat (they aren't posted as messages):
 
 The DJ:
 
-- **Picks** from YouTube's Mix of songs people asked for or played, preferring other artists. It never
-  starts from its own picks, even after they've played. It only picks songs between 1 and 20 minutes long,
-  and skips repeats, albums and mixes.
+- **Picks** from YouTube's Mix of songs people asked for, once they've played (the played history, not
+  songs still waiting in the queue), preferring other artists. Its one rule is length: it only goes on songs
+  between 1 and 20 minutes long, and only picks songs that long, skipping repeats. It never goes on its own
+  picks unless someone likes them (below).
+- **Learns from 👍**: its songs in the played history (including the one playing now) have a thumbs-up
+  button. Once someone likes one, the DJ finds more like it too ("a liked song" in Activity). Click it again
+  to take the like back. Likes are private: you see only your own, and only the DJ uses them.
 - **Fills up gently**: its first songs come straight away, then it asks YouTube for one more Mix every 10
   seconds until it has 10 queued, so it doesn't rush YouTube.
 - **Queues its songs after everyone else's**, as "DJ" 🎧. Skipping or removing them is a vote, like any song.
@@ -120,12 +125,30 @@ The DJ:
 
 | Where | What's there |
 |---|---|
-| `server.js` | The server: accounts, the queue, downloads, votes, playback and everything pages ask for. |
-| `dj.js` | The DJ. It only uses what `server.js` hands it. |
+| `server.js` | Where it starts: the version, then either one of the commands above or the server. |
+| `lib/start.js` | Starts the server, in order: settings, the saved room, the DJ, upkeep, then the web server. |
+| `lib/room.js` | Everything the room has (the queue, what's playing, history, chat, Activity, votes, who's here), loading and saving it, and telling pages something changed. |
+| `lib/songs.js` | Adding songs (links, playlists, searches), where they go in the queue, removing them, and votes to remove. |
+| `lib/downloads.js` | Reading YouTube with yt-dlp, downloading, loudness, retries, and the disk space check. |
+| `lib/playback.js` | Playing the next song, votes to skip, and what happens every second. |
+| `lib/presence.js` | Who's here, joining and leaving. |
+| `lib/routes.js` | Everything pages ask for, logging in, and the web server. |
+| `lib/web.js` | Sending the page and songs (paced to playing speed), JSON, and the security headers. |
+| `lib/accounts.js`, `lib/logins.js` | Nicknames and their passwords, and the login cookies on each device. |
+| `lib/addresses.js`, `lib/limits.js` | Visitors' addresses behind proxies, and the limits on guessing and going too fast. |
+| `lib/settings.js`, `lib/log.js` | `config.json`, and `data/server.log`. |
+| `lib/admin.js`, `lib/commands.js` | The commands above, and how the server answers them while it runs. |
+| `lib/upkeep.js` | Checking the tools, keeping yt-dlp up to date, the new-version check and daily backups. |
+| `lib/common.js`, `lib/tools.js` | Shared basics (folders, saving files safely, times, YouTube links), and running yt-dlp, ffmpeg and ffprobe. |
+| `lib/dj.js` | The DJ. It only uses what `lib/start.js` hands it. |
 | `public/` | What browsers load: `index.html`, `css/style.css`, `js/theme.js` and `js/app.js`, `fonts/` and `icons/`. |
 | `tests/` | The tests, with stand-ins for yt-dlp, ffmpeg and ffprobe in `tests/fakes/`. |
 
 Comments in the code are only short section headers; how things should behave is described in these docs.
+Files in `lib/` can need each other, so each one adds what it shares to `exports` at the end
+(`Object.assign(exports, …)`) instead of replacing `module.exports`, and reaches into the others when it
+runs (`room.queue`, `downloads.pump()`) rather than copying them when it loads. The room's state lives on
+`room`, so the other files see the same queue.
 The page's security policy blocks inline scripts, including `onclick="…"`: give an element
 `data-click="name"` (or `data-submit`, `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `app.js`.
 
@@ -133,7 +156,7 @@ After changing the code, run `node --test` (about 20 seconds). Each test runs ag
 Couchwave (temporary folder, password and port), so your real server and data are never touched, even while
 it's running. The stand-ins mean it needs no internet. The test servers run their clock 4x faster
 (`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10. Other
-`COUCHWAVE_…` variables in `tests/helpers.js` and `server.js` are only for the tests. Every push to `main`
+`COUCHWAVE_…` variables in `tests/helpers.js` and `lib/` are only for the tests. Every push to `main`
 also runs them on Linux and Windows (`.github/workflows/tests.yml`). The one-line installers (`install.ps1`,
 `install.sh`) are tried for real on fresh Linux and Windows machines whenever they change, and after each
 release (`.github/workflows/install.yml`): install, check it runs and starts with the computer, update, stop.

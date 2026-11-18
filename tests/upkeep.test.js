@@ -190,7 +190,7 @@ test('--status: whether it\'s running, who\'s online, what\'s playing, the queue
   let r = await command(s, '--status');
   assert.equal(r.status, 0, r.stdout + r.stderr);
   for (const line of [
-    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 1666:40$/m,
+    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 27:46:40$/m,
     /^Queue: 1 song \(1 ready\)$/m, /^The DJ is off\.$/m, /^Disk: [\d.]+ GB free$/m,
     /^Tools: yt-dlp 2026\.10\.26, ffmpeg 7\.1-test, ffprobe 7\.1-test, Node\.js \S+$/m, /^Newest release: couldn't check$/m,
   ]) assert.match(r.stdout, line);

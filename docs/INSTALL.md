@@ -146,7 +146,8 @@ itself when you save it; otherwise, restart it.
 - `port`: 3000 by default (any whole number from 1 to 65535).
 - `votePercent`: how many of the people online have to vote to skip a song or remove someone else's.
   60 by default, so 2 of 3 or 3 of 5.
-- `maxVideoHours`: how long any one video can be, in hours (each is downloaded in full to your computer).
+- `maxVideoHours`: how long any one video can be, in hours (each is downloaded in full to your computer). A
+  longer one is taken out of the queue as soon as its length is known, and Activity says why.
   3 by default; any number works, like `1.5` (an hour and a half) or `0.25` (15 minutes).
 - `downloadAhead`: how many songs at the top of the queue are downloaded ahead of time, so they play
   without waiting. 20 by default. The rest download as they move up, so a long playlist doesn't fill the disk.

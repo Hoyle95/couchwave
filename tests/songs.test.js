@@ -120,13 +120,12 @@ test('a download that fails says why; YouTube\'s hiccups are retried by themselv
   await waitFor(() => inQueue(s, x => x.id === perm.id && x.status === 'failed'), 5000, 'failing again');
 });
 
-test('longer than maxVideoHours (3 by default): refused before downloading, with the reason', async () => {
+test('longer than maxVideoHours (3 by default): taken out of the queue before downloading, and Activity says why', async () => {
   const s = await start();
   await s.post('/add', { url: yt('long_000001') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
-  assert.equal(q.error, 'Longer than 3 hours');
-  assert.equal(q.retrying, false, 'for good: trying again won\'t make it shorter');
-  assert.deepEqual(fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => f.startsWith(q.id + '-')), [], 'nothing downloaded');
+  await waitFor(async () => (await s.log()).includes(`Alice: tried to add ${yt('long_000001')}, but it's longer than 3 hours`), 5000, 'Activity to say why');
+  assert.equal(await inQueue(s, q => q.url.endsWith('long_000001')), undefined, 'not in the queue');
+  assert.deepEqual(fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => !f.startsWith('test-')), [], 'nothing downloaded');
   await s.post('/add', { url: yt('okay_000003') });
   await waitFor(() => inQueue(s, x => x.url.endsWith('okay_000003') && x.status === 'ready'), 5000, 'a normal song to download');
 });
@@ -145,8 +144,7 @@ test('maxVideoHours in config.json: any number of hours, not just whole ones (1.
   for (const [maxVideoHours, text] of [[1.5, '1 hour 30 minutes'], [0.3, '18 minutes'], [1, '1 hour'], [3.75, '3 hours 45 minutes']]) {
     const s = await servers({ config: { maxVideoHours }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
     await s.post('/add', { url: yt('long_000002') });
-    const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
-    assert.equal(q.error, `Longer than ${text}`, `maxVideoHours ${maxVideoHours}`);
+    await waitFor(async () => (await s.log()).includes(`Alice: tried to add ${yt('long_000002')}, but it's longer than ${text}`), 5000, `maxVideoHours ${maxVideoHours}`);
   }
   const big = await servers({ config: { maxVideoHours: 5 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
   await big.post('/add', { url: yt('long_000003') });
@@ -182,9 +180,16 @@ test('downloadAhead in config.json: only the top songs of the queue are download
 test('a video that doesn\'t say how long it is, but turns out too long once downloaded: removed, with the reason', async () => {
   const s = await servers({ config: { maxVideoHours: 0.01 }, initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) } });
   await s.post('/add', { url: yt('nolen000002') });
-  const q = await waitFor(() => inQueue(s, q => q.status === 'failed'), 5000, 'the failure');
-  assert.equal(q.error, 'Longer than 1 minute');
-  await waitFor(() => fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => f.startsWith(q.id + '-')).length === 0, 3000, 'its files deleted');
+  await waitFor(async () => (await s.log()).includes('Alice: tried to add "Song nolen000002", but it\'s longer than 1 minute'), 5000, 'Activity to say why');
+  assert.equal(await inQueue(s, q => q.url.endsWith('nolen000002')), undefined, 'not in the queue');
+  await waitFor(() => fs.readdirSync(path.join(s.dir, 'data', 'downloads')).filter(f => !f.startsWith('test-')).length === 0, 3000, 'its files deleted');
+});
+
+test('a too-long song left failed in the queue by an older Couchwave: taken out when it starts', async () => {
+  const s = await servers({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }),
+    queue: [song(2, 'Old long one', 'Bob', { status: 'failed', error: 'Longer than 3 hours', file: undefined }), song(3, 'Fine one', 'Bob')] } });
+  assert.deepEqual((await s.state()).queue.map(q => q.title), ['Fine one']);
+  assert.ok((await s.log()).includes('Bob: tried to add "Old long one", but it\'s longer than 3 hours'));
 });
 
 test('a video whose length YouTube doesn\'t say: measured from the file', async () => {

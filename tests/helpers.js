@@ -3,7 +3,7 @@ const fs = require('fs'), os = require('os'), path = require('path'), http = req
 const { spawn } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
-const APP_FILES = ['server.js', 'dj.js', 'public'];
+const APP_FILES = ['server.js', 'lib', 'public'];
 const PASSWORD = 'test-password';
 const ownPassword = name => 'own-' + name;
 const TIME = 0.25;

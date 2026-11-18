@@ -12,6 +12,31 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   password. If port 3000 is already taken, it picks the next free one. Running it again updates Couchwave,
   keeping your settings and data. See
   [docs/INSTALL.md](docs/INSTALL.md#one-line-install).
+- **How long each song is, in the played history**: shown on its picture, like on YouTube. The time under it,
+  now with a little clock, is when it played. Songs over an hour now show as hours, like 2:01:00 instead of 121:00.
+- **Which version of Couchwave this is**: under the footer once you've joined (like v0.3.0-beta), and with
+  `node server.js --version`.
+- **A thumbs-up for the DJ's songs**: in the played history, like a song the DJ picked and it finds more
+  like it, as if someone had asked for it. Click again to take the like back. Likes are private: you see
+  only your own.
+
+### Changed
+
+- **The code is reorganised** into smaller files in a new `lib/` folder (the DJ moved there too), so it's
+  easier to work on. Couchwave works just the same, and `node server.js` still starts it. If you update by
+  copying files over by hand, copy the new `lib/` folder too; the old `dj.js` can be deleted.
+
+### Fixed
+
+- **The DJ followed long videos**: it found "more like" a 2-hour focus-music playlist, and queued ambient
+  tracks and drone videos. It now only goes on songs that have played (so it knows how long they are) and
+  are between 1 and 20 minutes long, the same rule as for the songs it picks (if nothing fits, it says so in
+  the chat). It no longer judges songs by their titles: it used to skip any with words like "mix", "live" or
+  "playlist" in them.
+- **A video longer than the limit stayed in the queue** as failed, with a Retry button that couldn't help.
+  It's now taken out as soon as its length is known (before anything downloads), and its Activity line
+  says why, like "tried to add …, but it's longer than 3 hours". Any left over from before are cleared when
+  Couchwave starts.
 
 ## v0.3.0 beta (2026-11-17)
 

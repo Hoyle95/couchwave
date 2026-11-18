@@ -8,6 +8,15 @@ const start = testServers({ after });
 let s;
 before(async () => { s = await start(); });
 
+test('the version, for the footer: only for people who are logged in', async () => {
+  const version = /const VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'))[1];
+  assert.equal((await s.state()).version, version);
+  const room = await s.get('/room', { cookie: '' });
+  assert.equal(room.status, 200);
+  assert.equal(room.json.version, undefined, 'not before logging in');
+  assert.equal((await s.get('/state', { cookie: '' })).status, 401);
+});
+
 test('the page has no scripts of its own (so the security policy can block every inline script)', () => {
   const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
   assert.doesNotMatch(html, /<script>/, 'no inline <script>');
@@ -35,8 +44,9 @@ test('security headers on everything: a strict script policy, no framing, no sni
   }
 });
 
-test('app.js, theme.js, server.js and dj.js have no syntax errors', () => {
-  for (const f of ['public/js/app.js', 'public/js/theme.js', 'server.js', 'dj.js']) {
+test('app.js, theme.js, server.js and everything in lib/ have no syntax errors', () => {
+  const lib = fs.readdirSync(path.join(ROOT, 'lib')).filter(f => f.endsWith('.js')).map(f => 'lib/' + f);
+  for (const f of ['public/js/app.js', 'public/js/theme.js', 'server.js', ...lib]) {
     assert.doesNotThrow(() => new Function(fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/^#!.*/, '')), f);
   }
 });

@@ -36,7 +36,7 @@ jobs:
           mkdir out
           git archive --format=tar HEAD -- . ':!.github' | tar -x -C out
           sed -i 's/\r*$/\r/' out/start.cmd
-          if grep -q $'\r' out/server.js; then echo "::error::server.js has Windows line endings"; exit 1; fi
+          if grep -lq $'\r' out/server.js out/lib/*.js; then echo "::error::server.js or lib/ has Windows line endings"; exit 1; fi
           (cd out && zip -qrX "../couchwave-$TAG.zip" .)
           unzip -l "couchwave-$TAG.zip" | tail -1
 

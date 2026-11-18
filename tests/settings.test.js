@@ -49,8 +49,7 @@ test('settings that don\'t make sense fall back to their defaults, and the log s
   for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n);
   assert.equal((await s.state()).skip.need, 2, 'votePercent: 60% of 3');
   await s.post('/add', { url: yt('long_000004') });
-  const q = await waitFor(async () => (await s.state()).queue.find(x => x.status === 'failed'), 5000, 'the too-long video to fail');
-  assert.equal(q.error, 'Longer than 3 hours', 'maxVideoHours: 3');
+  await waitFor(async () => (await s.log()).includes(`Alice: tried to add ${yt('long_000004')}, but it's longer than 3 hours`), 5000, 'maxVideoHours: 3');
   for (const trustProxy of [['not an address'], ['10.0.0.0/33'], 0]) {
     const t = await start({ config: { trustProxy } });
     await t.logHas(/trustProxy should be true, false, or a list of addresses/);

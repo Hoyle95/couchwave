@@ -5,7 +5,7 @@ const fs = require('fs'), path = require('path');
 const { testServers, song, yt, waitFor, sleep, secs, PASSWORD, ownPassword } = require('./helpers');
 
 const servers = testServers({ after });
-const start = (initial = { here: {} }) => servers({ initial });
+const start = (initial = { here: {} }) => servers({ initial: { ...initial, history: (initial.history || []).map(h => ({ duration: 200, ...h })) } });
 const CHECKS = secs(5);
 const vid = q => (/v=([\w-]{11})/.exec(q.url || '') || [])[1];
 const say = (s, as, text) => s.post('/chat', { text }, { as });
@@ -84,12 +84,25 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok(Date.now() - t < secs(20), `picked up in ${((Date.now() - t) / secs(1)).toFixed(1)} (server) seconds, not after its 30-second wait`);
   });
 
+  test('only songs that have played are starting points, not ones still waiting in the queue', async () => {
+    const s = await start({ here: {}, current: song(1, 'Playing now', 'Zed', { duration: 100000 }) });
+    const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim(); } catch { return ''; } };
+    await s.post('/add', { url: yt('bobs_000005') }, { as: 'Bob' });
+    await say(s, 'Bob', '!dj on');
+    await sleep(CHECKS);
+    assert.equal(asked(), '', 'nothing asked about the song still waiting');
+    assert.equal((await djSongs(s)).length, 0);
+    await s.post('/skip', { id: 1 }, { as: 'Bob' });
+    await s.post('/skip', { id: 1 }, { as: 'Alice' });
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added .* from Bob\)$/.test(l)), 12000, 'the DJ to go on Bob\'s song once it plays');
+  });
+
   test('always after people\'s songs: a song added later still goes ahead of the DJ\'s', async () => {
     const s = await start();
     await aliceSong(s, 'play_000003');
     await s.post('/add', { url: yt('bobs_000001') }, { as: 'Bob' });
     await say(s, 'Bob', '!dj on');
-    await waitFor(() => djCount(5)(s), 20000, 'DJ songs');
+    await waitFor(() => djCount(3)(s), 20000, 'DJ songs');
     await s.post('/add', { url: yt('cara_000001') }, { as: 'Cara' });
     await s.post('/add', { url: yt('bobs_000002') }, { as: 'Bob' });
     const q = (await s.state()).queue;
@@ -208,6 +221,53 @@ describe('the DJ', { concurrency: true }, () => {
     await waitFor(async () => (await s.state()).queue.find(x => x.id === 2)?.status === 'failed', 8000, 'someone else\'s to fail too');
     await sleep(500);
     assert.equal((await s.state()).queue.find(x => x.id === 2)?.status, 'failed', 'someone else\'s stays, with its Retry button');
+  });
+
+  test('only songs between 1 and 20 minutes are starting points: says so if that\'s all there is, and goes on from one once there is one', async () => {
+    const now = Date.now();
+    const s = await start({ here: {}, history: [
+      { url: yt('long_000001'), title: 'Song long_000001', by: 'Bob', t: now, duration: 7260 },
+      { url: yt('shrt_000001'), title: 'Song shrt_000001', by: 'Bob', t: now - 60000, duration: 30 },
+    ] });
+    const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n').map(l => l.split('\t')[0]); } catch { return []; } };
+    await say(s, 'Bob', '!dj on');
+    await waitFor(async () => (await s.state()).chat.some(m => m.by === 'DJ' && /between 1 and 20 minutes long/.test(m.text)), 8000, 'the DJ to say it needs a song of the right length');
+    assert.deepEqual(asked(), [], 'it didn\'t ask YouTube for songs like them');
+    await aliceSong(s, 'musc_000003');
+    assert.equal((await s.state()).history.find(h => h.url.endsWith('musc_000003')).duration, 200, 'the history keeps how long it is');
+    await waitFor(() => djCount(1)(s), 8000, 'the DJ to carry on from Alice\'s song');
+    assert.ok(asked().every(id => id === 'musc_000003'), 'only asked about Alice\'s song: ' + asked().join(', '));
+    const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
+    assert.ok(picks.every(l => /from Alice\)$/.test(l)), picks.join('\n'));
+  });
+
+  test('a thumbs-up on one of its songs in the history: it finds more like it; only its songs can be liked, each person sees only their own like, and it can be taken back', async () => {
+    const now = Date.now();
+    const djSong = { url: yt('djlk_000001'), title: 'Song djlk_000001', by: 'DJ', t: now }, bobSong = { url: yt('bobs_000001'), title: 'Song bobs_000001', by: 'Bob', t: now - 60000 };
+    const s = await start({ here: {}, history: [djSong, bobSong] });
+    const like = (as, h, yes = true) => s.post('/like', { url: h.url, t: h.t, like: yes }, { as });
+    const seenBy = async (as, url) => (await s.state(as)).history.find(h => h.url === url);
+    const saved = url => JSON.parse(fs.readFileSync(s.statePath, 'utf8')).history.find(h => h.url === url).likedBy;
+
+    await like('Alice', bobSong);
+    assert.equal(saved(bobSong.url), undefined, 'people\'s own songs have no thumbs-up');
+    await like('Alice', djSong);
+    await like('Alice', djSong, false);
+    await like('Alice', djSong);
+    await like('Cara', djSong);
+    assert.deepEqual(saved(djSong.url), ['Alice', 'Cara'], 'both likes count for the DJ');
+    assert.equal((await seenBy('Alice', djSong.url)).liked, true, 'Alice sees her like');
+    assert.equal((await seenBy('Bob', djSong.url)).liked, undefined, 'Bob, who didn\'t like it, sees nothing');
+    assert.ok(!JSON.stringify((await s.state('Bob')).history).includes('Cara'), 'nobody sees who liked it');
+    assert.ok(!(await s.log()).some(l => /liked/.test(l)), 'and Activity doesn\'t say');
+
+    await say(s, 'Bob', '!dj on');
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added .* \(like "Song djlk_000001", a liked song\)$/.test(l)), 12000, 'a pick like the liked song');
+
+    await like('Alice', djSong, false);
+    await like('Cara', djSong, false);
+    assert.equal(saved(djSong.url), undefined, 'and the likes can be taken back');
+    assert.equal((await seenBy('Alice', djSong.url)).liked, undefined);
   });
 
   test('picks songs between 1 and 20 minutes long', async () => {
