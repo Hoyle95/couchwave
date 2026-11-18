@@ -83,6 +83,7 @@ WorkingDirectory=$DIR
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=$(command -v node) server.js
 Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -116,5 +117,7 @@ IPS=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if (
 for ip in $IPS; do echo "  Friends at home:  http://$ip:$PORT"; done
 [ -n "$PASSWORD" ] && echo "  Room password:    $PASSWORD   (in $DIR/config.json)"
 if [ "$HAS_SYSTEMD" = 1 ]; then echo "  It starts with the computer. To stop it: sudo systemctl stop $SERVICE"; fi
-echo "  Run the same line again any time to update. To let friends in from the internet, see"
+if grep -q "'--update'" "$DIR/server.js"; then echo "  To update later: cd $DIR && node server.js --update (or run the same line again)."
+else echo "  Run the same line again any time to update."; fi
+echo "  To let friends in from the internet, see"
 echo "  https://github.com/Hoyle95/couchwave/blob/main/docs/INSTALL.md#letting-friends-in"

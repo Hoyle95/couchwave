@@ -139,6 +139,8 @@ Write-Host "  Open it:          http://localhost:$port"
 foreach ($ip in $ips) { Write-Host "  Friends at home:  http://${ip}:$port" }
 if ($password) { Write-Host "  Room password:    $password   (in $config)" }
 Write-Host "  It starts with the PC. To stop it, double-click stop.cmd in $Dir."
-Write-Host '  Run the same line again any time to update. To let friends in from the internet, see'
+if (Test-Path (Join-Path $Dir 'update.cmd')) { Write-Host "  To update later, double-click update.cmd in $Dir (or run this line again)." }
+else { Write-Host '  Run the same line again any time to update.' }
+Write-Host '  To let friends in from the internet, see'
 Write-Host '  https://github.com/Hoyle95/couchwave/blob/main/docs/INSTALL.md#letting-friends-in'
 if ($up -and -not $env:COUCHWAVE_NO_BROWSER) { try { Start-Process "http://localhost:$port" } catch {} }

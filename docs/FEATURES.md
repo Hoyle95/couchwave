@@ -89,6 +89,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | `node server.js --remove-song <song>` | Takes a song out of the queue straight away, with no vote (and no Undo): give its number in the queue, its YouTube link, or part of its name. It shows the song and asks before removing it. On its own, it lists the queue with the numbers. |
 | `node server.js --clear <what>` | Clears the `chat`, the `activity` log or the played `history` (one or more, like `--clear chat activity`), or `all` of them, for everyone, straight away. It asks first, since it can't be undone, and Activity notes that it was cleared. On its own, it says how much there is of each. |
 | `node server.js --status` | How Couchwave is doing: whether it's running, who's online, what's playing, the queue, the DJ, the free disk space, the versions of yt-dlp, ffmpeg and Node.js, and whether there's a newer Couchwave. |
+| `node server.js --update` | Updates to the newest release: checks the download's checksum, tries the new version out first, keeps the old one in `data/update/previous`, restarts Couchwave, and goes back if the new version doesn't start. On Windows `update.cmd` does the same with a double-click. Not in a git copy (use `git pull`) or Docker. See [Updating](INSTALL.md#updating). |
 | `node server.js --version` | Shows which version of Couchwave this is. |
 
 Nicknames ignore capitals and extra spaces (`lvj` is `LVJ`). Changing the room password in `config.json`
@@ -139,6 +140,7 @@ The DJ:
 | `lib/settings.js`, `lib/log.js` | `config.json`, and `data/server.log`. |
 | `lib/admin.js`, `lib/commands.js` | The commands above, and how the server answers them while it runs. |
 | `lib/upkeep.js` | Checking the tools, keeping yt-dlp up to date, the new-version check and daily backups. |
+| `lib/update.js` | `--update`: the download, its checksum, the trial run, putting files in place, and going back. |
 | `lib/common.js`, `lib/tools.js` | Shared basics (folders, saving files safely, times, YouTube links), and running yt-dlp, ffmpeg and ffprobe. |
 | `lib/dj.js` | The DJ. It only uses what `lib/start.js` hands it. |
 | `public/` | What browsers load: `index.html`, `css/style.css`, `js/theme.js` and `js/app.js`, `fonts/` and `icons/`. |

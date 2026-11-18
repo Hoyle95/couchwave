@@ -31,11 +31,11 @@ jobs:
       - name: Run the tests (no zip if they fail)
         run: node --test
 
-      - name: Build the zip (files at the top, start.cmd with Windows line endings)
+      - name: Build the zip (files at the top, the .cmd files with Windows line endings)
         run: |
           mkdir out
           git archive --format=tar HEAD -- . ':!.github' | tar -x -C out
-          sed -i 's/\r*$/\r/' out/start.cmd
+          sed -i 's/\r*$/\r/' out/*.cmd
           if grep -lq $'\r' out/server.js out/lib/*.js; then echo "::error::server.js or lib/ has Windows line endings"; exit 1; fi
           (cd out && zip -qrX "../couchwave-$TAG.zip" .)
           unzip -l "couchwave-$TAG.zip" | tail -1

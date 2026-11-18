@@ -38,7 +38,8 @@ curl -fsSL https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.sh |
 ```
 
 It installs what Couchwave needs, makes it start with the computer, starts it, and shows you its address and
-room password. Run it again to update. More in the [setup guide](docs/INSTALL.md#one-line-install).
+room password. To update later, double-click `update.cmd` (Windows) or run `node server.js --update`. More in
+the [setup guide](docs/INSTALL.md#one-line-install).
 
 ## Feedback
 

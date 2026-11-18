@@ -6,6 +6,11 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ### Added
 
+- **Update with one command**: `node server.js --update`, or double-click `update.cmd` on Windows. It checks
+  the download against GitHub's checksum, tries the new version out before installing it, keeps the old one,
+  restarts Couchwave, and goes back by itself if the new version doesn't start. Your settings and data are
+  never touched. "A newer Couchwave is out" in Activity now says to run it. It only updates when you ask. See
+  [docs/INSTALL.md](docs/INSTALL.md#updating).
 - **One-line install**: paste one line into PowerShell (Windows) or a terminal (Debian, Ubuntu, Raspberry Pi
   OS), and it installs Node.js, yt-dlp and ffmpeg if they're missing, downloads the newest Couchwave, makes it
   start with the computer, lets friends on your home network in, starts it, and shows the address and room

@@ -136,7 +136,7 @@ test('a newer Couchwave: Activity says so once (not after every restart); nothin
     reply = [{ tag_name: 'v99.0.0-beta', draft: true }, { tag_name: 'v98.0.0-beta', draft: false }];
     await s.restart();
     await waitFor(async () => (await told(s)).length, 5000, 'Activity to say so');
-    assert.deepEqual(await told(s), [`server: a newer Couchwave is out: v98.0.0-beta (this is v${version}). Whoever runs it can update: see docs/INSTALL.md#updating`], 'the newest that isn\'t a draft');
+    assert.deepEqual(await told(s), [`server: a newer Couchwave is out: v98.0.0-beta (this is v${version}). Whoever runs it can update with: node server.js --update (or update.cmd on Windows)`], 'the newest that isn\'t a draft');
     await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"newestTold":"v98.0.0-beta"'), 3000, 'it to be saved');
     await s.restart();
     const n = asked;

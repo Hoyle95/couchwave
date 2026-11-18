@@ -57,8 +57,9 @@ It does everything the step-by-step guides below do, with good defaults:
   shows it.
 
 On Windows it asks for administrator rights once (for starting with the PC and the firewall rule); on Linux
-it asks for your password for `sudo`. **To update, run the same line again**: it stops Couchwave, puts the new
-version in place and starts it again, keeping your `config.json` and `data/`.
+it asks for your password for `sudo`. **To update**, double-click `update.cmd` (Windows) or run
+`node server.js --update` in the Couchwave folder (see [Updating](#updating)), or run the same line again. Either
+way your `config.json` and `data/` are kept.
 
 Like any script you paste from the internet, you can read it first:
 [install.ps1](https://github.com/Hoyle95/couchwave/blob/main/install.ps1) and
@@ -234,6 +235,7 @@ WorkingDirectory=$PWD
 Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/env node server.js
 Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -292,9 +294,29 @@ is out". Your settings and everything people have done are kept: `config.json` a
 the download, so updating never touches them. To see what's changed first, read the
 [changelog](../CHANGELOG.md).
 
-**Easiest: run the [one-line install](#one-line-install) again.** It does the steps below for you (it works
-for a Couchwave installed by hand too, as long as it's in the same folder: set `COUCHWAVE_DIR` if it isn't
-the default).
+**Easiest: the update command.** On Windows, double-click `update.cmd` in your Couchwave folder. Anywhere,
+run this in the Couchwave folder:
+
+```sh
+node server.js --update
+```
+
+It asks first (saying how many people are listening, since it restarts Couchwave), then:
+
+1. downloads the newest release and checks it against the checksum GitHub publishes for it,
+2. tries the new version out on a spare port with a copy of your data, and stops there if it doesn't start,
+3. keeps the version it replaces in `data/update/previous`, and puts the new files in place,
+4. restarts Couchwave the right way for how it runs (`start.cmd` and the startup task pick the new files up
+   by themselves; the Linux service is asked to restart; started by hand, it stops it and says to start it
+   again),
+5. and if the new version doesn't come up, puts the old one back.
+
+It doesn't run in a copy of the git repository (use `git pull`, below) or in Docker (pull the new image).
+`node server.js --update --yes` skips the question, for scripts. It never updates by itself.
+
+**Or run the [one-line install](#one-line-install) again.** It also installs anything missing (it works for a
+Couchwave installed by hand too, as long as it's in the same folder: set `COUCHWAVE_DIR` if it isn't the
+default).
 
 **By hand: the newest release.**
 
