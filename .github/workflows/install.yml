@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
 jobs:
   linux:
     if: github.repository == 'Hoyle95/couchwave'

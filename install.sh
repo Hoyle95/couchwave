@@ -38,7 +38,9 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "  Node.js $(node --version), yt-dlp $(yt-dlp --version)"
 
 step "Downloading the newest Couchwave"
-URL=$(curl -fsSL -H 'User-Agent: Couchwave installer' 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' | node -e '
+AUTH=()
+[ -n "${GITHUB_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
+URL=$(curl -fsSL "${AUTH[@]}" -H 'User-Agent: Couchwave installer' 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' | node -e '
   let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
     const r = JSON.parse(s).find(r => !r.draft), a = r && r.assets.find(a => /^couchwave-.*\.zip$/.test(a.name));
     if (!a) process.exit(1);

@@ -69,7 +69,9 @@ foreach ($tool in 'node', 'yt-dlp', 'ffmpeg') {
 Write-Host "  Node.js $(node --version), yt-dlp $(yt-dlp --version)"
 
 Step 'Downloading the newest Couchwave'
-$releases = Invoke-RestMethod 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' -Headers @{ 'User-Agent' = 'Couchwave installer' }
+$headers = @{ 'User-Agent' = 'Couchwave installer' }
+if ($env:GITHUB_TOKEN) { $headers.Authorization = "Bearer $env:GITHUB_TOKEN" }
+$releases = Invoke-RestMethod 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' -Headers $headers
 $release = $releases | Where-Object { -not $_.draft } | Select-Object -First 1
 $asset = $release.assets | Where-Object { $_.name -like 'couchwave-*.zip' } | Select-Object -First 1
 if (-not $asset) { throw "Couldn't find the Couchwave download on GitHub. Try again in a few minutes." }
