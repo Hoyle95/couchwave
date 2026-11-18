@@ -11,6 +11,8 @@ node_modules/
 .env
 .vscode/
 .idea/
-.claude/
+# Claude Code: personal settings stay local; the shared commands (like /release) are in the repo
+.claude/*
+!.claude/commands/
 Thumbs.db
 .DS_Store
