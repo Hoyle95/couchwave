@@ -44,7 +44,8 @@ in [docs/FEATURES.md](docs/FEATURES.md#for-developers); how people install and r
 - The `COUCHWAVE_…` environment variables in `tests/helpers.js` and `lib/` exist only for the tests (fake tools,
   a faster clock, a fake GitHub, a fake disk or systemd).
 - Every push runs the tests on Linux and Windows (`.github/workflows/tests.yml`); changes to `install.sh` or
-  `install.ps1` also run the installers on fresh machines (`install.yml`). Check those runs after pushing:
+  `install.ps1` also run the installers on fresh machines (`install.yml`), and changes to the server or the Docker
+  files build and try the Docker image (`docker.yml`). Check those runs after pushing:
   Linux and Windows differ in file watching, line endings and process handling, and CI machines are slower.
 - A test that fails only under load is usually measuring the wrong thing: fix what it measures rather than
   just raising a time limit.

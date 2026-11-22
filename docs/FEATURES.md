@@ -71,7 +71,9 @@
 - **Looks after itself**: a download or ffmpeg that gets stuck is stopped and tried again, downloads pause
   before the disk fills up, a missing yt-dlp or ffmpeg is named in Activity when Couchwave starts, a damaged
   save file is kept aside instead of stopping Couchwave, its log file trims itself, and it backs itself up
-  every day (the last 7 days, in `data/backups/`).
+  every day (the last 7 days, in `data/backups/`). `/health` tells an uptime monitor whether it's well.
+- **Easy to get going**: the first start says where to open Couchwave, the address for friends at home and
+  the room password, and the join screen, opened on the computer running it, shows the address to share.
 - **Locked down**: browsers only run Couchwave's own scripts (so even a bug letting code into a chat message
   couldn't run it), other sites can't show it inside theirs or act as someone who's logged in, and YouTube
   isn't told your room's address. Over `https://`, browsers are told to always use it; if friends reach it
@@ -151,6 +153,7 @@ The DJ:
 | `public/js/player.js` | Playing in sync, the controls, voting to skip, full screen, reactions and the lock screen. |
 | `public/js/chat.js`, `public/js/lists.js` | Chat, emoji, GIFs and sounds; adding songs, the queue, Activity and the history. |
 | `public/js/app.js` | Updates from the server, the buttons, and starting it all (it loads last). |
+| `Dockerfile`, `docker-entrypoint.sh` | The Docker image: Node.js, ffmpeg and yt-dlp, settings in `data/` (`COUCHWAVE_CONFIG`), running as the `node` user. `.github/workflows/docker.yml` tries it on every change and publishes it with each release. |
 | `tests/` | The tests, with stand-ins for yt-dlp, ffmpeg and ffprobe in `tests/fakes/`, and a headless browser for the page (`tests/browser.js`). |
 
 Comments in the code are only short section headers; how things should behave is described in these docs.

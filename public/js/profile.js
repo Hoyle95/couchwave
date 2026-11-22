@@ -7,6 +7,13 @@ function previewMe() {
   paintMe();
 }
 
+function showHostTip(home) {
+  if (!Array.isArray(home) || !home.length) return;
+  $('hostTip').innerHTML = `<b>You're on the computer running Couchwave.</b> Friends at home can join at ${home.map(u => `<span class="addr">${esc(u)}</span>`).join(' or ')}`
+    + ($('pw').required ? ', with the room password (it\'s in config.json).' : '.');
+  $('hostTip').hidden = false;
+}
+
 function togglePw(b) {
   const input = b.previousElementSibling, show = input.type === 'password';
   input.type = show ? 'text' : 'password';

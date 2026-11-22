@@ -4,7 +4,18 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- **A friendlier first start**: the first time Couchwave starts, it says where to open it, the address
+  friends at home can use and the room password it made up (in the log, and in the terminal if you started
+  it there). Opened on the computer running Couchwave, the join screen shows the address to give friends at
+  home, so there's no hunting for this computer's IP.
+- **`/health`, for uptime monitors** (like Uptime Kuma): it answers `{"ok":true}` without logging in, or an
+  error saying what's wrong if Couchwave can't save its data or read its accounts. See
+  [docs/INSTALL.md](docs/INSTALL.md#troubleshooting).
+- **A Docker image**, for NAS and home servers: `ghcr.io/hoyle95/couchwave:beta` (PCs and servers, and 64-bit
+  Raspberry Pi), with Node.js, ffmpeg and yt-dlp inside and everything kept in one data folder. Each release
+  has one from now on. See [docs/INSTALL.md](docs/INSTALL.md#docker).
 
 ## v0.4.0 beta (2026-11-22)
 

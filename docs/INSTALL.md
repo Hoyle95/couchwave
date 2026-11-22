@@ -6,6 +6,7 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**. The one-line ins
 - [One-line install](#one-line-install)
 - [Windows, step by step](#windows)
 - [Linux, step by step (Debian, Ubuntu, Raspberry Pi OS)](#linux-debian-ubuntu-raspberry-pi-os)
+- [Docker](#docker)
 - [Settings](#settings)
 - [GIFs in the chat](#gifs-in-the-chat)
 - [Your data](#your-data)
@@ -135,9 +136,48 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
    node server.js
    ```
 
-3. Open <http://localhost:3000> (or `http://<this machine's IP>:3000` from another device). The room
-   password is printed on the first run and saved in **`config.json`**, along with the other
-   [settings](#settings). Restart Couchwave after changing them.
+3. Open <http://localhost:3000>. The first time it starts, it says where to open it, the address friends at
+   home can use, and the room password it made up, which is saved in **`config.json`** with the other
+   [settings](#settings) (restart Couchwave after changing them). Opened on this computer, the join screen
+   shows the address for friends at home too.
+
+## Docker
+
+For a NAS or home server that runs Docker (Unraid, Synology, TrueNAS, Portainer, or plain Docker Compose). Each
+release has an image for PCs and servers (amd64) and 64-bit Raspberry Pi and other ARM boards (arm64), with
+Node.js, ffmpeg and yt-dlp inside. Make a folder for it, put this in it as `docker-compose.yml`:
+
+```yaml
+services:
+  couchwave:
+    image: ghcr.io/hoyle95/couchwave:beta
+    ports: ["3000:3000"]
+    volumes: ["./couchwave-data:/app/data"]
+    restart: unless-stopped
+```
+
+then start it from that folder:
+
+```sh
+docker compose up -d
+docker compose logs couchwave
+```
+
+The logs show where to open it and the room password it made up. Everything Couchwave keeps (its settings,
+accounts, queue, downloads and backups) is in the `couchwave-data` folder, so the container can be removed and
+made again without losing anything. The settings file is `couchwave-data/config.json` (see
+[Settings](#settings)); after changing it, `docker compose restart`. To use another port, change the first
+number in `ports` (like `"8080:3000"`) rather than `port` in config.json.
+
+- **Updating**: `docker compose pull`, then `docker compose up -d`. "A newer Couchwave is out" in Activity
+  says the same. (`--update` doesn't work in Docker: the image is the update.)
+- **Commands** like `--status` run inside it: `docker compose exec couchwave node server.js --status`.
+- **Health**: Docker checks [`/health`](#troubleshooting) by itself, so `docker ps` shows whether it's healthy.
+- **Friends at home** use this computer's address with the first port number, like `http://192.168.1.20:3000`.
+  To let friends in from the internet, point Cloudflare Tunnel or Caddy at `localhost:3000` as in
+  [Letting friends in](#letting-friends-in).
+- Couchwave runs as an ordinary user inside the container, and makes the data folder its own when it starts.
+- yt-dlp keeps itself up to date inside the container; pulling a new image brings a fresh one too.
 
 ## Settings
 
@@ -414,8 +454,11 @@ them to `config.json` (see [Settings](#settings)).
 - **To check on Couchwave**: `node server.js --status` in the Couchwave folder says whether it's running,
   who's online, what's playing, how the queue is doing, the free disk space, the versions of its tools and
   whether there's a newer Couchwave.
+- **For an uptime monitor** (like Uptime Kuma): `http://<address>:3000/health` answers `{"ok":true}` without
+  logging in. If Couchwave can't save its data or read its accounts, it answers with an error (503) saying
+  which, until that's fixed. It says nothing else about your room.
 - **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
-  this machine's IP, not `localhost`. On Windows, allow Node.js through the firewall: **Windows Security** →
+  this machine's IP, not `localhost` (the join screen shows it when you open Couchwave on this computer). On Windows, allow Node.js through the firewall: **Windows Security** →
   **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On
   Linux with `ufw` turned on: `sudo ufw allow 3000/tcp`.
 - **Activity says "can't find yt-dlp" (or ffmpeg, or ffprobe)**: that program isn't installed, or Couchwave

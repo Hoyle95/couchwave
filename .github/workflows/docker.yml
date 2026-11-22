@@ -1,0 +1,85 @@
+# ---------- Build the Docker image, try it as someone new would, and publish it with each release ----------
+name: Docker
+
+on:
+  push:
+    branches: [main]
+    paths: ['Dockerfile', 'docker-entrypoint.sh', '.dockerignore', 'server.js', 'lib/**', '.github/workflows/docker.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    if: github.repository == 'Hoyle95/couchwave'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build it
+        run: docker build -t couchwave:test .
+
+      - name: Start it, as someone new would
+        run: |
+          mkdir couchwave-data
+          docker run -d --name couchwave -p 3000:3000 -v "$PWD/couchwave-data:/app/data" couchwave:test
+          for i in $(seq 1 60); do curl -fsS http://localhost:3000/health && break; sleep 1; done
+          curl -fsS http://localhost:3000/health | grep -q '"ok":true'
+          curl -fsS http://localhost:3000/manifest.json | grep -q '"Couchwave"'
+
+      - name: The welcome (with the room password) is in docker logs, settings are in the data folder, and it doesn't run as root
+        run: |
+          docker logs couchwave > logs.txt 2>&1; cat logs.txt
+          PASSWORD=$(node -p 'require("./couchwave-data/config.json").password')
+          echo "PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+          grep -q "Welcome to Couchwave! It's running." logs.txt
+          grep -q "Room password: *$PASSWORD" logs.txt
+          test -f couchwave-data/state.json
+          docker top couchwave -eo uid,args | grep 'node server.js' | grep -v '^ *0 '
+
+      - name: The tools are there, yt-dlp can update itself, and the commands work
+        run: |
+          docker exec couchwave yt-dlp --version
+          docker exec couchwave ffmpeg -version | head -1
+          docker exec -u node couchwave sh -c 'test -w /opt/yt-dlp/yt-dlp'
+          docker exec -u node couchwave node server.js --status | tee status.txt
+          grep -q "is running on port 3000" status.txt
+          docker exec -u node couchwave node server.js --update 2>&1 | grep -q "running in Docker: update it by pulling the new image"
+
+      - name: Stopping saves; starting again keeps everything, without a second welcome; Docker sees it as healthy
+        run: |
+          docker stop couchwave
+          test "$(docker inspect -f '{{.State.ExitCode}}' couchwave)" = 0
+          docker start couchwave
+          for i in $(seq 1 60); do curl -fsS http://localhost:3000/health && break; sleep 1; done
+          test "$(node -p 'require("./couchwave-data/config.json").password')" = "$PASSWORD"
+          test "$(docker logs couchwave 2>&1 | grep -c 'Welcome to Couchwave')" = 1
+          for i in $(seq 1 30); do [ "$(docker inspect -f '{{.State.Health.Status}}' couchwave)" = healthy ] && break; sleep 5; done
+          docker inspect -f '{{.State.Health.Status}}' couchwave | grep -q healthy
+
+      - name: A release - publish it for PCs and 64-bit Raspberry Pi
+        if: github.event_name == 'release'
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - if: github.event_name == 'release'
+        uses: docker/setup-qemu-action@v3
+      - if: github.event_name == 'release'
+        uses: docker/setup-buildx-action@v3
+      - if: github.event_name == 'release'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: github.event_name == 'release'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/hoyle95/couchwave:${{ env.VERSION }}
+            ghcr.io/hoyle95/couchwave:beta

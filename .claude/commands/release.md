@@ -54,12 +54,15 @@ gh release create v$ARGUMENTS-beta --target <the FULL 40-character commit hash> 
   --title "V$ARGUMENTS BETA" --notes-file <notes file>
 ```
 
-`--target` needs the full hash (`git rev-parse HEAD`). Publishing starts three workflows by itself:
+`--target` needs the full hash (`git rev-parse HEAD`). Publishing starts four workflows by itself:
 
 - **release-zip.yml** runs the tests on Linux, builds `couchwave-v$ARGUMENTS-beta.zip` (with `git archive`,
   leaving out `.github`, every `.cmd` with Windows line endings) and attaches it. Never build or upload a zip by
   hand. If it fails on a flaky test, `gh run rerun <id> --failed` attaches the zip once it passes.
-- **install.yml** runs both one-line installers on fresh Linux and Windows machines.
+- **install.yml** waits for the zip, then runs both one-line installers on fresh Linux and Windows machines.
+- **docker.yml** tries the Docker image, then publishes it for amd64 and arm64 as `ghcr.io/hoyle95/couchwave`
+  with the version (`$ARGUMENTS-beta`) and `beta` tags. The package on GitHub must be public (Package settings,
+  Change visibility) for people to pull it without logging in.
 - **discord-release.yml** posts the announcement.
 
 Watch them with `gh run list --limit 5` and `gh run watch <id>` until all pass.

@@ -39,7 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/Hoyle95/couchwave/main/install.sh |
 
 It installs what Couchwave needs, makes it start with the computer, starts it, and shows you its address and
 room password. To update later, double-click `update.cmd` (Windows) or run `node server.js --update`. More in
-the [setup guide](docs/INSTALL.md#one-line-install).
+the [setup guide](docs/INSTALL.md#one-line-install). Running Docker on a NAS or home server? See
+[Docker](docs/INSTALL.md#docker).
 
 ## Feedback
 

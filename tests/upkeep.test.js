@@ -138,7 +138,7 @@ test('a newer Couchwave: Activity says so once (not after every restart); nothin
     reply = [{ tag_name: 'v99.0.0-beta', draft: true }, { tag_name: 'v98.0.0-beta', draft: false }];
     await s.restart();
     await waitFor(async () => (await told(s)).length, 5000, 'Activity to say so');
-    assert.deepEqual(await told(s), [`server: a newer Couchwave is out: v98.0.0-beta (this is v${version}). Whoever runs it can update with: node server.js --update (or update.cmd on Windows)`], 'the newest that isn\'t a draft');
+    assert.deepEqual(await told(s), [`server: a newer Couchwave is out: v98.0.0-beta (this is v${version}). Whoever runs it can update with node server.js --update (or update.cmd on Windows)`], 'the newest that isn\'t a draft');
     await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('"newestTold":"v98.0.0-beta"'), 3000, 'it to be saved');
     await s.restart();
     const n = asked;
@@ -180,5 +180,25 @@ test('a backup of the accounts, logins, queue and settings once a day, keeping t
   const kept = fs.readdirSync(backups).sort();
   assert.equal(kept[0], '2020-01-04', 'the oldest went');
   assert.equal(kept.at(-1), today(), 'today\'s is kept');
+});
+
+test('/health, for uptime monitors and Docker: OK without logging in, and a problem (503) while saving or reading accounts fails, until it\'s fixed', async () => {
+  const s = await start({ expectProblems: /save failed|accounts\.json/ });
+  const health = async () => { const r = await s.get('/health', { cookie: '' }); return [r.status, r.json]; };
+  assert.deepEqual(await health(), [200, { ok: true }]);
+  const head = await s.req('HEAD', '/health', { cookie: '' });
+  assert.deepEqual([head.status, head.body.length], [200, 0], 'HEAD works too');
+  fs.rmSync(s.statePath, { force: true });
+  fs.mkdirSync(s.statePath);
+  await s.post('/chat', { text: 'this can\'t be saved' });
+  assert.deepEqual(await health(), [503, { ok: false, problem: 'can\'t save to data/state.json: see data/server.log' }]);
+  fs.rmdirSync(s.statePath);
+  await s.post('/chat', { text: 'saved again' });
+  assert.deepEqual(await health(), [200, { ok: true }], 'fixed: OK again');
+  const accounts = path.join(s.dir, 'data', 'accounts.json'), good = fs.readFileSync(accounts, 'utf8');
+  fs.writeFileSync(accounts, '{ broken');
+  assert.deepEqual(await health(), [503, { ok: false, problem: 'can\'t read data/accounts.json: see data/server.log' }]);
+  fs.writeFileSync(accounts, good);
+  assert.deepEqual(await health(), [200, { ok: true }]);
 });
 });

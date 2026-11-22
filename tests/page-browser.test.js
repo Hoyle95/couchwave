@@ -25,6 +25,9 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     const s = await start();
     const page = await open(s);
     await page.waitFor(`!document.getElementById('join').hidden`, 5000, 'the join screen');
+    const home = (await s.get('/room', { cookie: '' })).json.home;
+    assert.equal(await page.visible('#hostTip'), home.length > 0, 'on the computer running Couchwave, the addresses for friends at home (if it has one)');
+    if (home.length) assert.match(await page.text('#hostTip'), new RegExp(`Friends at home can join at ${home[0].replace(/\./g, '\\.')}.*with the room password`));
     await page.type('#name', 'Alice');
     await page.type('#ownPw', 'alices-own-pw');
     await page.type('#pw', 'not the password');

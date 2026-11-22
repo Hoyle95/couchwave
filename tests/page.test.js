@@ -12,6 +12,14 @@ const html = read('public/index.html');
 const SCRIPTS = [...html.matchAll(/<script src="\/js\/([\w-]+\.js)"><\/script>/g)].map(m => m[1]);
 const pageCode = () => SCRIPTS.filter(f => f !== 'theme.js').map(f => read(`public/js/${f}`)).join('\n');
 
+test('this computer\'s home-network addresses, for the join screen: only for a visit from this computer itself', async () => {
+  const local = (await s.get('/room', { cookie: '' })).json;
+  assert.ok(Array.isArray(local.home), 'visiting from this computer');
+  for (const u of local.home) assert.match(u, new RegExp(`^http://(10|192\\.168|172\\.(1[6-9]|2\\d|3[01]))\\.[\\d.]+:${s.port}$`));
+  const viaTunnel = (await s.get('/room', { cookie: '', headers: { 'X-Forwarded-For': '203.0.113.5' } })).json;
+  assert.deepEqual(viaTunnel, { public: false }, 'not for a visitor from elsewhere, even through a tunnel or proxy on this computer');
+});
+
 test('the version, for the footer: only for people who are logged in', async () => {
   const version = /const VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'))[1];
   assert.equal((await s.state()).version, version);

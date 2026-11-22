@@ -161,6 +161,7 @@ for (const el of document.querySelectorAll('[data-keep-focus]')) el.addEventList
   if ((await fetch('/state').catch(() => null))?.ok) return enter();
   const room = await fetch('/room').then(r => r.json()).catch(() => ({}));
   if (room.public) { $('roomGroup').style.display = 'none'; $('pw').required = false; }
+  showHostTip(room.home);
   $('name').value = getCookie('name');
   $('joinAvWrap').appendChild($('colorPop'));
   $('join').appendChild($('footer'));
