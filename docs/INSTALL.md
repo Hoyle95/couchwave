@@ -354,6 +354,9 @@ It asks first (saying how many people are listening, since it restarts Couchwave
 It doesn't run in a copy of the git repository (use `git pull`, below) or in Docker (pull the new image).
 `node server.js --update --yes` skips the question, for scripts. It never updates by itself.
 
+Updating from v0.3.0 or older? The update command arrived in v0.4.0, so update this one time with the
+one-line install or by hand (both below); from then on, `--update` does it.
+
 **Or run the [one-line install](#one-line-install) again.** It also installs anything missing (it works for a
 Couchwave installed by hand too, as long as it's in the same folder: set `COUCHWAVE_DIR` if it isn't the
 default).

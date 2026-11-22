@@ -1,5 +1,5 @@
 // ---------- Couchwave ----------
-const VERSION = '0.3.0-beta';
+const VERSION = '0.4.0-beta';
 require('./lib/common').VERSION = VERSION;
 
 // ---------- Commands for whoever runs it, or the server ----------

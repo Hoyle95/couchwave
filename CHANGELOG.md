@@ -4,6 +4,17 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.4.0 beta (2026-11-22)
+
+Still a beta. Updating is now one command, installing is one line, and there are GIFs in the chat (with your
+own free KLIPY key), a thumbs-up for the DJ's songs, song lengths in the history, and a lot of fixes.
+**Download `couchwave-v0.4.0-beta.zip`** from the release (not "Source code"). **Updating?** From v0.3.0,
+this one time: run the one-line install again, or stop Couchwave (`stop.cmd` on Windows), unzip it into your
+Couchwave folder, replacing the old files, and start it again: settings, data and logins are kept. The old
+`dj.js` can be deleted. From now on, `node server.js --update` (or double-clicking `update.cmd`) does it.
+
 ### Added
 
 - **Update with one command**: `node server.js --update`, or double-click `update.cmd` on Windows. It checks
