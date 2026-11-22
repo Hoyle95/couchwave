@@ -39,7 +39,8 @@ jobs:
           echo "PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
           grep -q "Welcome to Couchwave! It's running." logs.txt
           grep -q "Room password: *$PASSWORD" logs.txt
-          docker top couchwave -eo uid,args | grep 'node server.js' | grep -v '^ *0 '
+          docker top couchwave -eo uid,args | tee top.txt
+          awk '/server[.]js/ && $1 != "0" && $1 != "root" { found = 1 } END { exit !found }' top.txt
 
       - name: The tools are there, yt-dlp can update itself, and the commands work
         run: |
