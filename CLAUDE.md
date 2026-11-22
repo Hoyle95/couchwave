@@ -21,6 +21,9 @@ in [docs/FEATURES.md](docs/FEATURES.md#for-developers); how people install and r
   The room's shared state lives on `room` in `lib/room.js`.
 - The page's security policy blocks inline scripts: give an element `data-click="name"` (or `data-submit`,
   `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `public/js/app.js`.
+- The page's scripts in `public/js/` are plain scripts sharing one scope, loaded in order by `index.html`
+  (`core.js` first, `app.js` last, which starts the page). A new file goes in `index.html` before `app.js`;
+  while loading, a script can only use what earlier files made.
 - `VERSION` near the top of `server.js` is the one place the version lives. The footer, `--version`, `--status`,
   the new-version check and `--update` all read it.
 - Every change people would notice goes in [CHANGELOG.md](CHANGELOG.md) under `## Unreleased`, in `### Added`,
@@ -33,6 +36,11 @@ in [docs/FEATURES.md](docs/FEATURES.md#for-developers); how people install and r
 - `node --test` runs everything (about 30 seconds). Each test gets its own throwaway server in a temporary folder
   with stand-ins for yt-dlp, ffmpeg and ffprobe (`tests/fakes/`), so it needs no internet and never touches a
   real install. Add or adjust tests with every change, and run the whole suite before saying it works.
+- The page is tested in a real headless Chrome or Edge (`tests/page-browser.test.js`, driven by `tests/browser.js`
+  over DevTools, no npm packages). Changes to the page get a test there too. It blocks every site but Couchwave.
+- One test per behaviour: extend the test that covers a feature rather than adding a near-copy. Commands for
+  whoever runs Couchwave are in `tests/commands.test.js`; tests that start Couchwave themselves use `appCopy` and
+  `run` from `tests/helpers.js`.
 - The `COUCHWAVE_…` environment variables in `tests/helpers.js` and `lib/` exist only for the tests (fake tools,
   a faster clock, a fake GitHub, a fake disk or systemd).
 - Every push runs the tests on Linux and Windows (`.github/workflows/tests.yml`); changes to `install.sh` or

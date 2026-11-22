@@ -33,9 +33,20 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **The code is reorganised** into smaller files in a new `lib/` folder (the DJ moved there too), so it's
   easier to work on. Couchwave works just the same, and `node server.js` still starts it. If you update by
   copying files over by hand, copy the new `lib/` folder too; the old `dj.js` can be deleted.
+- **The page's script is split into smaller files** in `public/js/` (the player, chat, lists and so on), the
+  same way. Nothing changes in how it works; if you update by copying files by hand, copy all of `public/`.
+- **Speed limits on changing your colour or emoji, and on votes, Retry and Undo**, like the ones on chat and
+  pausing, so nobody can flood the room or keep the computer busy saving.
+- **A clearer message when config.json has a mistake in it**: it says what's wrong (like a missing quote or
+  comma) and that Couchwave starts again by itself once it's fixed and saved, instead of a bare error.
 
 ### Fixed
 
+- **Stopping Couchwave from a terminal (Ctrl+C), with `systemctl stop`, or by shutting the computer down
+  (Linux)** now saves everything first and stops any downloads, instead of possibly losing the last second
+  of changes and leaving yt-dlp running.
+- **Couchwave could stop with an error** when a song finished whose file was already gone (from an older
+  version's save). It now just moves on to the next song.
 - **The DJ followed long videos**: it found "more like" a 2-hour focus-music playlist, and queued ambient
   tracks and drone videos. It now only goes on songs that have played (so it knows how long they are) and
   are between 1 and 20 minutes long, the same rule as for the songs it picks (if nothing fits, it says so in

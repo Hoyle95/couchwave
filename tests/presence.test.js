@@ -25,13 +25,14 @@ const comings = async s => (await s.log()).filter(l => /joined|left/.test(l)).so
 const saved = (s, ...names) => waitFor(() => { try { const h = JSON.parse(fs.readFileSync(s.statePath, 'utf8')).here || {}; return names.every(n => n in h); } catch { return false; } }, 3000, 'who\'s here to be saved');
 
 describe('joined / left', { concurrency: true }, () => {
-  test('opening the page: "joined" and in the online list; reloading isn\'t logged', async () => {
+  test('opening the page: "joined" and in the online list; reloading, or closing one of two tabs, isn\'t leaving', async () => {
     const s = await start();
     const stop = await s.keepOnline('Alice', 'Bob');
     assert.deepEqual((await s.state('Bob')).users, ['Alice', 'Bob']);
     await s.post('/bye', undefined, { as: 'Bob' }); await sleep(100); await s.state('Bob');
+    await s.post('/bye', undefined, { as: 'Alice' });
     await sleep(secs(16));
-    assert.deepEqual(await comings(s), ['Alice: joined', 'Bob: joined'], 'no "left" for the reload');
+    assert.deepEqual(await comings(s), ['Alice: joined', 'Bob: joined'], 'no "left" for Bob\'s reload or Alice\'s other tab');
     stop();
   });
 
@@ -45,15 +46,6 @@ describe('joined / left', { concurrency: true }, () => {
     const after = (Date.now() - closedAt) / 1000 / TIME;
     assert.ok(after >= 9 && after < 22, `"left" after ${after.toFixed(1)} (server) seconds`);
     assert.deepEqual((await s.state()).users, ['Alice']);
-    stop();
-  });
-
-  test('closing one of two tabs isn\'t leaving', async () => {
-    const s = await start();
-    const stop = await s.keepOnline('Alice');
-    await s.post('/bye', undefined, { as: 'Alice' });
-    await sleep(secs(16));
-    assert.ok(!(await s.log()).includes('Alice: left'));
     stop();
   });
 

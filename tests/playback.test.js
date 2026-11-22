@@ -60,13 +60,16 @@ test('moving through a song: only whoever added it while they\'re here (or it\'d
   assert.ok((await s.log('Bob')).includes('Bob: jumped to 2:30'));
 });
 
-test('when a song ends, the next one plays and the old files are deleted', async () => {
+test('when a song ends, the next one plays and the old files are deleted (and a song saved without a file moves on too)', async () => {
   const short = song(1, 'Short song', 'Alice', { duration: 4 });
   const s = await start({ initial: { current: short, queue: [song(2, 'Next song', 'Bob')] } });
   const oldFile = path.join(s.dir, 'data', 'downloads', short.file);
   const st = await waitFor(async () => { const x = await s.state(); return x.current?.title === 'Next song' && x; }, 12000, 'the next song');
   assert.equal(st.queue.length, 0);
   await waitFor(() => !fs.existsSync(oldFile), 3000, 'the old file to be deleted');
+  const { file, ...noFile } = song(1, 'No file', 'Alice', { duration: 1 });
+  const t = await start({ initial: { current: noFile, startedAt: Date.now() - 5000, queue: [song(2, 'Next', 'Bob')] } });
+  await waitFor(async () => (await t.state()).current?.title === 'Next', 5000, 'the next song, without a crash (an older version could save one like it)');
 });
 
 test('video and audio files: whole, in parts (seeking), and the next song early', async () => {
@@ -145,5 +148,12 @@ test('even volume: every song\'s loudness is measured, and loud ones are turned 
   await waitFor(() => { try { return JSON.parse(fs.readFileSync(s.statePath, 'utf8')).queue.some(q => q.gain === loudGain); } catch { return false; } }, 3000, 'it to be saved');
   await s.restart();
   assert.equal((await s.state()).next.gain, loudGain, 'kept across a restart');
+});
+
+test('told to stop (Ctrl+C, systemctl stop): it saves and ends cleanly', { skip: process.platform === 'win32' && 'Windows has no stop signals' }, async () => {
+  const s = await start();
+  const exited = new Promise(r => s.proc.on('exit', (code, signal) => r([code, signal])));
+  s.proc.kill('SIGTERM');
+  assert.deepEqual(await exited, [0, null], 'it ended by itself, not killed');
 });
 });

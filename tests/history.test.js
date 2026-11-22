@@ -8,11 +8,11 @@ const servers = testServers({ after });
 const start = initial => servers({ initial });
 
 describe('history', { concurrency: true }, () => {
-test('each song that plays goes in, newest first: link, title, who asked for it and when', async () => {
+test('each song that plays goes in, newest first: link, title, who asked for it, when, and how long it is', async () => {
   const s = await start({ queue: [song(1, 'First', 'Alice', { duration: 1, url: yt('first000001') }), song(2, 'Second', 'Bob', { duration: 100, url: yt('second00002') })] });
   const before = Date.now();
   const st = await waitFor(async () => { const x = await s.state(); return x.history.length === 2 && x; }, 8000, 'both to have played');
-  assert.deepEqual(st.history.map(h => [h.title, h.by, h.url]), [['Second', 'Bob', yt('second00002')], ['First', 'Alice', yt('first000001')]]);
+  assert.deepEqual(st.history.map(h => [h.title, h.by, h.url, h.duration]), [['Second', 'Bob', yt('second00002'), 100], ['First', 'Alice', yt('first000001'), 1]]);
   assert.ok(st.history.every(h => h.t >= before - 1000 && h.t <= Date.now()), 'when each started');
   assert.ok(st.history[0].t >= st.history[1].t);
 });

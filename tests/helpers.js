@@ -26,6 +26,19 @@ async function waitFor(fn, ms = 5000, what = 'condition') {
 const freePort = () => new Promise(r => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
 const yt = id => `https://www.youtube.com/watch?v=${id}`;
 
+// ---------- A copy of Couchwave in a folder of its own (for tests that start it themselves) ----------
+const TOOL_ENV = { COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests' };
+function appCopy(extra = []) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-copy-'));
+  for (const f of [...APP_FILES, ...extra]) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+  return { dir, clean: () => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {} } };
+}
+const run = (dir, args, { env = {}, input, timeout = 30000 } = {}) => new Promise(resolve => {
+  const p = require('child_process').execFile(process.execPath, ['server.js', ...args], { cwd: dir, encoding: 'utf8', timeout, env: { ...process.env, ...TOOL_ENV, ...env } },
+    (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr, out: stdout + stderr }));
+  if (input !== undefined) p.stdin.end(input);
+});
+
 let fileNo = 0;
 function song(id, title, by = 'Alice', extra = {}) {
   return { id, url: yt(`song${String(id).padStart(7, '0')}`), title, by, status: 'ready', duration: 200, file: `test-${id}-${++fileNo}.mp4`, ...extra };
@@ -51,10 +64,7 @@ class Server {
       const started = () => (this.logText().match(new RegExp(`Running on http://localhost:${this.port}\\b`, 'g')) || []).length;
       const before = started();
       this.out = '';
-      this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: {
-        ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_TIME_SCALE: String(TIME),
-        COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests', COUCHWAVE_CHECK_TOOLS: 'no', ...this.env,
-      } });
+      this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: String(TIME), ...this.env } });
       this.proc.stdout.on('data', d => (this.out += d));
       this.proc.stderr.on('data', d => (this.out += d));
       let gone = false;
@@ -101,6 +111,7 @@ class Server {
     catch (e) { delete this.auths[name]; throw e; }
   }
   forget(name) { if (name) delete (this.auths || {})[name]; else this.auths = {}; }
+  command(...args) { return run(this.dir, args); }
 
   async req(method, url, { as = 'Alice', body, cookie, headers = {} } = {}) {
     if (cookie === undefined) cookie = await this.cookie(as);
@@ -152,4 +163,4 @@ function testServers({ after }) {
   return async (opts) => { const s = new Server(opts); all.push(s); return s.start(); };
 }
 
-module.exports = { Server, testServers, song, yt, waitFor, sleep, secs, TIME, PASSWORD, ownPassword, ROOT, APP_FILES };
+module.exports = { Server, testServers, song, yt, waitFor, sleep, secs, TIME, PASSWORD, ownPassword, ROOT, APP_FILES, TOOL_ENV, appCopy, run, freePort };

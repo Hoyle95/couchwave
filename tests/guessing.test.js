@@ -39,20 +39,12 @@ describe('wrong passwords', { concurrency: true }, () => {
     await s.logHas(/logins: 10 new nicknames from 203\.0\.113\.20 in the last hour/);
   });
 
-  test('headers a visitor can write themselves don\'t make them someone new', async () => {
+  test('who a visitor is: headers they write themselves don\'t count; behind proxies, the first address outside the home network does', async () => {
     const s = await start();
-    assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': '203.0.113.7', 'X-Real-IP': `198.51.100.${i}`, 'CF-Connecting-IP': `198.51.100.${i}` })));
+    assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': '203.0.113.7', 'X-Real-IP': `198.51.100.${i}`, 'CF-Connecting-IP': `198.51.100.${i}` })), 'their own headers');
     assert.equal((await join(s, right('Alice'), { 'X-Forwarded-For': '203.0.113.8' })).status, 204, 'someone else still gets in');
-  });
-
-  test('behind a proxy that adds to X-Forwarded-For: the address it added counts, not ones the visitor wrote before it', async () => {
-    const s = await start();
-    assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}, 203.0.113.9` })));
-  });
-
-  test('several proxies on the home network: the first address outside it counts', async () => {
-    const s = await start();
-    assert.ok(await lockedAfter20(s, () => ({ 'X-Forwarded-For': '203.0.113.10, 192.168.1.2, 10.0.0.3' })));
+    assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}, 203.0.113.9` })), 'addresses written before the one the proxy added');
+    assert.ok(await lockedAfter20(s, () => ({ 'X-Forwarded-For': '203.0.113.10, 192.168.1.2, 10.0.0.3' })), 'several proxies on the home network');
     assert.equal((await wrongRoom(s, { 'X-Forwarded-For': '203.0.113.10' })).status, 429, 'the same visitor, through one proxy');
   });
 
@@ -69,20 +61,17 @@ describe('wrong passwords', { concurrency: true }, () => {
     assert.equal((await wrongRoom(s, { 'X-Forwarded-For': '2001:db8:1:3::1' })).status, 401, 'the next connection along is someone else');
   });
 
-  test('trustProxy false: no proxy headers believed', async () => {
-    const s = await start({ config: { trustProxy: false } });
-    assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}` })));
-    const r = await join(s, right('Alice'), { 'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '203.0.113.12' });
-    assert.equal(r.status, 429, 'everyone counts as this machine');
-  });
-
-  test('trustProxy with extra proxies: visitors behind them count one by one', async () => {
+  test('trustProxy in config.json: false believes no proxy headers; a list of extra proxies counts visitors behind them one by one', async () => {
+    const none = await start({ config: { trustProxy: false } });
+    assert.ok(await lockedAfter20(none, i => ({ 'X-Forwarded-For': `198.51.100.${i}` })));
+    const r = await join(none, right('Alice'), { 'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '203.0.113.12' });
+    assert.equal(r.status, 429, 'with false, everyone counts as this machine');
     const s = await start({ config: { trustProxy: ['203.0.113.0/24', '2001:db8::1'] } });
     assert.equal(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}, 203.0.113.5` })), false);
     assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}, 198.51.100.200` })), 'an address not in the list is the visitor');
   });
 
-  test('a nickname: 20 wrong passwords from anywhere and it waits 15 minutes; its logged-in devices keep working', async () => {
+  test('a nickname: 20 wrong passwords from anywhere (even all at once) and it waits 15 minutes; its logged-in devices keep working', async () => {
     const s = await start();
     await s.state('Alice');
     for (let i = 0; i < 20; i++) assert.equal((await join(s, { ...right('Alice'), own: 'guess' + i }, { 'X-Forwarded-For': `198.51.100.${i}` })).status, 401);
@@ -92,14 +81,9 @@ describe('wrong passwords', { concurrency: true }, () => {
     await s.logHas(/logins: 20 wrong passwords for "Alice" in 15 minutes, so new logins with it wait 15 minutes \(devices already logged in carry on\)/);
     assert.equal((await s.get('/state')).status, 200, 'Alice\'s logged-in device carries on');
     assert.equal((await join(s, right('Bob'), { 'X-Forwarded-For': '203.0.113.13' })).status, 204, 'other nicknames are fine');
-  });
-
-  test('lots of guesses at a nickname at once still stop at 20', async () => {
-    const s = await start();
-    await s.state('Alice');
-    const rs = await Promise.all(Array.from({ length: 40 }, (_, i) => join(s, { ...right('Alice'), own: 'guess' + i }, { 'X-Forwarded-For': `198.51.100.${i}` })));
-    assert.equal(rs.filter(r => r.status === 401).length, 20);
-    assert.equal(rs.filter(r => r.status === 429).length, 20);
+    await s.state('Cara');
+    const rs = await Promise.all(Array.from({ length: 40 }, (_, i) => join(s, { ...right('Cara'), own: 'guess' + i }, { 'X-Forwarded-For': `198.51.101.${i}` })));
+    assert.deepEqual([rs.filter(r => r.status === 401).length, rs.filter(r => r.status === 429).length], [20, 20], '40 guesses at once still stop at 20');
   });
 
   test('lots of logins at once: some are asked to try again in a moment, instead of slowing everything else down', async () => {

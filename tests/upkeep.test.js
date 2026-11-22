@@ -1,15 +1,12 @@
-// ---------- Saved state, the log file, stuck downloads, disk space, the tools, and updates ----------
+// ---------- Saved state, the log file, stuck downloads, disk space, the tools, updates and backups ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), os = require('os'), path = require('path'), http = require('http');
-const { testServers, song, yt, waitFor, sleep, ROOT, APP_FILES, PASSWORD } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, ROOT } = require('./helpers');
 
 const start = testServers({ after });
 const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
 const inQueue = async (s, pred) => (await s.state()).queue.find(pred);
-const command = (s, ...args) => new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js', ...args],
-  { cwd: s.dir, encoding: 'utf8', timeout: 30000, env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' } },
-  (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr })));
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fileHas = (file, re) => { try { return re.test(fs.readFileSync(file, 'utf8')); } catch { return false; } };
 
@@ -28,7 +25,6 @@ test('ffmpeg getting stuck is stopped (after 30 minutes), and the song still pla
   const s = await start({ env: { COUCHWAVE_TOOL_MINUTES: '0.02', COUCHWAVE_FAKE_HANG: 'ffmpeg' }, initial: playing, expectProblems: /ffmpeg was still going/ });
   await s.post('/add', { url: yt('okay_000006') });
   const q = await waitFor(() => inQueue(s, x => x.status === 'ready'), 5000, 'the song to be ready anyway');
-  assert.equal(q.status, 'ready');
   await s.logHas(/ffmpeg was still going after \d+ minutes: stopped/);
   assert.equal((await s.get(`/audio/${q.id}`)).headers['content-type'], 'video/mp4', 'no audio-only copy: the page gets the video file');
 });
@@ -37,8 +33,9 @@ test('nearly out of disk space: downloads wait (shown in the queue and Activity)
   const s = await start({ env: { COUCHWAVE_FAKE_FREE_DISK: String(1024 ** 3) }, initial: playing });
   await s.post('/add', { url: yt('okay_000007') });
   const q = await waitFor(() => inQueue(s, x => x.url === yt('okay_000007')), 3000, 'the song');
-  await new Promise(r => setTimeout(r, 500));
-  assert.deepEqual([(await inQueue(s, x => x.id === q.id)).status, (await inQueue(s, x => x.id === q.id)).held], ['waiting', true], 'waiting, marked as held up');
+  await sleep(500);
+  const held = await inQueue(s, x => x.id === q.id);
+  assert.deepEqual([held.status, held.held], ['waiting', true], 'waiting, marked as held up');
   assert.ok((await s.log()).includes('server: paused downloads: this computer has less than 2 GB of disk space left'));
   s.env = {};
   await s.restart();
@@ -58,7 +55,7 @@ test('when starting: the tools are checked, and a missing one is named in the lo
   fs.rmSync(fakes, { recursive: true, force: true });
 });
 
-test('a broken state.json: kept aside, the log says so, and Couchwave starts afresh instead of not at all', async () => {
+test('a damaged state.json: unreadable, it\'s kept aside and Couchwave starts afresh; with odd parts, what makes sense is kept and ids are never reused', async () => {
   const s = await start({ expectProblems: /state\.json/ });
   await s.stop();
   fs.writeFileSync(s.statePath, '{ "queue": [ broken');
@@ -68,11 +65,7 @@ test('a broken state.json: kept aside, the log says so, and Couchwave starts afr
   assert.equal(kept.length, 1);
   assert.equal(fs.readFileSync(path.join(s.dir, 'data', kept[0]), 'utf8'), '{ "queue": [ broken', 'the old file, untouched');
   assert.deepEqual((await s.state()).queue, []);
-  assert.equal((await s.post('/add', { url: yt('okay_000001') })).status, 204, 'and carries on as normal');
-});
 
-test('a state.json with missing or odd parts: what makes sense is kept, and new songs never reuse an id', async () => {
-  const s = await start();
   await s.stop();
   fs.writeFileSync(s.statePath, JSON.stringify({
     nextId: 3, current: 5, chat: null, queue: [song(50, 'Kept song', 'Zed', { status: 'waiting', file: undefined, url: yt('kept_000050') }), 'junk', null],
@@ -85,7 +78,7 @@ test('a state.json with missing or odd parts: what makes sense is kept, and new 
   assert.ok(st.history.every(h => h && typeof h === 'object'), 'and not the junk');
   assert.deepEqual(st.chat, []);
   await s.post('/add', { url: yt('okay_000002') });
-  const added = [(await s.state()).current, ...(await s.state()).queue].find(q => q?.url === yt('okay_000002'));
+  const now = await s.state(), added = [now.current, ...now.queue].find(q => q?.url === yt('okay_000002'));
   assert.ok(added.id > 50, `a new id (${added.id}), not one already taken`);
 });
 
@@ -112,13 +105,22 @@ test('leftover downloads are cleared away; the files of songs still queued or pl
   for (const q of [saved.current, ...saved.queue]) assert.ok(fs.existsSync(path.join(dl, path.basename(q.file))), `${q.title}: kept`);
 });
 
-test('keeps yt-dlp up to date: checks a minute after starting (then daily), and Activity says when it updated', async () => {
+test('keeps yt-dlp up to date (a minute after starting, then daily): Activity says when it updated, or once that it can\'t update itself', async () => {
   const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
   await s.logHas(/yt-dlp update check: yt-dlp is up to date/, 5000);
   assert.ok(!(await s.log()).some(l => /updated yt-dlp/.test(l)), 'nothing in Activity when there was nothing new');
   fs.writeFileSync(path.join(s.dir, 'yt-dlp-update'), '');
   await s.restart();
   await waitFor(async () => (await s.log()).includes('server: updated yt-dlp to 2026.11.01'), 5000, 'Activity to say so');
+
+  const p = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
+  fs.writeFileSync(path.join(p.dir, 'yt-dlp-cant-update'), '');
+  await p.restart();
+  const told = async () => (await p.log()).filter(l => /^server: yt-dlp can't update itself here \(it was installed with pip\)/.test(l));
+  await waitFor(async () => (await told()).length, 5000, 'Activity to say it can\'t (installed with pip)');
+  await sleep(1000);
+  assert.equal((await told()).length, 1, 'once');
+  assert.match((await told())[0], /Update it the same way it was installed, or install it as in docs\/INSTALL\.md$/);
 });
 
 test('a newer Couchwave: Activity says so once (not after every restart); nothing when up to date, or with updateCheck false', async () => {
@@ -151,54 +153,6 @@ test('a newer Couchwave: Activity says so once (not after every restart); nothin
   } finally { releases.close(); }
 });
 
-test('--clear, for whoever runs Couchwave: the chat, Activity or played history, any or all of them, with Couchwave on or off', async () => {
-  const s = await start({ initial: { history: [{ url: yt('hist_000002'), title: 'Played before', by: 'Zed', t: Date.now() }] } });
-  await s.post('/chat', { text: 'hello' }, { as: 'Bob' });
-  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('hello'), 3000, 'the chat to be saved');
-  let r = await command(s, '--clear');
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /^Usage: node server\.js --clear <history \| activity \| chat \| all>/);
-  assert.match(r.stdout, /Now: 1 songs in the played history, \d+ lines in Activity, 1 chat messages\./, 'how much there is of each');
-  assert.equal((await command(s, '--clear', 'everything')).status, 1, 'only what it knows how to clear');
-  const before = await s.state();
-  r = await command(s, '--clear', 'chat');
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /^Done: cleared the chat\./);
-  let st = (await s.get(`/state?log=${before.logRev}&chat=${before.chatRev}&history=${before.historyRev}`)).json;
-  assert.deepEqual(st.chat, [], 'cleared straight away, and pages that already had the chat are sent the empty one');
-  assert.equal(st.history, undefined, 'the history is untouched');
-  assert.ok(st.log.some(e => e.by === 'server' && e.text === 'cleared the chat (whoever runs Couchwave did)'), 'Activity says so');
-  assert.equal((await command(s, '--clear', 'history', 'Activity')).status, 0, 'more than one, any capitals');
-  st = await s.state();
-  assert.deepEqual(st.history, []);
-  assert.deepEqual(st.log.map(e => `${e.by}: ${e.text}`), ['server: cleared the played history and the Activity log (whoever runs Couchwave did)']);
-  await s.post('/chat', { text: 'after' }, { as: 'Bob' });
-  await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('after'), 3000, 'the chat to be saved');
-  await s.stop();
-  r = await command(s, '--clear', 'all');
-  assert.equal(r.status, 0, 'with Couchwave off: ' + r.stdout + r.stderr);
-  await s.start();
-  st = await s.state();
-  assert.deepEqual([st.chat, st.history], [[], []]);
-  assert.deepEqual(st.log.filter(e => !/^(joined|left)$/.test(e.text)).map(e => `${e.by}: ${e.text}`),
-    ['server: cleared the played history, the Activity log and the chat (whoever runs Couchwave did)']);
-});
-
-test('--status: whether it\'s running, who\'s online, what\'s playing, the queue, the DJ, disk space, the tools and the newest release', async () => {
-  const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Next up', 'Bob')] } });
-  const leave = await s.keepOnline('Alice');
-  let r = await command(s, '--status').finally(leave);
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  for (const line of [
-    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 27:46:40$/m,
-    /^Queue: 1 song \(1 ready\)$/m, /^The DJ is off\.$/m, /^Disk: [\d.]+ GB free$/m,
-    /^Tools: yt-dlp 2026\.10\.26, ffmpeg 7\.1-test, ffprobe 7\.1-test, Node\.js \S+$/m, /^Newest release: couldn't check$/m,
-  ]) assert.match(r.stdout, line);
-  await s.stop();
-  r = await command(s, '--status');
-  assert.match(r.stdout, /^Couchwave v\S+ isn't running\.\nSaved: 1 song in the queue, 0 in the played history\.$/m);
-});
-
 test('youtubeCookies in config.json: handed to yt-dlp for downloads and for searches, playlists and the DJ (a cookies file, or a browser)', async () => {
   const s = await start({ config: { youtubeCookies: 'data/youtube-cookies.txt' }, initial: playing });
   await s.logHas(/youtubeCookies should be a cookies file that exists \(like "data\/youtube-cookies\.txt"\) or a browser .*; downloading without cookies/);
@@ -211,17 +165,6 @@ test('youtubeCookies in config.json: handed to yt-dlp for downloads and for sear
   const b = await start({ config: { youtubeCookies: 'Firefox' }, initial: playing });
   await b.post('/add', { url: yt('cook_000002') });
   await waitFor(() => fileHas(path.join(b.dir, 'cookies-used.log'), /^download --cookies-from-browser firefox$/m), 5000, 'the browser\'s cookies');
-});
-
-test('yt-dlp that can\'t update itself (installed with pip or a package manager): Activity says so, once', async () => {
-  const s = await start({ env: { COUCHWAVE_TIME_SCALE: '0.01' } });
-  fs.writeFileSync(path.join(s.dir, 'yt-dlp-cant-update'), '');
-  await s.restart();
-  const told = async () => (await s.log()).filter(l => /^server: yt-dlp can't update itself here \(it was installed with pip\)/.test(l));
-  await waitFor(async () => (await told()).length, 5000, 'Activity to say so');
-  await sleep(1000);
-  assert.equal((await told()).length, 1, 'once');
-  assert.match((await told())[0], /Update it the same way it was installed, or install it as in docs\/INSTALL\.md$/);
 });
 
 test('a backup of the accounts, logins, queue and settings once a day, keeping the last 7 days', async () => {
@@ -237,60 +180,5 @@ test('a backup of the accounts, logins, queue and settings once a day, keeping t
   const kept = fs.readdirSync(backups).sort();
   assert.equal(kept[0], '2020-01-04', 'the oldest went');
   assert.equal(kept.at(-1), today(), 'today\'s is kept');
-});
-
-test('--stop: saves everything and stops; under systemd it says to use systemctl instead; with nothing running it says so', async () => {
-  const s = await start({ initial: playing });
-  await s.post('/chat', { text: 'saved before stopping' });
-  const exited = new Promise(r => s.proc.on('exit', r));
-  let r = await command(s, '--stop');
-  assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /^Done: Couchwave has stopped, and everything is saved\./);
-  assert.equal(await exited, 0, 'it stopped by itself, on purpose');
-  assert.ok(fs.readFileSync(s.statePath, 'utf8').includes('saved before stopping'));
-  assert.ok(fs.existsSync(path.join(s.dir, 'data', 'stop')), 'a note for start.cmd not to start it again');
-  r = await command(s, '--stop');
-  assert.deepEqual([r.status, r.stdout.trim()], [0, 'Couchwave isn\'t running.']);
-  await s.start();
-  assert.ok(!fs.existsSync(path.join(s.dir, 'data', 'stop')), 'the note is cleared when it starts again');
-  const systemd = await start({ env: { COUCHWAVE_FAKE_SYSTEMD: '1' } });
-  r = await command(systemd, '--stop');
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /systemd service .* sudo systemctl stop couchwave/);
-  assert.equal((await systemd.get('/manifest.json', { cookie: '' })).status, 200, 'still running');
-});
-
-async function folder(withStartCmd) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-stop-'));
-  for (const f of [...APP_FILES, ...(withStartCmd ? ['start.cmd'] : [])]) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
-  const port = await new Promise(r => { const t = require('net').createServer().listen(0, () => { const p = t.address().port; t.close(() => r(p)); }); });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port }));
-  const env = { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' };
-  const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
-  return { dir, env, up, stop: () => command({ dir }, '--stop'), clean: () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
-}
-
-test('--stop under node --watch (as start.cmd runs it): the watcher stops too, so nothing starts it again', async () => {
-  const f = await folder();
-  const watcher = require('child_process').spawn(process.execPath, ['--watch', 'server.js'], { cwd: f.dir, env: f.env, stdio: 'ignore' });
-  const exited = new Promise(r => watcher.on('exit', r));
-  try {
-    await f.up();
-    assert.equal((await f.stop()).status, 0);
-    await Promise.race([exited, sleep(10000).then(() => { throw new Error('node --watch is still running'); })]);
-  } finally { watcher.kill(); await sleep(300); f.clean(); }
-});
-
-test('Windows: stop.cmd\'s --stop ends start.cmd too, instead of it restarting Couchwave', { skip: process.platform !== 'win32' }, async () => {
-  const f = await folder(true);
-  const loop = require('child_process').spawn('cmd.exe', ['/c', path.join(f.dir, 'start.cmd')], { cwd: f.dir, env: f.env, stdio: 'ignore' });
-  const exited = new Promise(r => loop.on('exit', r));
-  try {
-    await f.up();
-    assert.equal((await f.stop()).status, 0);
-    assert.equal(await Promise.race([exited, sleep(15000).then(() => 'start.cmd is still running')]), 0, 'start.cmd finished');
-    assert.ok(!fs.existsSync(path.join(f.dir, 'data', 'stop')), 'and cleared the note');
-    assert.match(fs.readFileSync(path.join(f.dir, 'data', 'server-console.log'), 'utf8'), /stopped by node server\.js --stop/);
-  } finally { require('child_process').spawnSync('taskkill', ['/pid', String(loop.pid), '/T', '/F']); await sleep(300); f.clean(); }
 });
 });

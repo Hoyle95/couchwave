@@ -42,6 +42,9 @@ test('joining: the room password, then a new nickname claims it with its own pas
   assert.match(auth, /HttpOnly/);
   assert.ok(!auth.includes(PASSWORD) && !auth.includes('secret1'), 'no password in the login cookie');
   assert.equal(cookies(r).name, 'Alice', 'the name cookie (for the page to show), trimmed');
+  const file = fs.readFileSync(path.join(s.dir, 'data', 'accounts.json'), 'utf8');
+  assert.ok(!file.includes('secret1') && !file.includes(PASSWORD), 'passwords are kept scrambled, never as typed');
+  assert.deepEqual([JSON.parse(file).alice.name, /^[0-9a-f]{64}$/.test(JSON.parse(file).alice.hash)], ['Alice', true]);
 });
 
 test('a taken nickname needs its own password; capitals don\'t matter', async () => {
@@ -71,21 +74,18 @@ test('the login cookie decides who you are (the page is told by the server): edi
   }
 });
 
-test('nicknames the server uses itself can\'t be taken', async () => {
+test('nicknames the server uses itself (like DJ) can\'t be taken, not even with an account from before they were reserved', async () => {
   const s = await start();
-  for (const name of ['server', 'Someone', '__proto__', 'constructor', '   ']) {
+  for (const name of ['server', 'Someone', 'dj', 'DJ', '__proto__', 'constructor', '   ']) {
     assert.equal((await join(s, { password: PASSWORD, name, own: 'secret1' })).status, 400, JSON.stringify(name));
   }
-});
-
-test('own passwords are kept scrambled, never as typed', async () => {
-  const s = await start();
-  await join(s, { password: PASSWORD, name: 'Alice', own: 'my-secret-pw' });
-  const file = fs.readFileSync(path.join(s.dir, 'data', 'accounts.json'), 'utf8');
-  assert.ok(!file.includes('my-secret-pw') && !file.includes(PASSWORD));
-  const acc = JSON.parse(file).alice;
-  assert.equal(acc.name, 'Alice');
-  assert.match(acc.hash, /^[0-9a-f]{64}$/);
+  await s.cookie('Bob');
+  await s.stop();
+  const file = path.join(s.dir, 'data', 'accounts.json'), list = JSON.parse(fs.readFileSync(file, 'utf8'));
+  list.dj = { ...list.bob, name: 'DJ' };
+  fs.writeFileSync(file, JSON.stringify(list));
+  await s.start();
+  assert.equal((await join(s, { password: PASSWORD, name: 'DJ', own: ownPassword('Bob') })).status, 400, 'an old "DJ" account can\'t log in either');
 });
 
 test('over https:// (a tunnel or proxy on this machine says so), cookies are marked Secure; on plain http they aren\'t', async () => {
@@ -181,7 +181,7 @@ test('--logout-everyone: old logins stop working, the passwords still work', asy
 
 const admin = (s, ...args) => spawnSync(process.execPath, ['server.js', ...args], { cwd: s.dir, encoding: 'utf8' });
 
-test('--delete-account: logged out at once, and whoever takes the nickname next starts fresh', async () => {
+test('--delete-account (with Couchwave on or off): logged out at once, and whoever takes the nickname next starts fresh', async () => {
   const s = await start();
   const bobsOld = await s.cookie('Bob');
   await s.post('/face', { face: '🐸' }, { as: 'Bob' });
@@ -198,10 +198,7 @@ test('--delete-account: logged out at once, and whoever takes the nickname next 
   r = admin(s, '--delete-account', 'nobody');
   assert.equal(r.status, 1);
   assert.match(r.stdout, /No account "nobody". Accounts: .*Bob/);
-});
 
-test('--delete-account while the server is off works too', async () => {
-  const s = await start();
   const caras = await s.cookie('Cara');
   await s.post('/face', { face: '🦊' }, { as: 'Cara' });
   await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('🦊'), 3000, 'Cara\'s picture to be saved');
@@ -211,10 +208,9 @@ test('--delete-account while the server is off works too', async () => {
   assert.equal((await s.get('/state', { cookie: caras })).status, 401);
   assert.equal((await join(s, { password: PASSWORD, name: 'cara', own: 'someone-new' })).status, 204);
   assert.equal((await s.state('Alice')).faces.Cara, undefined, 'starts fresh');
-  assert.equal(admin(s, '--delete-account', 'Zoe').status, 1, 'deleting a deleted (or unknown) account says so');
 });
 
-test('--set-password: for a forgotten password. Old logins and password stop working, the account is kept', async () => {
+test('--set-password: for a forgotten password. Old logins and password stop working, the account is kept, and the name is tidied like when joining', async () => {
   const s = await start();
   const bobsOld = await s.cookie('Bob');
   await s.post('/face', { face: '🐸' }, { as: 'Bob' });
@@ -235,6 +231,9 @@ test('--set-password: for a forgotten password. Old logins and password stop wor
   const short = spawnSync(process.execPath, ['server.js', '--set-password', 'Bob'], { cwd: s.dir, encoding: 'utf8', input: 'abc\n' });
   assert.equal(short.status, 1);
   assert.match(short.stdout, /too short.*Nothing was changed/);
+  await join(s, { password: PASSWORD, name: 'Big   Al', own: 'secret1' });
+  assert.match(admin(s, '--set-password', ' big  al ', 'new-pw-1').stdout, /"Big Al" has a new password/);
+  assert.match(admin(s, '--delete-account', '  big al  ').stdout, /"Big Al" is deleted/);
 });
 
 test('look-alike nicknames: invisible characters, other widths and mixed alphabets don\'t make a second "Alice"', async () => {
@@ -291,13 +290,6 @@ test('a broken or locked accounts file pauses logins, instead of letting anyone 
   assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'bobs-pw' })).status, 204);
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))).sort(), ['alice', 'bob'], 'Alice\'s account survived');
   assert.match(fs.readFileSync(path.join(s.dir, 'data', 'server.log'), 'utf8'), /Can't read .*accounts\.json/, 'the problem is in the server log');
-});
-
-test('the admin commands tidy up the name the same way joining does', async () => {
-  const s = await start();
-  await join(s, { password: PASSWORD, name: 'Big   Al', own: 'secret1' });
-  assert.match(admin(s, '--set-password', ' big  al ', 'new-pw-1').stdout, /"Big Al" has a new password/);
-  assert.match(admin(s, '--delete-account', '  big al  ').stdout, /"Big Al" is deleted/);
 });
 
 });

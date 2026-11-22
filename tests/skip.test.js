@@ -31,7 +31,7 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.ok((await s.log()).includes(': "Song A" was skipped (2 of 3 voted)'), 'logged with nobody\'s name (it was a group effort), not as Bob\'s, the deciding vote');
   });
 
-  test('voting twice counts once, a vote can be taken back, and votes for an old song do nothing', async () => {
+  test('voting twice counts once, a vote can be taken back, votes for an old song do nothing, and votes have a speed limit', async () => {
     const s = await start();
     await vote(s, 'Alice', 1); await vote(s, 'Alice', 1);
     assert.deepEqual((await s.state()).skip.voters, ['Alice']);
@@ -39,6 +39,10 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.deepEqual((await s.state()).skip.voters, []);
     await vote(s, 'Alice', 999);
     assert.deepEqual((await s.state()).skip.voters, []);
+    const votes = [];
+    for (let i = 0; i < 31; i++) votes.push((await s.post(['/skip', '/remove', '/retry', '/undo'][i % 4], { id: 999 }, { as: 'Bob' })).status);
+    assert.deepEqual([votes.slice(0, 30).every(x => x === 204), votes[30]], [true, 429], 'skip, remove, retry and undo: 30 a minute each');
+    assert.equal((await vote(s, 'Cara', 999)).status, 204, 'others aren\'t affected');
   });
 
   test('on your own, one click skips', async () => {
@@ -92,13 +96,16 @@ describe('vote to skip', { concurrency: true }, () => {
     stopA();
   });
 
-  test('votes survive a restart (e.g. saving config.json restarts the server)', async () => {
+  test('votes to skip and to remove survive a restart (e.g. saving config.json restarts the server)', async () => {
     const s = await start();
     await vote(s, 'Alice', 1);
+    await s.post('/remove', { id: 3, vote: true }, { as: 'Bob' });
     s.stopOnline();
     await s.restart();
     for (const n of ['Alice', 'Bob', 'Cara']) await s.state(n);
-    assert.deepEqual((await s.state()).skip.voters, ['Alice']);
+    const st = await s.state();
+    assert.deepEqual(st.skip.voters, ['Alice']);
+    assert.deepEqual(st.queue.find(q => q.id === 3).removeVoters, ['Bob']);
   });
 
   test('votes needed: 60% of the people online by default, rounded up (2 of 3, 3 of 4, 5 of 7, 6 of 9)', async () => {
@@ -111,7 +118,11 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.deepEqual(needs, [1, 2, 2, 3, 3, 4, 5, 5, 6]);
   });
 
-  test('votePercent 100 in config.json: everyone online has to vote, to skip and to remove someone else\'s song', async () => {
+  test('votePercent in config.json: 100 means everyone online has to vote (to skip and to remove), 30 means one of 3 is enough', async () => {
+    const few = await start({}, { votePercent: 30 });
+    assert.equal((await few.state()).skip.need, 1);
+    await vote(few, 'Alice', 1);
+    assert.equal(await title(few), 'Song B');
     const s = await start({}, { votePercent: 100 });
     assert.equal((await s.state()).skip.need, 3);
     await vote(s, 'Alice', 1); await vote(s, 'Bob', 1);
@@ -122,13 +133,6 @@ describe('vote to skip', { concurrency: true }, () => {
     assert.ok((await s.state()).queue.some(q => q.id === 3), 'remove: 2 of 3 isn\'t enough either');
     await s.post('/remove', { id: 3, vote: true }, { as: 'Cara' });
     assert.ok(!(await s.state()).queue.some(q => q.id === 3), '3 of 3 removes it');
-  });
-
-  test('votePercent 30: one vote of 3 is enough', async () => {
-    const s = await start({}, { votePercent: 30 });
-    assert.equal((await s.state()).skip.need, 1);
-    await vote(s, 'Alice', 1);
-    assert.equal(await title(s), 'Song B');
   });
 
   test('the DJ isn\'t counted: 2 people online and the DJ on still need 2 votes, not 3 of 3', async () => {

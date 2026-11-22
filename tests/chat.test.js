@@ -82,7 +82,7 @@ test('the log, chat and history are only sent when they changed (most checks are
   assert.deepEqual([later.log, later.history], [undefined, undefined], 'the log and history didn\'t change');
 });
 
-test('profile pictures: a colour and an emoji, checked, and quick changes are one log entry', async () => {
+test('profile pictures: a colour and an emoji, checked, quick changes are one log entry, and changes have a speed limit', async () => {
   const s = await start();
   await s.post('/color', { color: '#FF0000' }, { as: 'Bob' });
   await s.post('/color', { color: '#00ff00' }, { as: 'Bob' });
@@ -97,6 +97,11 @@ test('profile pictures: a colour and an emoji, checked, and quick changes are on
   assert.equal(st.colors.Cara, '#123456');
   const log = (await s.log()).filter(l => /changed/.test(l));
   assert.deepEqual(log, ['Bob: changed their colour', 'Bob: changed their emoji to 🐸'], 'two colour changes, one entry; nothing for Cara');
+  const looks = [];
+  for (let i = 0; i < 15; i++) looks.push((await s.post('/color', { color: i % 2 ? '#112233' : '#445566', quiet: true }, { as: 'Bob' })).status);
+  assert.deepEqual([looks.slice(0, 14).every(x => x === 204), looks[14]], [true, 429], 'colour and emoji together: 20 changes a minute (Bob made 6 above)');
+  assert.equal((await s.post('/face', { face: '🦊', quiet: true }, { as: 'Bob' })).status, 429, 'emoji share the limit');
+  assert.equal((await s.post('/color', { color: '#778899', quiet: true }, { as: 'Cara' })).status, 204, 'others aren\'t affected');
 });
 
 test('reactions: shown for a few seconds, emoji only', async () => {
@@ -146,13 +151,16 @@ test('a message arriving in pieces, split in the middle of an emoji, comes throu
 });
 
 const GIF = { url: 'https://static.klipy.com/ii/abc123/14/af/um0L4dFH.webp', width: 220, height: 124, title: 'Happy dance' };
-test('GIFs: off without a klipyKey (no GIF button, and a GIF sent anyway is refused)', async () => {
+test('GIFs: off without a klipyKey, or with one that isn\'t a key (no GIF button, and a GIF sent anyway is refused)', async () => {
   const s = await start();
   assert.equal((await s.state()).gifs, undefined);
   const r = await s.post('/chat', { gif: GIF }, { as: 'Bob' });
   assert.deepEqual([r.status, r.text], [400, 'GIFs are off on this Couchwave']);
   assert.equal((await s.state()).chat.length, 0);
   assert.match((await s.get('/')).headers['content-security-policy'], /(^|; )connect-src 'self'(;|$)/, 'the page can only talk to Couchwave');
+  const wrong = await start({ config: { klipyKey: 'not a key!' } });
+  await wrong.logHas(/klipyKey should be the API key from partner\.klipy\.com \(letters and numbers\), not "not a key!"; GIFs are off/);
+  assert.equal((await wrong.state()).gifs, undefined);
 });
 
 test('GIFs with a klipyKey: the page gets the key and an anonymous id per person, can reach KLIPY, and GIFs it sends show in the chat', async () => {
@@ -181,21 +189,15 @@ test('GIFs with a klipyKey: the page gets the key and an anonymous id per person
   }
   assert.equal((await s.state()).chat.length, 1, 'none of those were posted');
 
+  for (let i = 1; i <= 8; i++) assert.equal((await s.post('/chat', i % 2 ? { gif: GIF } : { text: 'msg ' + i }, { as: 'Cara' })).status, 204);
+  assert.equal((await s.post('/chat', { gif: GIF }, { as: 'Cara' })).status, 429, 'GIFs count towards the chat speed limit');
+
   await s.restart();
   assert.equal((await s.state('Alice')).gifs.customer, a.customer, 'the same id after a restart');
-  assert.deepEqual((await s.state()).chat.at(-1).gif, { ...GIF, title: 'x'.repeat(120) }, 'GIFs are saved like messages');
+  assert.deepEqual((await s.state()).chat.find(m => m.by === 'Bob').gif, { ...GIF, title: 'x'.repeat(120) }, 'GIFs are saved like messages');
 });
 
-test('GIFs count towards the chat speed limit', async () => {
-  const s = await start({ config: { klipyKey: 'test_Key-123456' } });
-  for (let i = 1; i <= 8; i++) assert.equal((await s.post('/chat', i % 2 ? { gif: GIF } : { text: 'msg ' + i }, { as: 'Bob' })).status, 204);
-  assert.equal((await s.post('/chat', { gif: GIF }, { as: 'Bob' })).status, 429);
-});
-
-test('klipyKey and gifFilter in config.json: a wrong value says what\'s expected', async () => {
-  const s = await start({ config: { klipyKey: 'not a key!' } });
-  await s.logHas(/klipyKey should be the API key from partner\.klipy\.com \(letters and numbers\), not "not a key!"; GIFs are off/);
-  assert.equal((await s.state()).gifs, undefined);
+test('gifFilter in config.json: how strict KLIPY is (medium by default); a wrong value says what\'s expected', async () => {
   const f = await start({ config: { klipyKey: 'test_Key-123456', gifFilter: 'strict' } });
   await f.logHas(/gifFilter should be off, low, medium, high, not "strict"; using medium/);
   assert.equal((await f.state()).gifs.filter, 'medium');

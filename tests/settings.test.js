@@ -2,28 +2,23 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { testServers, song, yt, waitFor, PASSWORD, APP_FILES, ROOT } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, PASSWORD, TOOL_ENV, appCopy, run } = require('./helpers');
 
 const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
 
 describe('settings', { concurrency: true }, () => {
 test('no config.json: one is made, with a random room password and every setting at its default', async () => {
-  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-fresh-'));
-  for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+  const copy = appCopy();
   const server = require('child_process').spawn(process.execPath, ['-r', path.join(__dirname, 'fakes', 'any-port.js'), 'server.js'],
-    { cwd: dir, env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes') } });
+    { cwd: copy.dir, env: { ...process.env, ...TOOL_ENV } });
   try {
-    const file = path.join(dir, 'config.json');
+    const file = path.join(copy.dir, 'config.json');
     await waitFor(() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; } }, 5000, 'config.json to be made');
     const { password, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.match(password, /^[\w-]{8}$/, 'a random room password');
     assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false });
-  } finally {
-    server.kill();
-    await new Promise(r => setTimeout(r, 300));
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
-  }
+  } finally { server.kill(); await sleep(300); copy.clean(); }
 });
 
 test('the room password and port come from config.json only, never the environment; a short one gets a warning', async () => {
@@ -72,18 +67,24 @@ test('"public": only exactly true opens the room: no room password (the join scr
 });
 
 test('a port that\'s already in use: it says so plainly (is Couchwave already running?) and stops', async () => {
-  const first = await start();
-  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'couchwave-second-'));
+  const first = await start(), copy = appCopy();
   try {
-    for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: first.port }));
-    const status = await new Promise(resolve => require('child_process').execFile(process.execPath, ['server.js'], { cwd: dir, timeout: 20000,
-      env: { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' } },
-    err => resolve(err ? err.code : 0)));
-    assert.equal(status, 1);
-    assert.match(fs.readFileSync(path.join(dir, 'data', 'server.log'), 'utf8'),
+    fs.writeFileSync(path.join(copy.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port: first.port }));
+    assert.equal((await run(copy.dir, [], { timeout: 20000 })).status, 1);
+    assert.match(fs.readFileSync(path.join(copy.dir, 'data', 'server.log'), 'utf8'),
       new RegExp(`Can't start: port ${first.port} is already in use\\. Is Couchwave already running\\? Close it, or set another "port" in config\\.json`));
     assert.equal((await first.get('/manifest.json', { cookie: '' })).status, 200, 'the one already running carries on');
-  } finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); }
+  } finally { copy.clean(); }
+});
+
+test('a mistake in config.json: it says what is wrong and how to fix it, instead of a bare error', async () => {
+  const copy = appCopy();
+  try {
+    fs.writeFileSync(path.join(copy.dir, 'config.json'), '{\n  "password": "long-enough-pw",\n  "klipyKey": abc123"\n}\n');
+    const r = await run(copy.dir, [], { timeout: 15000 });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /config\.json has a mistake in it, so Couchwave can't start \(Unexpected token .*\)\. Text needs "quotes" around it, and every setting but the last needs a comma after it: see docs\/INSTALL\.md#settings\. Fix it and save it/);
+    assert.ok(!r.stderr.includes(copy.dir), 'without the long path to it');
+  } finally { copy.clean(); }
 });
 });

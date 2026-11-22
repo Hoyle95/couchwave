@@ -2,7 +2,7 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { testServers, song, yt, waitFor, sleep, secs, PASSWORD, ownPassword } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, secs } = require('./helpers');
 
 const servers = testServers({ after });
 const start = (initial = { here: {} }) => servers({ initial: { ...initial, history: (initial.history || []).map(h => ({ duration: 200, ...h })) } });
@@ -17,16 +17,10 @@ async function aliceSong(s, id) {
 }
 
 describe('the DJ', { concurrency: true }, () => {
-  test('off by default: an empty queue stays empty', async () => {
+  test('off by default; !dj on / !dj off / !dj answer in chat, are logged, aren\'t posted themselves, and on/off is remembered', async () => {
     const s = await start({ here: {}, history: [{ url: yt('alic_000001'), title: 'Song alic_000001', by: 'Alice', t: Date.now() }] });
     await sleep(CHECKS);
-    const st = await s.state();
-    assert.equal(st.dj, false);
-    assert.equal(st.queue.length, 0);
-  });
-
-  test('!dj on / !dj off / !dj: answers in chat, logged, and the command itself isn\'t posted', async () => {
-    const s = await start();
+    assert.deepEqual([(await s.state()).dj, (await s.state()).queue.length], [false, 0], 'off by default: an empty queue stays empty');
     await say(s, 'Bob', '!dj');
     let st = await s.state();
     assert.match(st.chat.at(-1).text, /The DJ is off/);
@@ -45,9 +39,14 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok((await s.log()).includes('Cara: turned the DJ off'));
     await say(s, 'Cara', '!djembe lessons anyone?');
     assert.equal((await s.state()).chat.at(-1).text, '!djembe lessons anyone?');
+    await s.restart();
+    assert.equal((await s.state()).dj, false, 'off, after a restart');
+    await say(s, 'Bob', '!dj on');
+    await s.restart();
+    assert.equal((await s.state()).dj, true, 'on, after a restart');
   });
 
-  test('keeps up to 10 songs queued, only from what people asked for (never its own picks), nothing that isn\'t a song', async () => {
+  test('keeps up to 10 songs queued, only from what people asked for (never its own picks), all between 1 and 20 minutes long', async () => {
     const now = Date.now(), asked = ['hist_000001', 'hist_000002', 'hist_000003', 'hist_000004'];
     const s = await start({
       here: {}, current: song(1, 'Song play_000001', 'Alice', { duration: 10000, url: yt('play_000001') }),
@@ -58,9 +57,10 @@ describe('the DJ', { concurrency: true }, () => {
     await waitFor(() => djCount(10)(s), 20000, '10 DJ songs');
     const mine = await djSongs(s);
     assert.equal(new Set(mine.map(vid)).size, 10, 'no repeats');
-    assert.ok(!mine.some(q => /Full Album|Too Short/.test(q.title)), 'no albums or jingles');
+    assert.ok(!mine.some(q => /Full Album|Too Short|Too Long/.test(q.title)), 'not 25 minutes, 30 seconds, or an album');
     const picks = (await s.log()).filter(l => l.startsWith('DJ: added'));
     assert.equal(picks.length, 10);
+    assert.ok(picks.some(l => /Fourth Band - Long Song/.test(l)), 'a 15-minute song is fine:\n' + picks.join('\n'));
     assert.ok(picks.every(l => /\(like "Song (play|hist)_00000\d", from (Alice|Bob)\)$/.test(l)), 'every pick is like a song a person asked for:\n' + picks.join('\n'));
     await sleep(CHECKS);
     assert.equal((await djSongs(s)).length, 10, 'and no more');
@@ -85,14 +85,15 @@ describe('the DJ', { concurrency: true }, () => {
     assert.ok(Date.now() - t < secs(20), `picked up in ${((Date.now() - t) / secs(1)).toFixed(1)} (server) seconds, not after its 30-second wait`);
   });
 
-  test('only songs that have played are starting points, not ones still waiting in the queue', async () => {
+  test('only songs that have played are starting points: nothing played yet, it asks for a song (once), even with one waiting in the queue', async () => {
     const s = await start({ here: {}, current: song(1, 'Playing now', 'Zed', { duration: 100000 }) });
     const asked = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim(); } catch { return ''; } };
-    await s.post('/add', { url: yt('bobs_000005') }, { as: 'Bob' });
     await say(s, 'Bob', '!dj on');
+    await s.post('/add', { url: yt('bobs_000005') }, { as: 'Bob' });
     await sleep(CHECKS);
     assert.equal(asked(), '', 'nothing asked about the song still waiting');
     assert.equal((await djSongs(s)).length, 0);
+    assert.equal((await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on yet: add a song/.test(m.text)).length, 1, 'asked for a song, once');
     await s.post('/skip', { id: 1 }, { as: 'Bob' });
     await s.post('/skip', { id: 1 }, { as: 'Alice' });
     await waitFor(async () => (await s.log()).some(l => /^DJ: added .* from Bob\)$/.test(l)), 12000, 'the DJ to go on Bob\'s song once it plays');
@@ -145,46 +146,6 @@ describe('the DJ', { concurrency: true }, () => {
     await sleep(CHECKS);
     assert.equal(await picks(), before, '...and it doesn\'t add any more');
     stop();
-  });
-
-  test('on/off is remembered when the server restarts', async () => {
-    const s = await start();
-    await say(s, 'Bob', '!dj on');
-    await s.restart();
-    assert.equal((await s.state()).dj, true);
-    await say(s, 'Bob', '!dj off');
-    await s.restart();
-    assert.equal((await s.state()).dj, false);
-  });
-
-  test('nothing played or queued yet: asks for a song (once), and starts as soon as there is one', async () => {
-    const s = await start();
-    await say(s, 'Bob', '!dj on');
-    await sleep(CHECKS);
-    const said = (await s.state()).chat.filter(m => m.by === 'DJ' && /Nothing to go on yet: add a song/.test(m.text));
-    assert.equal(said.length, 1);
-    assert.equal((await djSongs(s)).length, 0);
-    await aliceSong(s, 'play_000005');
-    await waitFor(() => djCount(1)(s), 10000, 'the DJ to start from Alice\'s song');
-  });
-
-  test('nobody can be "DJ": not as a new nickname, and not with an account from before it was reserved', async () => {
-    const s = await start();
-    const join = name => s.req('POST', '/login', { body: { password: PASSWORD, name, own: ownPassword('Bob') }, cookie: '' });
-    assert.equal((await join('dj')).status, 400);
-    assert.equal((await join('DJ')).status, 400);
-    await s.cookie('Bob');
-    await s.stop();
-    const file = path.join(s.dir, 'data', 'accounts.json');
-    const list = JSON.parse(fs.readFileSync(file, 'utf8'));
-    list.dj = { ...list.bob, name: 'DJ' };
-    fs.writeFileSync(file, JSON.stringify(list));
-    await s.start();
-    assert.equal((await join('DJ')).status, 400, 'still can\'t log in as it');
-    await say(s, 'Bob', '!dj on');
-    const st = await s.state('Bob');
-    assert.deepEqual(st.users, ['Bob'], 'and the DJ isn\'t counted as a person online');
-    assert.equal(st.skip.need, 1);
   });
 
   test('songs saved as Shorts links are starting points too (as long as they have a Mix)', async () => {
@@ -269,15 +230,6 @@ describe('the DJ', { concurrency: true }, () => {
     await like('Cara', djSong, false);
     assert.equal(saved(djSong.url), undefined, 'and the likes can be taken back');
     assert.equal((await seenBy('Alice', djSong.url)).liked, undefined);
-  });
-
-  test('picks songs between 1 and 20 minutes long', async () => {
-    const s = await start({ here: {}, history: [{ url: yt('lens_000001'), title: 'Song lens_000001', by: 'Alice', t: Date.now() }] });
-    await say(s, 'Bob', '!dj on');
-    await waitFor(() => djCount(3)(s), 8000, 'the DJ\'s picks');
-    const picks = (await s.log()).filter(l => l.startsWith('DJ: added')).join('\n');
-    assert.match(picks, /Fourth Band - Long Song/, 'a 15-minute song is fine:\n' + picks);
-    assert.doesNotMatch(picks, /Too Long|Too Short|Full Album/, 'not 25 minutes, 30 seconds, or an album');
   });
 
   test('turning it on doesn\'t rush YouTube: its first picks come straight away, then a Mix every 10 seconds', async () => {

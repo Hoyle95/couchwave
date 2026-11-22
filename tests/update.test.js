@@ -1,9 +1,9 @@
 // ---------- node server.js --update ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs'), os = require('os'), path = require('path'), http = require('http'), net = require('net'), zlib = require('zlib'), crypto = require('crypto');
-const { spawn, execFile, spawnSync } = require('child_process');
-const { waitFor, sleep, ROOT, APP_FILES, PASSWORD } = require('./helpers');
+const fs = require('fs'), path = require('path'), http = require('http'), zlib = require('zlib'), crypto = require('crypto');
+const { spawn, spawnSync } = require('child_process');
+const { waitFor, sleep, ROOT, PASSWORD, TOOL_ENV, appCopy, run, freePort } = require('./helpers');
 const { readZip, batchSafe } = require('../lib/update');
 
 const versionIn = text => /const VERSION = '([^']+)'/.exec(text)[1];
@@ -58,19 +58,16 @@ async function github(zip, { version = NEW, digest } = {}) {
 }
 
 // ---------- A Couchwave to update ----------
-const freePort = () => new Promise(r => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
 async function folder() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-upd-'));
+  const { dir } = appCopy();
   dirs.push(dir);
-  for (const f of APP_FILES) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
   const port = await freePort();
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port }));
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'data', 'state.json'), JSON.stringify({ chat: [{ t: 1, by: 'Alice', text: 'kept across the update' }] }));
-  const env = { ...process.env, COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_TIME_SCALE: '0.1', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/' };
+  const env = { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: '0.1' };
   const read = name => fs.readFileSync(path.join(dir, name), 'utf8');
-  const cli = (args, extra = {}) => new Promise(r => execFile(process.execPath, ['server.js', ...args], { cwd: dir, encoding: 'utf8', timeout: 90000, env: { ...env, ...extra } },
-    (err, stdout, stderr) => r({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, out: stdout + stderr })));
+  const cli = (args, extra = {}) => run(dir, args, { timeout: 90000, env: { COUCHWAVE_TIME_SCALE: '0.1', ...extra } });
   const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
   return { dir, port, env, read, cli, up, version: () => versionIn(read('server.js')),
     update: (url, scale = '0.4') => cli(['--update'], { COUCHWAVE_RELEASES_URL: url, COUCHWAVE_TIME_SCALE: scale }) };

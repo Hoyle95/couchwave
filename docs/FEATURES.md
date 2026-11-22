@@ -34,8 +34,8 @@
 
 **Together**
 
-- **Chat and emoji reactions** that float over the video, all instant. Chatting, adding songs, pausing and
-  reactions have a speed limit, so nobody can flood the room.
+- **Chat and emoji reactions** that float over the video, all instant. Chatting, adding songs, pausing,
+  voting, reactions and changing your look have a speed limit, so nobody can flood the room.
 - **GIFs in the chat**, searched from [KLIPY](https://klipy.com), with trending ones first, once you add your
   own free KLIPY key (see [GIFs in the chat](INSTALL.md#gifs-in-the-chat)).
 - **Who's online** (anyone with the page open, even in a background tab), and an **Activity log** of who
@@ -145,8 +145,13 @@ The DJ:
 | `lib/update.js` | `--update`: the download, its checksum, the trial run, putting files in place, and going back. |
 | `lib/common.js`, `lib/tools.js` | Shared basics (folders, saving files safely, times, YouTube links), and running yt-dlp, ffmpeg and ffprobe. |
 | `lib/dj.js` | The DJ. It only uses what `lib/start.js` hands it. |
-| `public/` | What browsers load: `index.html`, `css/style.css`, `js/theme.js` and `js/app.js`, `fonts/` and `icons/`. |
-| `tests/` | The tests, with stand-ins for yt-dlp, ffmpeg and ffprobe in `tests/fakes/`. |
+| `public/` | What browsers load: `index.html`, `css/style.css`, the scripts in `js/`, `fonts/` and `icons/`. |
+| `public/js/core.js` | The page's shared basics: helpers, names and profile pictures. |
+| `public/js/profile.js` | Joining, logging out, your colour and emoji, and the theme. |
+| `public/js/player.js` | Playing in sync, the controls, voting to skip, full screen, reactions and the lock screen. |
+| `public/js/chat.js`, `public/js/lists.js` | Chat, emoji, GIFs and sounds; adding songs, the queue, Activity and the history. |
+| `public/js/app.js` | Updates from the server, the buttons, and starting it all (it loads last). |
+| `tests/` | The tests, with stand-ins for yt-dlp, ffmpeg and ffprobe in `tests/fakes/`, and a headless browser for the page (`tests/browser.js`). |
 
 Comments in the code are only short section headers; how things should behave is described in these docs.
 Files in `lib/` can need each other, so each one adds what it shares to `exports` at the end
@@ -155,15 +160,19 @@ runs (`room.queue`, `downloads.pump()`) rather than copying them when it loads. 
 `room`, so the other files see the same queue.
 The page's security policy blocks inline scripts, including `onclick="…"`: give an element
 `data-click="name"` (or `data-submit`, `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `app.js`.
+The page's scripts are plain scripts that share one scope, loaded in order by `index.html` (`core.js` first,
+`app.js` last): while loading, a script can only use what earlier ones made; once everything has loaded,
+anything goes. `app.js` starts the page, so it's last.
 
-After changing the code, run `node --test` (about 20 seconds). Each test runs against its own throwaway
+After changing the code, run `node --test` (about 30 seconds). Each test runs against its own throwaway
 Couchwave (temporary folder, password and port), so your real server and data are never touched, even while
-it's running. The stand-ins mean it needs no internet. The test servers run their clock 4x faster
-(`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left" takes 2.5 seconds, not 10. Other
-`COUCHWAVE_…` variables in `tests/helpers.js` and `lib/` are only for the tests. Every push to `main`
-also runs them on Linux and Windows (`.github/workflows/tests.yml`). The one-line installers (`install.ps1`,
-`install.sh`) are tried for real on fresh Linux and Windows machines whenever they change, and after each
-release (`.github/workflows/install.yml`): install, check it runs and starts with the computer, update, stop.
+it's running. The stand-ins mean it needs no internet. The page itself is tested in a headless Chrome or Edge
+(`tests/page-browser.test.js`), found by itself (or set `COUCHWAVE_BROWSER`); without one, those tests are skipped.
+The test servers run their clock 4x faster (`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left"
+takes 2.5 seconds, not 10. Other `COUCHWAVE_…` variables in `tests/helpers.js` and `lib/` are only for the tests.
+Every push to `main` also runs them on Linux and Windows (`.github/workflows/tests.yml`). The one-line
+installers (`install.ps1`, `install.sh`) are tried for real on fresh Linux and Windows machines whenever they
+change, and after each release (`.github/workflows/install.yml`): install, check it runs and starts with the computer, update, stop.
 
 Releasing: first set `VERSION` (near the top of `server.js`) to the new version:
 it's what the "a newer Couchwave is out" check compares. Publishing a GitHub release runs the tests on
