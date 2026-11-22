@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: A new release - wait for its zip (the Release zip workflow attaches it once its tests pass)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for i in $(seq 1 60); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -q '^couchwave-.*[.]zip$' && exit 0
+            sleep 10
+          done
+          echo "The release zip didn't appear within 10 minutes"; exit 1
+
       - name: Something else is already on port 3000
         run: |
           nohup python3 -m http.server 3000 > /dev/null 2>&1 &
@@ -54,6 +66,18 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: A new release - wait for its zip (the Release zip workflow attaches it once its tests pass)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for i in $(seq 1 60); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -q '^couchwave-.*[.]zip$' && exit 0
+            sleep 10
+          done
+          echo "The release zip didn't appear within 10 minutes"; exit 1
 
       - name: Tools GitHub's machine doesn't have (it has no winget), where the startup task can find them
         shell: powershell
