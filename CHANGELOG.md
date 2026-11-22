@@ -17,6 +17,12 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   Raspberry Pi), with Node.js, ffmpeg and yt-dlp inside and everything kept in one data folder. Each release
   has one from now on. See [docs/INSTALL.md](docs/INSTALL.md#docker).
 
+### Changed
+
+- **A bigger chat on wide screens**: on screens wider than about 1330 pixels, the page now uses more of the
+  width instead of stopping at 1280, and the chat grows with it (up to 480 pixels wide, from 320), as does the
+  video. Full screen gets the wider chat too. Smaller screens look the same.
+
 ## v0.4.0 beta (2026-11-22)
 
 Still a beta. Updating is now one command, installing is one line, and there are GIFs in the chat (with your
