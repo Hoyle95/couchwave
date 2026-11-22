@@ -33,16 +33,17 @@ jobs:
 
       - name: The welcome (with the room password) is in docker logs, settings are in the data folder, and it doesn't run as root
         run: |
+          set -x
           docker logs couchwave > logs.txt 2>&1; cat logs.txt
           PASSWORD=$(node -p 'require("./couchwave-data/config.json").password')
           echo "PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
           grep -q "Welcome to Couchwave! It's running." logs.txt
           grep -q "Room password: *$PASSWORD" logs.txt
-          test -f couchwave-data/state.json
           docker top couchwave -eo uid,args | grep 'node server.js' | grep -v '^ *0 '
 
       - name: The tools are there, yt-dlp can update itself, and the commands work
         run: |
+          set -x
           docker exec couchwave yt-dlp --version
           docker exec couchwave ffmpeg -version | head -1
           docker exec -u node couchwave sh -c 'test -w /opt/yt-dlp/yt-dlp'
@@ -52,7 +53,9 @@ jobs:
 
       - name: Stopping saves; starting again keeps everything, without a second welcome; Docker sees it as healthy
         run: |
+          set -x
           docker stop couchwave
+          test -f couchwave-data/state.json
           test "$(docker inspect -f '{{.State.ExitCode}}' couchwave)" = 0
           docker start couchwave
           for i in $(seq 1 60); do curl -fsS http://localhost:3000/health && break; sleep 1; done
