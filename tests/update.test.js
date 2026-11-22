@@ -70,7 +70,7 @@ async function folder() {
   const cli = (args, extra = {}) => run(dir, args, { timeout: 90000, env: { COUCHWAVE_TIME_SCALE: '0.1', ...extra } });
   const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
   return { dir, port, env, read, cli, up, version: () => versionIn(read('server.js')),
-    update: (url, scale = '0.4') => cli(['--update'], { COUCHWAVE_RELEASES_URL: url, COUCHWAVE_TIME_SCALE: scale }) };
+    update: (url, scale = '1') => cli(['--update'], { COUCHWAVE_RELEASES_URL: url, COUCHWAVE_TIME_SCALE: scale }) };
 }
 
 describe('updating', { concurrency: true }, () => {
