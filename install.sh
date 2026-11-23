@@ -12,7 +12,7 @@ SERVICE="${COUCHWAVE_SERVICE:-couchwave}"
 step() { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 die() { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
-node_ok() { command -v node >/dev/null && node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 18 || (a === 18 && b >= 11) ? 0 : 1)'; }
+node_ok() { command -v node >/dev/null && node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 18 || (a === 18 && b >= 15) ? 0 : 1)'; }
 config() { node -e 'try { const c = require(process.argv[1]); console.log(c[process.argv[2]] ?? "") } catch { console.log("") }' "$DIR/config.json" "$1"; }
 free() { node -e 'const s = require("net").createServer(); s.once("error", () => process.exit(1)); s.listen(Number(process.argv[1]), () => s.close(() => process.exit(0)))' "$1"; }
 is_couchwave() { curl -fs "http://localhost:$1/manifest.json" 2>/dev/null | node -e 'let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => { try { process.exit(JSON.parse(s).name === "Couchwave" ? 0 : 1) } catch { process.exit(1) } })'; }
@@ -28,7 +28,7 @@ if ! node_ok; then
   curl -fsSL https://deb.nodesource.com/setup_22.x | as_root bash - >/dev/null
   as_root apt-get install -y -qq nodejs >/dev/null
 fi
-node_ok || die "Couldn't install Node.js 18.11 or newer. Install it from https://nodejs.org, then run this again."
+node_ok || die "Couldn't install Node.js 18.15 or newer. Install it from https://nodejs.org, then run this again."
 
 step "Installing yt-dlp (its own copy, so Couchwave can keep it up to date)"
 mkdir -p "$HOME/.local/bin"

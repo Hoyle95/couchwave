@@ -13,7 +13,7 @@ Set it up once and leave it: Couchwave keeps yt-dlp up to date, retries stuck do
 disk, and tells you when there's a new version. Everyone has their own nickname and password, and password
 guessing is shut down. All it needs is Node.js, yt-dlp and ffmpeg: no database, no npm packages.
 
-![Couchwave in a browser: a video playing with emoji reactions floating over it, a skip vote in progress, the chat with GIFs and online friends on the right, and below them the activity log, the history of songs played with their thumbnails and lengths, and the queue](docs/screenshot.png)
+![Couchwave in a browser: a video playing with emoji reactions floating over it, a skip vote in progress, online friends and the chat with GIFs on the right (with Activity a tab away), and below them the history of songs played with their thumbnails and lengths, and the queue](docs/screenshot.png)
 
 <p align="center">
   <b><a href="docs/INSTALL.md">Getting started and setup guide</a></b>

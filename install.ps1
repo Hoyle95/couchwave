@@ -56,7 +56,7 @@ Refresh-Path
 $nodeOk = $false
 if (Has node) {
   $v = ((node --version) -replace '^v', '').Split('.')
-  $nodeOk = ([int]$v[0] -gt 18) -or ([int]$v[0] -eq 18 -and [int]$v[1] -ge 11)
+  $nodeOk = ([int]$v[0] -gt 18) -or ([int]$v[0] -eq 18 -and [int]$v[1] -ge 15)
 }
 $needed = @()
 if (-not $nodeOk) { $needed += 'OpenJS.NodeJS.LTS' }

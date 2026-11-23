@@ -44,10 +44,9 @@
   own free KLIPY key (see [GIFs in the chat](INSTALL.md#gifs-in-the-chat)).
 - **Who's online** (anyone with the page open, even in a background tab), and an **Activity log** of who
   added, removed or skipped songs, paused, and joined or left, with a sound for comings and goings (its own
-  volume and mute). Activity shares its place with the chat, a tab away (the page remembers which you had),
-  with the newest line at the bottom like the chat, and the Chat tab gets a dot when a message comes in while
-  you're looking at Activity.
-- **Profile pictures**: an emoji and a colour of your choice. As you choose, it shows all over the page;
+  volume and mute). Activity is a tab beside the chat (the page remembers which you had), newest at the
+  bottom; a dot on the Chat tab shows a new message.
+- **Profile pictures**: an emoji and a colour of your choice. It shows all over the page as you choose, and
   everyone else sees it once you click off the picker.
 - **Your own nickname** with its own password, so nobody can join as you. Use it on as many devices as you
   like, at the same time; logging out only logs out that one. A login lasts a year from when you last used
@@ -93,7 +92,7 @@ Run these in the Couchwave folder. They work while Couchwave is running (it noti
 | Command | What it does |
 |---|---|
 | `node server.js` | Starts Couchwave. On Windows, `start.cmd` does this, and restarts it when you save `config.json`. |
-| `node server.js --stop` | Stops Couchwave after saving everything. On Windows it also stops `start.cmd` (or the task that starts it with the PC) starting it again; `stop.cmd` does the same with a double-click. On Linux with the service, use `sudo systemctl stop couchwave` instead. |
+| `node server.js --stop` | Saves everything and stops Couchwave, and on Windows keeps `start.cmd` (or the startup task) from starting it again; `stop.cmd` does the same with a double-click. For the Linux service, use `sudo systemctl stop couchwave`. |
 | `node server.js --logout-everyone` | Everyone has to log in again. Accounts and passwords are kept. |
 | `node server.js --set-password <name>` | For a forgotten password: asks for the new one (4+ characters, hidden as you type, and kept out of your command history). Logs them out everywhere; send them the new one. You can also put the password after the name. |
 | `node server.js --delete-account <name>` | Deletes an account and logs it out. Whoever takes the nickname next starts fresh. |
@@ -119,8 +118,9 @@ Anyone can type these in the chat (they aren't posted as messages):
 The DJ:
 
 - **Picks** from YouTube's Mix of songs people asked for, once they've played (the played history, not
-  songs still waiting in the queue), preferring other artists. Its one rule is length: it only goes on songs
-  between 1 and 20 minutes long, and only picks songs that long, skipping repeats. It never goes on its own
+  songs still waiting in the queue), preferring other artists. It only goes on songs between 1 and 20
+  minutes long, and only picks songs that long. It skips repeats, and anything it added in the last hour
+  (so a song that couldn't download, or was voted out, doesn't come straight back). It never goes on its own
   picks unless someone likes them (below).
 - **Learns from 👍**: its songs in the played history (including the one playing now) have a thumbs-up
   button. Once someone likes one, the DJ finds more like it too ("a liked song" in Activity). Click it again
@@ -164,26 +164,23 @@ The DJ:
 | `tests/` | The tests, with stand-ins for yt-dlp, ffmpeg and ffprobe in `tests/fakes/`, and a headless browser for the page (`tests/browser.js`). |
 
 Comments in the code are only short section headers; how things should behave is described in these docs.
-Files in `lib/` can need each other, so each one adds what it shares to `exports` at the end
-(`Object.assign(exports, …)`) instead of replacing `module.exports`, and reaches into the others when it
-runs (`room.queue`, `downloads.pump()`) rather than copying them when it loads. The room's state lives on
-`room`, so the other files see the same queue.
+Files in `lib/` can need each other, so each adds what it shares to `exports` at the end
+(`Object.assign(exports, …)`) and reaches into the others when it runs (`room.queue`, `downloads.pump()`),
+never by copying them when it loads. The room's state lives on `room`, so every file sees the same queue.
 The page's security policy blocks inline scripts, including `onclick="…"`: give an element
 `data-click="name"` (or `data-submit`, `data-dblclick`, `data-enter`) and add `name` to `ACTIONS` in `app.js`.
-The page's scripts are plain scripts that share one scope, loaded in order by `index.html` (`core.js` first,
-`app.js` last): while loading, a script can only use what earlier ones made; once everything has loaded,
-anything goes. `app.js` starts the page, so it's last.
+The page's scripts share one scope and load in order (`core.js` first, `app.js` last, which starts the page):
+while loading, a script can only use what earlier ones made.
 
-After changing the code, run `node --test` (about 30 seconds). Each test runs against its own throwaway
-Couchwave (temporary folder, password and port), so your real server and data are never touched, even while
-it's running. The stand-ins mean it needs no internet. The page itself is tested in a headless Chrome or Edge
-(`tests/page-browser.test.js`), found by itself (or set `COUCHWAVE_BROWSER`); without one, those tests are skipped.
-The test servers run their clock 4x faster (`COUCHWAVE_TIME_SCALE`), so waiting for someone to count as "left"
-takes 2.5 seconds, not 10. Other `COUCHWAVE_…` variables in `tests/helpers.js` and `lib/` are only for the tests.
-Every push to `main` also runs them on Linux and Windows (`.github/workflows/tests.yml`). The one-line
-installers (`install.ps1`, `install.sh`) are tried for real on fresh Linux and Windows machines whenever they
-change, and after each release (`.github/workflows/install.yml`): install, check it runs and starts with the computer, update, stop.
+After changing the code, run `node --test` (about 30 seconds). Each test gets its own throwaway Couchwave
+(temporary folder, password and port) with stand-ins for yt-dlp, ffmpeg and ffprobe, so it needs no internet
+and never touches your real server or data, even while it runs. The page is tested in a headless Chrome or
+Edge (`tests/page-browser.test.js`), found by itself (or set `COUCHWAVE_BROWSER`); without one, those tests are
+skipped. Test servers run their clock 4x faster (`COUCHWAVE_TIME_SCALE`); the other `COUCHWAVE_…` variables in
+`tests/helpers.js` and `lib/` are only for the tests too. Every push to `main` runs the tests on Linux and
+Windows (`.github/workflows/tests.yml`); changes to the one-line installers also try them on fresh machines
+(`install.yml`), and changes to the server or Docker files build and try the image (`docker.yml`).
 
-Releasing: first set `VERSION` (near the top of `server.js`) to the new version:
-it's what the "a newer Couchwave is out" check compares. Publishing a GitHub release runs the tests on
-Linux, then builds `couchwave-<tag>.zip` and attaches it (`.github/workflows/release-zip.yml`).
+Releasing: set `VERSION` near the top of `server.js` (the "a newer Couchwave is out" check compares it), then
+publish a GitHub release: `release-zip.yml` runs the tests and attaches `couchwave-<tag>.zip`, `install.yml`
+tries the installers, and `docker.yml` publishes the image.

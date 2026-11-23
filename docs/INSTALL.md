@@ -1,6 +1,6 @@
 # Getting started and setup
 
-You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**. The one-line install sets all of it up for you.
+You need **Node.js 18.15 or newer**, **yt-dlp** and **ffmpeg**. The one-line install sets all of it up for you.
 
 - [Quick start](#quick-start)
 - [One-line install](#one-line-install)
@@ -16,11 +16,10 @@ You need **Node.js 18.11 or newer**, **yt-dlp** and **ffmpeg**. The one-line ins
 - [Troubleshooting](#troubleshooting)
 
 > [!NOTE]
-> **We recommend downloading a release.** The [Releases page](https://github.com/Hoyle95/couchwave/releases)
-> has tested versions. Cloning the repo or `git pull` gets the very latest code instead, which can include
-> changes that haven't been fully tested yet. If you'd like to try the latest unreleased code anyway, we'd love
-> to hear how it goes: tell us on [Discord](https://discord.com/invite/pNtyzNkch6) or
-> [open an issue](https://github.com/Hoyle95/couchwave/issues).
+> **We recommend a release** from the [Releases page](https://github.com/Hoyle95/couchwave/releases): they're
+> tested. Cloning the repo gets the very latest code, which may not be. If you try it anyway, tell us how it
+> goes on [Discord](https://discord.com/invite/pNtyzNkch6) or in an
+> [issue](https://github.com/Hoyle95/couchwave/issues).
 
 ## Quick start
 
@@ -94,8 +93,8 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
 3. Double-click **`start.cmd`** in the Couchwave folder and keep the window open. To stop Couchwave, close
    that window, or double-click **`stop.cmd`**.
 
-4. Open <http://localhost:3000>. The room password is in **`config.json`**, which is created the first
-   time it runs, along with the other [settings](#settings). The server restarts by itself when you save it.
+4. Open <http://localhost:3000>. The room password is in **`config.json`**, made the first time it runs,
+   with the other [settings](#settings). Couchwave restarts by itself when you save it.
 
 ## Linux (Debian, Ubuntu, Raspberry Pi OS)
 
@@ -104,7 +103,7 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
    ```sh
    sudo apt update
    sudo apt install -y nodejs ffmpeg python3 git curl unzip
-   node --version    # needs v18.11 or newer
+   node --version    # needs v18.15 or newer
    mkdir -p ~/.local/bin
    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
    chmod +x ~/.local/bin/yt-dlp
@@ -112,7 +111,7 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
    ```
 
    yt-dlp is installed from its own release rather than `apt` so that Couchwave can keep it up to date
-   (YouTube changes often, and old versions stop working). If `node --version` is older than 18.11, install a
+   (YouTube changes often, and old versions stop working). If `node --version` is older than 18.15, install a
    newer Node from [nodejs.org](https://nodejs.org/en/download). On other distros, install the same
    things with your package manager.
 
@@ -136,10 +135,9 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
    node server.js
    ```
 
-3. Open <http://localhost:3000>. The first time it starts, it says where to open it, the address friends at
-   home can use, and the room password it made up, which is saved in **`config.json`** with the other
-   [settings](#settings) (restart Couchwave after changing them). Opened on this computer, the join screen
-   shows the address for friends at home too.
+3. Open <http://localhost:3000>. The first start shows the address, the address for friends at home and the
+   room password it made up, saved in **`config.json`** with the other [settings](#settings) (restart
+   Couchwave after changing them). The join screen, opened on this computer, shows the address for friends too.
 
 ## Docker
 
@@ -182,7 +180,7 @@ number in `ports` (like `"8080:3000"`) rather than `port` in config.json.
 ## Settings
 
 Settings are in `config.json`, made on the first run. On Windows (`start.cmd`) Couchwave restarts by
-itself when you save it; otherwise, restart it.
+itself when you save it; otherwise, restart it. A setting missing from an older `config.json` uses its default.
 
 - `password`: the room password. Changing it logs everyone out.
 - `port`: 3000 by default (any whole number from 1 to 65535).
@@ -196,18 +194,15 @@ itself when you save it; otherwise, restart it.
 - `downloadsAtOnce`: how many of those download at the same time. 3 by default. Fewer is gentler on a
   slow connection.
 - `public`: see below. Keep it `false`.
-- `trustProxy`: which proxies Couchwave believes when they say who's visiting and that the visit came over
-  `https://` (see [Letting friends in](#letting-friends-in)). Most setups don't need it: by default it trusts
-  proxies on this computer and on private networks (your home network, Docker, Tailscale). For a proxy
-  anywhere else, like a rented server, list its address, or a range of them, and they're trusted as well:
-  `"trustProxy": ["203.0.113.5"]` or `["10.8.0.0/24"]`. `false` trusts no proxy at all: only use it if nothing
-  sits in front of Couchwave. Because of that default, a device on your home network or Tailscale could
-  pretend to be visiting from somewhere else, so keep it to people you trust. And if Couchwave can be reached
-  straight from the internet with no proxy (like Docker Desktop with a port opened on your router, where every
-  visit seems to come from inside), set it to `false`.
-- `updateCheck`: once a day Couchwave asks GitHub whether there's a newer release, and if there is, says so in
-  Activity and the log (it doesn't install anything, and nothing about you or your room is sent). `false`
-  turns this off.
+- `trustProxy`: which proxies Couchwave believes about who's visiting and whether it's over `https://` (see
+  [Letting friends in](#letting-friends-in)). Most setups don't need it: by default it trusts proxies on this
+  computer and on private networks (your home network, Docker, Tailscale), so a device there could pretend to
+  be someone else; keep those networks to people you trust. A proxy anywhere else, like a rented server, needs
+  its address or range listed: `["203.0.113.5"]` or `["10.8.0.0/24"]`. `false` trusts no proxy: use it when
+  nothing sits in front of Couchwave, and always if it's reachable straight from the internet without one
+  (like Docker Desktop with a router port opened, where every visit seems to come from inside).
+- `updateCheck`: once a day Couchwave asks GitHub for a newer release, and says so in Activity and the log if
+  there is (it installs nothing, and sends nothing about you or your room). `false` turns this off.
 - `youtubeCookies`: only if YouTube keeps stopping downloads with its bot check, or a video only shows to
   signed-in accounts. It lets yt-dlp use a signed-in YouTube account, from either:
   - a cookies file, like `"youtubeCookies": "data/youtube-cookies.txt"`, exported from a browser where you're
@@ -224,8 +219,6 @@ itself when you save it; otherwise, restart it.
 - `gifFilter`: how strict KLIPY is about what GIFs show up: `"off"`, `"low"`, `"medium"` (the default) or
   `"high"`. You can also block words and searches for your key in KLIPY's partner panel.
 
-A setting missing from an older `config.json` uses its default.
-
 > [!WARNING]
 > **Keep `public` set to `false`.** With `"public": true` there's no room password: anyone who finds your
 > address can join, chat, and add songs that **your computer then downloads**. Nicknames still have their
@@ -235,9 +228,8 @@ A setting missing from an older `config.json` uses its default.
 ## GIFs in the chat
 
 Couchwave can show a GIF button next to the emoji in the chat, with trending GIFs and a search, from
-[KLIPY](https://klipy.com). It's off until you add **your own KLIPY key**. Couchwave doesn't come with one:
-each Couchwave uses its own, so your room's use stays on your key, and a problem with anyone else's key never
-affects yours. Keys are free.
+[KLIPY](https://klipy.com). It's off until you add **your own KLIPY key** (they're free). Each Couchwave uses
+its own key, so a problem with anyone else's never affects yours.
 
 1. Sign up at [partner.klipy.com](https://partner.klipy.com/), go to **API Keys**, and create a key.
 2. Add it to `config.json`, with a comma after the line above it, and quotes around the key:
@@ -255,17 +247,14 @@ affects yours. Keys are free.
 
 What to know:
 
-- **Your friends can see the key.** KLIPY asks that searches and GIFs load straight from each person's
-  browser, not through your server, so the page is given the key once someone has logged in. Anyone who can
-  log in to your room could copy it. That's how KLIPY keys are meant to be used (apps like Discord work the same
-  way), but only use this key for Couchwave. If it's ever misused, delete it in the partner panel, make a new
-  one, and put that in `config.json`.
-- **What KLIPY sees:** the searches, which GIFs are sent, and each person's IP address, as any website does. It's
-  given an id for each person that stays the same but doesn't say who they are; it never gets nicknames,
-  messages or anything about your room.
-- **What shows up:** `gifFilter` in `config.json` sets how strict KLIPY is: `"off"`, `"low"`, `"medium"`
-  (the default) or `"high"`. In the partner panel you can also block words and searches for your key.
-- GIFs that were sent stay in the chat if you remove the key later; the button just goes away.
+- **Your friends can see the key.** KLIPY asks that GIFs load straight from each person's browser, so the
+  page gets the key once someone has logged in, and anyone in your room could copy it. That's how KLIPY keys
+  are meant to work (Discord does the same), but use this key only for Couchwave. If it's misused, delete it
+  in the partner panel and put a new one in `config.json`.
+- **What KLIPY sees:** the searches, which GIFs are sent, and each person's IP address, as any website does,
+  plus an id per person that doesn't say who they are. Never nicknames, messages or anything about your room.
+- **What shows up:** see `gifFilter` in the [settings](#settings).
+- GIFs already sent stay in the chat if you remove the key later; the button just goes away.
 
 ## Your data
 
@@ -293,8 +282,8 @@ Register-ScheduledTask -TaskName Couchwave -Action $action -Trigger (New-Schedul
   -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U) -Settings $settings -Force
 ```
 
-It then starts at boot (no need to log in) and restarts itself 5 seconds after it crashes or can't start. If you move the
-Couchwave folder, run the same commands again from its new place.
+It then starts at boot (no need to log in), and starts again 5 seconds after it crashes or can't start. If
+you move the Couchwave folder, run the same commands again from its new place.
 
 To stop it, double-click **`stop.cmd`** in the Couchwave folder (or run `node server.js --stop` there). It
 saves everything, then stops Couchwave and the task, so nothing starts it again. (`Stop-ScheduledTask
@@ -349,11 +338,10 @@ To host it publicly, we recommend either:
   }
   ```
 
-Either way, use `https://`: the passwords and everyone's login are sent over it, and phones only offer
-"Install app" on secure sites. Both tell Couchwave who's visiting and that the visit came over `https://`,
-so it marks logins HTTPS-only (never sent unencrypted) and counts wrong passwords for each visitor, not for
-everyone at once. They can run on this computer or another one on your home network (in Docker, on a NAS,
-over Tailscale).
+Either way, use `https://`: passwords and logins travel over it, and phones only offer "Install app" on
+secure sites. Both tell Couchwave who's visiting and that it's over `https://`, so logins are never sent
+unencrypted and wrong passwords are counted for each visitor, not everyone at once. They can run on this
+computer or another on your home network (in Docker, on a NAS, over Tailscale).
 
 Other proxies work too, as long as they send `X-Forwarded-For` (who's visiting) and `X-Forwarded-Proto`
 (`http` or `https`). For nginx, add these two lines next to its `proxy_pass`:
@@ -372,9 +360,8 @@ and a password for it. To log someone out, reset a forgotten password or delete 
 
 ## Updating
 
-Couchwave tells you when there's a new release: a line in Activity (and the log) says "a newer Couchwave
-is out". Your settings and everything people have done are kept: `config.json` and `data/` aren't part of
-the download, so updating never touches them. To see what's changed first, read the
+Couchwave says in Activity (and the log) when "a newer Couchwave is out". Updating never touches
+`config.json` or `data/`, so settings, accounts and the room are kept. What's changed is in the
 [changelog](../CHANGELOG.md).
 
 **Easiest: the update command.** On Windows, double-click `update.cmd` in your Couchwave folder. Anywhere,
@@ -394,32 +381,25 @@ It asks first (saying how many people are listening, since it restarts Couchwave
    again),
 5. and if the new version doesn't come up, puts the old one back.
 
-It doesn't run in a copy of the git repository (use `git pull`, below) or in Docker (pull the new image).
-`node server.js --update --yes` skips the question, for scripts. It never updates by itself.
+It doesn't run in a copy of the git repository (use `git`, below) or in Docker (pull the new image).
+`--update --yes` skips the question, for scripts. It never updates by itself. On v0.3.0 or older, which don't
+have it yet, update once with the one-line install or by hand (below).
 
-Updating from v0.3.0 or older? The update command arrived in v0.4.0, so update this one time with the
-one-line install or by hand (both below); from then on, `--update` does it.
-
-**Or run the [one-line install](#one-line-install) again.** It also installs anything missing (it works for a
-Couchwave installed by hand too, as long as it's in the same folder: set `COUCHWAVE_DIR` if it isn't the
-default).
+**Or run the [one-line install](#one-line-install) again.** It also installs anything missing, and works for a
+Couchwave installed by hand too (set `COUCHWAVE_DIR` if it isn't in the default folder).
 
 **By hand: the newest release.**
 
 1. Download **couchwave-…zip** (not "Source code") from the newest release on the
    [Releases page](https://github.com/Hoyle95/couchwave/releases).
-2. Stop Couchwave first, so it doesn't start up halfway through with some old files and some new ones. On
-   Windows, double-click `stop.cmd` in your Couchwave folder (or close the `start.cmd` window). On Linux,
-   `sudo systemctl stop couchwave`.
-
-   Updating from v0.2.1 or older on Windows? Those don't have `stop.cmd` yet, so stop it the old way one last
-   time: close the `start.cmd` window, or if it starts with the PC, run `Stop-ScheduledTask Couchwave` in an
-   administrator PowerShell, then end the **Node.js** processes in Task Manager.
+2. Stop Couchwave, so it doesn't restart halfway through with a mix of old and new files: on Windows,
+   double-click `stop.cmd` (or close the `start.cmd` window); on Linux, `sudo systemctl stop couchwave`.
+   v0.2.1 and older have no `stop.cmd`: close the `start.cmd` window, or if it starts with the PC, run
+   `Stop-ScheduledTask Couchwave` in an administrator PowerShell and end the **Node.js** processes in Task
+   Manager.
 3. Unzip it into your Couchwave folder, replacing the old files. On Windows: **Extract All**, **Browse** to
-   your Couchwave folder, and choose to replace the files. On Linux:
-   `unzip -o ~/Downloads/couchwave-v*.zip -d ~/couchwave` (or wherever your Couchwave folder is). Your
-   `config.json` and `data/` aren't in the zip, so they stay as they are. If the changelog says some files
-   moved or were removed, delete the old ones it names.
+   your Couchwave folder, and replace the files. On Linux: `unzip -o ~/Downloads/couchwave-v*.zip -d ~/couchwave`
+   (or wherever your folder is). If the changelog says files moved or were removed, delete the old ones it names.
 4. Start it again: double-click `start.cmd` (or `Start-ScheduledTask Couchwave`), or on Linux
    `sudo systemctl start couchwave`.
 
@@ -432,43 +412,43 @@ git checkout "$(git describe --tags --abbrev=0 origin/main)"
 
 then restart Couchwave (on Linux, `sudo systemctl restart couchwave`).
 
-**The very latest code** (not recommended): `git checkout main`, then `git pull`. This gets every change
-as soon as it's made, before it's been released, so now and then something may not work yet. If `git`
-says your local changes would be overwritten, you've edited one of Couchwave's own files: `git stash`
-puts your changes aside, then try again (`git stash pop` brings them back).
+**The very latest code** (not recommended): `git checkout main`, then `git pull`. It gets every change before
+it's released, so now and then something may not work yet. If `git` says your local changes would be
+overwritten, you've edited one of Couchwave's files: `git stash` puts them aside (`git stash pop` brings
+them back).
 
 Everyone else just refreshes the page. Settings added in a new version use their defaults until you add
 them to `config.json` (see [Settings](#settings)).
 
 ## Troubleshooting
 
-- **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
-  button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
-  YouTube may be checking your connection after a lot of downloads at once (a VPN makes this more likely); it
-  usually passes within a few hours. Meanwhile Couchwave backs off: it pauses downloads (a minute, then
-  longer, up to 15 minutes), then tries one song at a time until one works, and the queue shows when each
-  song tries again. If it keeps coming back, see `youtubeCookies` in the [settings](#settings). If it's just **one
-  song**, again and again, while others download fine, YouTube wants a signed-in account for that video:
-  remove it and pick another version of the song (or use `youtubeCookies`). If it's someone else's, `node
-  server.js --remove-song <its number in the queue>` takes it out without a vote (see the
-  [server commands](FEATURES.md#server-commands)).
+- **Songs fail with "Blocked by YouTube", "YouTube rate limit" or "bot check"**: run `yt-dlp -U`, then press
+  the song's retry button (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster). If it keeps
+  happening, YouTube is checking your connection, often after a lot of downloads or on a VPN; it usually
+  passes within a few hours.
+  Meanwhile Couchwave backs off by itself: downloads pause (a minute, then longer, up to 15 minutes), then go
+  one song at a time until one works, and the queue shows when each tries again. If it keeps coming back, see
+  `youtubeCookies` in the [settings](#settings).
+- **Just one song fails, again and again**, while others download fine: YouTube wants a signed-in account
+  for that video. Pick another version of the song (or use `youtubeCookies`). If it's someone else's,
+  `node server.js --remove-song <its number>` takes it out without a vote.
 - **Activity says "yt-dlp can't update itself here"**: yt-dlp was installed with pip or a package manager
   (like `apt`), which won't let it update itself, so it goes out of date as YouTube changes. Update it the same
   way now and then (`pip install -U yt-dlp`, or your package manager), or install it as in the steps for
   [Linux](#linux-debian-ubuntu-raspberry-pi-os) so Couchwave can keep it up to date.
 - **To check on Couchwave**: `node server.js --status` in the Couchwave folder says whether it's running,
-  who's online, what's playing, how the queue is doing, the free disk space, the versions of its tools and
-  whether there's a newer Couchwave.
+  who's online, what's playing, the queue, the free disk space, its tools' versions and whether there's a
+  newer Couchwave.
 - **For an uptime monitor** (like Uptime Kuma): `http://<address>:3000/health` answers `{"ok":true}` without
-  logging in. If Couchwave can't save its data or read its accounts, it answers with an error (503) saying
-  which, until that's fixed. It says nothing else about your room.
+  logging in, or an error (503) saying which, while Couchwave can't save its data or read its accounts. It
+  says nothing else about your room.
 - **Friends on your network can't connect** (but <http://localhost:3000> works for you): check they're using
-  this machine's IP, not `localhost` (the join screen shows it when you open Couchwave on this computer). On Windows, allow Node.js through the firewall: **Windows Security** →
-  **Firewall & network protection** → **Allow an app through firewall** → tick **Private** for Node.js. On
-  Linux with `ufw` turned on: `sudo ufw allow 3000/tcp`.
-- **Activity says "can't find yt-dlp" (or ffmpeg, or ffprobe)**: that program isn't installed, or Couchwave
-  can't see it. Install it as in the steps for [Windows](#windows) or
-  [Linux](#linux-debian-ubuntu-raspberry-pi-os), then restart Couchwave. On Windows, close and reopen PowerShell (or restart the PC) after installing.
+  this machine's IP, not `localhost` (the join screen shows it, opened on this computer). On Windows, allow
+  Node.js through the firewall: **Windows Security** → **Firewall & network protection** → **Allow an app
+  through firewall** → tick **Private** for Node.js. On Linux with `ufw` on: `sudo ufw allow 3000/tcp`.
+- **Activity says "can't find yt-dlp" (or ffmpeg, or ffprobe)**: it isn't installed, or Couchwave can't see
+  it. Install it as in the steps for [Windows](#windows) (then close and reopen PowerShell, or restart the PC)
+  or [Linux](#linux-debian-ubuntu-raspberry-pi-os), and restart Couchwave.
 - **Songs show "Disk full"**: the disk Couchwave is on has less than 2 GB free, so downloads have paused.
   Free up some space and they carry on by themselves within a minute.
 - **A song shows "Download stalled"**: its download stopped getting anywhere for 5 minutes, so Couchwave
@@ -479,17 +459,15 @@ them to `config.json` (see [Settings](#settings)).
 - **"Logins are paused"**: `data/accounts.json` can't be read (e.g. a bad hand edit). The log says why.
 - **The queue, chat and history are suddenly empty**: `data/state.json` couldn't be read (the log says why).
   The old file is kept beside it as `state.json.broken-…`, in case you want to look at it or put it back.
-- **"Too many wrong passwords for …"**: someone typed the wrong password for that nickname 20 times in 15
-  minutes, so new logins with it wait 15 minutes (restarting Couchwave clears it straight away). Devices
-  already logged in with it carry on as normal. If it's a forgotten password, see `--set-password` in the
-  [server commands](FEATURES.md#server-commands).
+- **"Too many wrong passwords for …"**: someone got that nickname's password wrong 20 times in 15 minutes,
+  so new logins with it wait 15 minutes (restarting Couchwave clears it). Devices already logged in carry on.
+  For a forgotten password, see `--set-password` in the [server commands](FEATURES.md#server-commands).
 - **"Too many wrong passwords, try again later"** for everyone at once, behind a proxy: Couchwave can't tell
   your visitors apart. Check the proxy sends `X-Forwarded-For`, and if it isn't on this computer or your home
   network, add its address to `trustProxy` (see [Letting friends in](#letting-friends-in)).
-- **"Lots of new nicknames have been made from here"**: 10 new nicknames came from the same address within
-  an hour (a guard against someone making endless accounts). It clears after an hour, or when Couchwave
-  restarts. The computer running Couchwave isn't limited (only visits really from it, not ones that just
-  say they are).
+- **"Lots of new nicknames have been made from here"**: 10 new nicknames came from one address within an
+  hour (a guard against endless accounts). It clears after an hour, or when Couchwave restarts. The computer
+  running Couchwave itself isn't limited.
 - **The log says someone reached Couchwave "straight from the internet over plain http"**: a port on your
   router leads straight to Couchwave, so passwords travel unencrypted. Close that port and use Cloudflare
   Tunnel or Caddy instead (see [Letting friends in](#letting-friends-in)).
