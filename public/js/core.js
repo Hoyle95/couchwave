@@ -3,12 +3,20 @@ const $ = id => document.getElementById(id);
 const footerHome = $('footer').parentNode;
 const v = $('v'), seek = $('seek'), vol = $('vol');
 let joined = false, playingId = null, serverPaused = false, seeking = false, actionAt = 0;
-let logRev = '', chatRev = '', logList = [], chatList = [], chatDrawn = false;
+let logRev = '', chatRev = '', logList = [], chatList = [];
 let historyRev = '', historyList = [], lastHistory = '';
 let lastQueue = '', lastUsers = '', lastColorsKey = '';
 
 const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
 const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null).finally(() => { actionAt = Date.now(); }); };
+function stickToBottom(el) {
+  let stuck = true;
+  const stick = () => { if (stuck) el.scrollTop = el.scrollHeight; };
+  el.addEventListener('scroll', () => { stuck = el.scrollHeight - el.scrollTop - el.clientHeight < 40; });
+  el.addEventListener('load', stick, true);
+  new ResizeObserver(stick).observe(el);
+  return stick;
+}
 const icon = name => `<svg><use href="#i-${name}"/></svg>`;
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
@@ -55,7 +63,14 @@ const FACES = ('🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷
 let faces = {};
 function autoFace(name) { let h = 7; for (const c of String(name)) h = (h * 33 + c.codePointAt(0)) % 1000003; return FACES[h % FACES.length]; }
 const face = name => own(faces, name) || autoFace(name);
-const avatar = name => `<span class="avatar" style="background:${avatarBg(name)}">${esc(face(name))}</span>`;
+const avatar = name => `<span class="avatar" data-who="${esc(name)}" style="background:${avatarBg(name)}">${esc(face(name))}</span>`;
+const nameTag = (name, tag = 'span') => `<${tag} class="nm" data-who="${esc(name)}" style="color:${nameColor(name)}">${esc(name)}</${tag}>`;
+function repaintPerson(name) {
+  const bg = avatarBg(name), f = face(name), color = nameColor(name);
+  for (const el of document.querySelectorAll(`[data-who="${CSS.escape(name)}"]`)) {
+    if (el.classList.contains('avatar')) { el.style.background = bg; el.textContent = f; } else el.style.color = color;
+  }
+}
 
 let myPick = {};
 try { myPick = JSON.parse(localStorage.getItem('myPick') || '{}') || {}; } catch {}

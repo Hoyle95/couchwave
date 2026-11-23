@@ -52,7 +52,11 @@ function enter() {
   poll();
 }
 
-addEventListener('pagehide', () => { if (joined) navigator.sendBeacon('/bye'); });
+addEventListener('pagehide', () => {
+  if (!joined) return;
+  if (!$('colorPop').hidden) { savePick(); for (const [url, body] of lookChanges()) navigator.sendBeacon(url, JSON.stringify(body)); }
+  navigator.sendBeacon('/bye');
+});
 async function logout() { await fetch('/logout', { method: 'POST' }).catch(() => {}); location.reload(); }
 
 // ---------- Theme ----------
@@ -100,21 +104,39 @@ function drawPicker(hex, skip) {
   for (const btn of $('swatches').children) btn.classList.toggle('on', btn.dataset.c === hex);
 }
 
-function apply(hsv, { hex, skip, save } = {}) {
+function apply(hsv, { hex, skip } = {}) {
   cur = hsv;
   hex = hex || toHex(hsvToRgb(cur.h, cur.s, cur.v));
   drawPicker(hex, skip);
-  colors[myName] = hex; paintMe(); lastColorsKey = '';
-  if (save) {
-    myPick.color = hex; savePick();
-    if (joined) post('/color', { color: hex }).then(poll);
-  }
+  colors[myName] = myPick.color = hex;
+  showLook();
+}
+function setFace(em) {
+  faces[myName] = myPick.face = em;
+  showLook();
+}
+function showLook() {
+  paintMe();
+  repaintPerson(myName);
+  lastColorsKey = '';
 }
 
-function setFace(em) {
-  faces[myName] = myPick.face = em; savePick();
-  paintMe(); lastColorsKey = '';
-  if (joined) post('/face', { face: em }).then(poll);
+// ---------- Saving the look once the picker closes ----------
+let lookSent = {};
+const lookChanges = () => {
+  const color = own(colors, myName), em = own(faces, myName), changes = [];
+  if (color && color !== lookSent.color) changes.push(['/color', { color }]);
+  if (em && em !== lookSent.face) changes.push(['/face', { face: em }]);
+  return changes;
+};
+function closeColorPop() {
+  if ($('colorPop').hidden) return;
+  $('colorPop').hidden = true;
+  savePick();
+  if (!joined) return;
+  const changes = lookChanges();
+  lookSent = { color: own(colors, myName), face: own(faces, myName) };
+  if (changes.length) Promise.all(changes.map(([url, body]) => post(url, body))).then(() => poll());
 }
 $('facePick').onclick = e => { const b = e.target.closest('button[data-e]'); if (b) setFace(b.dataset.e); };
 $('colorPop').onkeydown = e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.target.blur(); } };
@@ -124,11 +146,14 @@ const myHex = () => own(colors, myName)
 function toggleColorPop(e) {
   e.stopPropagation();
   const pop = $('colorPop');
-  pop.hidden = !pop.hidden;
-  if (!pop.hidden) { const hex = myHex(); cur = rgbToHsv(...hexToRgb(hex)); drawPicker(hex); }
+  if (!pop.hidden) return closeColorPop();
+  pop.hidden = false;
+  lookSent = { color: own(colors, myName), face: own(faces, myName) };
+  const hex = myHex(); cur = rgbToHsv(...hexToRgb(hex)); drawPicker(hex);
 }
 $('colorPop').onclick = e => e.stopPropagation();
-document.addEventListener('click', () => { $('colorPop').hidden = true; $('emojiPop').hidden = true; $('reactPop').hidden = true; $('gifPop').hidden = true; });
+document.addEventListener('click', () => { closeColorPop(); $('emojiPop').hidden = true; $('reactPop').hidden = true; $('gifPop').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColorPop(); });
 
 let dragging = false;
 function wheelAt(e) {
@@ -139,10 +164,9 @@ function wheelAt(e) {
 }
 $('wheel').onpointerdown = e => { dragging = true; $('wheel').setPointerCapture(e.pointerId); apply(wheelAt(e)); };
 $('wheel').onpointermove = e => { if (dragging) apply(wheelAt(e)); };
-$('wheel').onpointerup = e => { if (dragging) { dragging = false; apply(wheelAt(e), { save: true }); } };
+$('wheel').onpointerup = e => { if (dragging) { dragging = false; apply(wheelAt(e)); } };
 
 $('valSlider').oninput = e => apply({ ...cur, v: e.target.value / 100 });
-$('valSlider').onchange = e => apply({ ...cur, v: e.target.value / 100 }, { save: true });
 
 $('hexIn').oninput = e => {
   const hex = parseHex(e.target.value);
@@ -151,7 +175,7 @@ $('hexIn').oninput = e => {
 };
 $('hexIn').onchange = e => {
   const hex = parseHex(e.target.value);
-  if (hex) apply(rgbToHsv(...hexToRgb(hex)), { hex, save: true }); else drawPicker(myHex());
+  if (hex) apply(rgbToHsv(...hexToRgb(hex)), { hex }); else drawPicker(myHex());
 };
 
 const readRgb = () => {
@@ -161,10 +185,10 @@ const readRgb = () => {
 };
 for (const id of ['rIn', 'gIn', 'bIn']) {
   $(id).oninput = () => { const rgb = readRgb(); if (rgb) apply(rgbToHsv(...rgb), { hex: toHex(rgb), skip: 'rgb' }); };
-  $(id).onchange = () => { const rgb = readRgb(); if (rgb) apply(rgbToHsv(...rgb), { hex: toHex(rgb), save: true }); else drawPicker(myHex()); };
+  $(id).onchange = () => { const rgb = readRgb(); if (rgb) apply(rgbToHsv(...rgb), { hex: toHex(rgb) }); else drawPicker(myHex()); };
 }
 
 $('swatches').onclick = e => {
   const b = e.target.closest('button');
-  if (b) apply(rgbToHsv(...hexToRgb(b.dataset.c)), { hex: b.dataset.c, save: true });
+  if (b) apply(rgbToHsv(...hexToRgb(b.dataset.c)), { hex: b.dataset.c });
 };

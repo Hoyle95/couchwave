@@ -47,8 +47,8 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('chat: a message shows for everyone exactly as typed (never as HTML), and the emoji picker adds to what you\'re typing', async () => {
-    const s = await start();
+  test('chat: a message shows for everyone exactly as typed (never as HTML), and the emoji picker adds to what you\'re typing; Activity shares its place, a tab away (remembered), newest at the bottom like the chat, with a dot on Chat for new messages', async () => {
+    const s = await start({ initial: { log: Array.from({ length: 40 }, (_, i) => ({ t: Date.now() - (40 - i) * 1000, by: 'Zed', text: `did thing ${i}` })) } });
     const alice = await open(s, 'Alice'), bob = await open(s, 'Bob');
     await alice.type('#chatText', '<b>hi</b> & bye');
     await alice.submit('#chatForm');
@@ -62,6 +62,50 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     assert.equal(await alice.eval(`document.getElementById('chatText').value`), em);
     await alice.submit('#chatForm');
     await bob.waitFor(`[...document.querySelectorAll('#chat .text.big')].some(t => t.textContent === ${JSON.stringify(em)})`, 5000, 'a big emoji');
+    const showing = p => p.eval(`['chat', 'chatForm', 'log'].filter(id => !document.getElementById(id).closest('[hidden]'))`);
+    assert.deepEqual(await showing(bob), ['chat', 'chatForm'], 'the chat first');
+    await bob.click('#logTab');
+    assert.deepEqual(await showing(bob), ['log'], 'Activity in its place');
+    const below = (later, earlier) => `(l => { const at = t => [...l.children].findIndex(li => li.textContent.includes(t));
+      return at(${JSON.stringify(later)}) > at(${JSON.stringify(earlier)}) && at(${JSON.stringify(earlier)}) >= 0 && l.scrollHeight - l.scrollTop - l.clientHeight < 2; })(document.getElementById('log'))`;
+    await bob.waitFor(below('did thing 39', 'did thing 0'), 5000, 'Activity oldest first, scrolled to the bottom');
+    await s.post('/add', { url: yt('okay_000011') }, { as: 'Alice' });
+    await bob.waitFor(below('Alice added', 'did thing 39'), 5000, 'a new line at the bottom, scrolled to');
+    await alice.type('#chatText', 'while Bob looks at Activity');
+    await alice.submit('#chatForm');
+    await bob.waitFor(`document.getElementById('chatTab').classList.contains('unread')`, 5000, 'a dot on the Chat tab');
+    await bob.goto(`http://127.0.0.1:${s.port}/`);
+    await bob.waitFor(`!document.querySelector('.me.loading')`, 5000, 'Bob back in');
+    assert.deepEqual(await showing(bob), ['log'], 'still on Activity after reloading');
+    await bob.click('#chatTab');
+    assert.deepEqual(await showing(bob), ['chat', 'chatForm']);
+    assert.equal(await bob.eval(`document.getElementById('chatTab').classList.contains('unread')`), false, 'the dot goes');
+    noErrors(alice, bob);
+  });
+
+  test('your colour and emoji: every change shows all over the page straight away; the server hears only the final choice, once, when the picker closes', async () => {
+    const s = await start({ initial: { chat: [{ t: Date.now(), by: 'Alice', text: 'hi' }], log: [{ t: Date.now(), by: 'Alice', text: 'added a song' }] } });
+    const alice = await open(s, 'Alice'), bob = await open(s, 'Bob');
+    let sent = 0;
+    await alice.answer('*/color', () => (sent++, 0));
+    await alice.waitFor(`!!document.querySelector('#users .avatar[data-who="Alice"]')`, 5000, 'Alice online');
+    const looks = () => alice.eval(`['#chat .nm', '#users .nm', '#log .nm'].map(sel => getComputedStyle(document.querySelector(sel + '[data-who="Alice"]')).color)
+      .concat(document.querySelector('#users .avatar[data-who="Alice"]').textContent)`);
+    await alice.click('.me .editAv');
+    for (const [i, rgb] of [[0, 'rgb(239, 68, 68)'], [5, 'rgb(34, 197, 94)'], [8, 'rgb(59, 130, 246)']]) {
+      await alice.eval(`document.querySelectorAll('#swatches button')[${i}].click()`);
+      assert.deepEqual((await looks()).slice(0, 3), [rgb, rgb, rgb], `swatch ${i}: the chat, Online and Activity straight away`);
+    }
+    const em = await alice.eval(`(b => (b.click(), b.dataset.e))([...document.querySelectorAll('#facePick button[data-e]')].find(b => !b.classList.contains('on')))`);
+    assert.equal((await looks())[3], em, 'the new emoji straight away');
+    await new Promise(r => setTimeout(r, 500));
+    assert.equal(sent, 0, 'nothing sent while choosing');
+    assert.equal((await s.state()).colors.Alice, undefined);
+    await alice.eval('document.body.click()');
+    await waitFor(async () => { const st = await s.state(); return st.colors.Alice === '#3b82f6' && st.faces.Alice === em; }, 5000, 'the final choice, sent when the picker closed');
+    assert.equal(sent, 1, 'once');
+    await bob.waitFor(`(a => a && a.textContent === ${JSON.stringify(em)} && a.style.background.includes('59, 130, 246'))(document.querySelector('#users .avatar[data-who="Alice"]'))`, 5000, 'Bob to see it');
+    assert.deepEqual((await looks()).slice(0, 3), Array(3).fill('rgb(59, 130, 246)'), 'and it stays after the update from the server');
     noErrors(alice, bob);
   });
 
@@ -100,6 +144,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     await new Promise(r => setTimeout(r, 400));
     await page.click('#queue .del');
     await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 2`, 5000, 'it to go');
+    await page.click('#logTab');
     await page.waitFor(`!!document.querySelector('#log .undo')`, 5000, 'the Undo button');
     await new Promise(r => setTimeout(r, 1600));
     await page.click('#log .undo');
@@ -246,9 +291,11 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('the theme is remembered, and logging out goes back to the join screen', async () => {
+  test('the theme button sits just left of Log out, evenly spaced; the theme is remembered, and logging out goes back to the join screen', async () => {
     const s = await start();
     const page = await open(s, 'Alice');
+    assert.deepEqual(await page.eval(`(() => { const me = document.querySelector('.me').getBoundingClientRect(), t = document.getElementById('theme').getBoundingClientRect(), l = document.getElementById('logoutBtn').getBoundingClientRect();
+      return [t.right <= l.left, Math.round(l.left - t.right), Math.round(me.right - 1 - l.right), Math.round(t.top - me.top - 1)]; })()`), [true, 5, 5, 5], 'the theme button just left of Log out, as far from it as both are from the edge');
     const was = await page.eval(`document.documentElement.dataset.theme || ''`);
     await page.click('#theme');
     const now = await page.eval(`document.documentElement.dataset.theme`);

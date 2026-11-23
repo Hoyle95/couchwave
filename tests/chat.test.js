@@ -106,14 +106,14 @@ test('profile pictures: a colour and an emoji, checked, quick changes are one lo
 
 test('reactions: shown for a few seconds, emoji only', async () => {
   const s = await start();
+  const sent = Date.now();
   await s.post('/react', { e: '🔥', n: 3, cid: 'page1' });
   await s.post('/react', { e: '<script>', n: 1 });
   await s.post('/react', { e: '🎉', n: 999 });
   const r = (await s.state()).reactions;
   assert.deepEqual(r.map(x => [x.e, x.n]), [['🔥', 3], ['🎉', 50]], 'not-emoji refused, bundle size capped');
-  const shown = Date.now();
   await waitFor(async () => (await s.state()).reactions.length === 0, secs(6) + 1000, 'the reactions to go');
-  assert.ok(Date.now() - shown >= secs(6) - 200, 'after 6 (server) seconds, not straight away');
+  assert.ok(Date.now() - sent >= secs(6) - 50, 'after 6 (server) seconds, not straight away');
   await s.cookie('Bob');
   const statuses = await Promise.all(Array.from({ length: 61 }, () => s.post('/react', { e: '🔥' }, { as: 'Bob' }).then(x => x.status)));
   assert.deepEqual([statuses.filter(x => x === 204).length, statuses.filter(x => x === 429).length], [60, 1], 'a speed limit: 60 every 10 seconds each');

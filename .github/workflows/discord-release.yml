@@ -30,7 +30,7 @@ jobs:
             release=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=10" --jq '[.[] | select(.draft | not)][0]')
             NAME=$(jq -r '.name // ""' <<<"$release"); TAG=$(jq -r '.tag_name' <<<"$release"); URL=$(jq -r '.html_url' <<<"$release")
           fi
-          message="@everyone New Couchwave release out now! **${NAME:-$TAG}**"$'\n'"$URL"
-          jq -n --arg content "$message" '{content: $content, allowed_mentions: {parse: ["everyone"]}}' |
+          message="New Couchwave release out now! **${NAME:-$TAG}**"$'\n'"$URL"
+          jq -n --arg content "$message" '{content: $content, allowed_mentions: {parse: []}}' |
             curl --fail-with-body -sS -H 'Content-Type: application/json' -d @- "$WEBHOOK"
           echo "Announced: ${NAME:-$TAG} ($URL)"

@@ -77,7 +77,7 @@ async function pollOnce() {
   if (s.history || recolor) drawHistory();
 
   $('userCount').textContent = s.users.length;
-  const usersHtml = s.users.map(u => `<li>${avatar(u)} <span class="nm" style="color:${nameColor(u)}">${esc(u)}</span></li>`).join('')
+  const usersHtml = s.users.map(u => `<li>${avatar(u)} ${nameTag(u)}</li>`).join('')
     + (s.dj ? `<li class="djOn" title="The DJ is on: when the queue runs out, it plays something like what you've been asking for. Type !dj off in the chat to stop it.">${avatar(DJ_NAME)} <span class="nm">DJ</span></li>` : '');
   if (usersHtml !== lastUsers) { $('users').innerHTML = usersHtml; lastUsers = usersHtml; }
   drawSkip(s);
@@ -86,6 +86,7 @@ async function pollOnce() {
     if (chatSeen !== null && s.chat.some(m => m.t > chatSeen && m.by !== myName)) {
       ding();
       if (isFs() && chatHidden) $('chatBtn').classList.add('unread');
+      if (sidePanel === 'log') $('chatTab').classList.add('unread');
     }
     chatSeen = Math.max(chatSeen || 0, s.chat.length ? s.chat[s.chat.length - 1].t : 0);
     chatList = s.chat; chatRev = s.chatRev;
@@ -154,7 +155,7 @@ setInterval(() => { if (!live() || Date.now() - lastPoll > 10000) poll(); }, 200
 // ---------- Buttons and forms ----------
 const ACTIONS = {
   add, join, logout, sendChat, skip, toggleAudioOnly, toggleChat, toggleChatMute, toggleColorPop, toggleEmoji, toggleGifs,
-  toggleFs, toggleMute, togglePause, toggleReactPop, toggleTheme, unmute,
+  toggleFs, toggleMute, togglePause, toggleReactPop, toggleTheme, unmute, showChatTab, showLogTab,
   togglePw: (e, el) => togglePw(el),
   copyNow: (e, el) => copyLink(nowUrl, el),
 };

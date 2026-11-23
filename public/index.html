@@ -123,8 +123,10 @@
         </div>
         <div id="swatches"></div>
       </div>
-      <button id="logoutBtn" data-click="logout" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
-      <button id="theme" class="ghost" data-click="toggleTheme" title="Switch light / dark"></button>
+      <span class="meBtns">
+        <button id="theme" class="ghost" data-click="toggleTheme" title="Switch light / dark"></button>
+        <button id="logoutBtn" data-click="logout" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
+      </span>
     </div>
   </header>
 
@@ -182,14 +184,19 @@
         <ul id="users"></ul>
       </section>
       <section class="card chat-card">
-        <h3>Chat
+        <h3>
+          <span class="tabs" role="tablist" aria-label="Chat or Activity">
+            <button type="button" id="chatTab" class="tab" role="tab" aria-selected="true" aria-controls="chat" data-click="showChatTab">Chat</button>
+            <button type="button" id="logTab" class="tab" role="tab" aria-selected="false" aria-controls="log" data-click="showLogTab" title="Who joined, what was added, played and skipped">Activity</button>
+          </span>
           <span class="chatSound" title="Message sound (just you)">
             <button id="chatMute" class="iconbtn" data-click="toggleChatMute" title="Mute / unmute the message, join and leave sounds" aria-label="Mute / unmute the message, join and leave sounds"></button>
             <input id="chatVol" type="range" min="0" max="1" step="0.05" aria-label="Volume of the message, join and leave sounds">
           </span>
           <button type="button" class="iconbtn fsOnly" data-click="toggleChat" title="Hide chat" aria-label="Hide chat"><svg><use href="#i-collapse"/></svg></button>
         </h3>
-        <div id="chat"></div>
+        <div id="chat" role="tabpanel" aria-labelledby="chatTab"></div>
+        <ul id="log" role="tabpanel" aria-labelledby="logTab" hidden></ul>
         <form id="chatForm" data-submit="sendChat">
           <div id="emojiPop" class="pop" hidden></div>
           <div id="gifPop" class="pop" hidden>
@@ -205,12 +212,8 @@
       </section>
     </aside>
 
-    <!-- ---------- Activity, History and Up next ---------- -->
+    <!-- ---------- History and Up next ---------- -->
     <div class="rest">
-      <section class="card">
-        <h3>Activity</h3>
-        <ul id="log"></ul>
-      </section>
       <section class="card">
         <h3>History <span class="count" id="historyCount">0</span></h3>
         <ul id="history"></ul>

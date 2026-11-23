@@ -145,15 +145,16 @@ function drawHistory() {
     <li>
       <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer">${h.duration > 0 ? `<span class="hlen" title="How long it is">${fmt(h.duration)}</span>` : ''}</a>
       <span class="htitle" title="${esc(h.title)}">${esc(h.title)}</span>
-      <span class="hmeta">${avatar(h.by)} <span class="nm" style="color:${nameColor(h.by)}">${esc(h.by)}</span><span class="hbtns">${h.by === DJ_NAME ? likeButton(h) : ''}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
+      <span class="hmeta">${avatar(h.by)} ${nameTag(h.by)}<span class="hbtns">${h.by === DJ_NAME ? likeButton(h) : ''}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
       <span class="hmeta htime"><span class="hwhen" title="When it played">${icon('clock')}${whenPlayed(h.t)}</span></span>
     </li>`).join('') || '<li class="empty">Nothing played yet</li>';
   if (html !== lastHistory) { $('history').innerHTML = html; lastHistory = html; }
 }
 
 function drawLog() {
-  $('log').innerHTML = logList.slice().reverse().map(e =>
-    `<li><span class="time">${hhmm(e.t)}</span><span>${e.by ? `<b class="nm" style="color:${nameColor(e.by)}">${esc(e.by)}</b> ` : ''}${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
+  $('log').innerHTML = logList.map(e =>
+    `<li><span class="time">${hhmm(e.t)}</span><span>${e.by ? `${nameTag(e.by, 'b')} ` : ''}${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
   ).join('') || '<li class="empty">Nothing yet</li>';
+  stickLog();
 }
 const QUEUE_BADGE = { ready: 'Ready', downloading: 'Downloading', waiting: 'Waiting', failed: 'Failed', searching: 'Searching' };

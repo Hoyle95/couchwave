@@ -94,9 +94,10 @@ header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify
 .nm, .me b.nm, .msg .head b.nm { font-weight: 800; }
 .logo svg { width: 28px; height: 28px; }
 .brand h1 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
-.me { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 5px 6px; position: relative; }
+.me { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 5px; position: relative; }
 .me b { font-weight: 600; }
 .me.loading > .editAv, .me.loading > #me { visibility: hidden; }
+.meBtns { display: flex; gap: 5px; }
 #theme { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
 #theme svg { width: 18px; height: 18px; }
 #logoutBtn { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
@@ -239,7 +240,7 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
 @keyframes pulse { 50% { opacity: .45; } }
 .empty { color: var(--muted); padding: 10px; text-align: center; }
 
-#log { height: 150px; overflow-y: auto; font-size: 14px; }
+#log { flex: 1 1 0; min-height: 160px; overflow-y: auto; font-size: 14px; padding-right: 4px; }
 #log li { display: flex; gap: 8px; padding: 4px 2px; line-height: 20px; border-bottom: 1px dashed var(--border); overflow-wrap: anywhere; }
 #log li:last-child { border-bottom: 0; }
 #history { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -274,7 +275,7 @@ aside { display: flex; flex-direction: column; min-height: 0; }
 #users li.djOn .avatar::after { display: none; }
 
 #chat { flex: 1 1 0; min-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; margin-bottom: 12px; }
-@media (max-width: 860px) { #chat { flex: none; height: 360px; } }
+@media (max-width: 860px) { #chat, #log { flex: none; height: 360px; } }
 
 /* ---------- Full screen, like Twitch (body.fs) ---------- */
 #fsBtn { margin-left: auto; }
@@ -303,7 +304,7 @@ body.fs aside > .card { margin: 0; border: 0; border-radius: 0; box-shadow: none
 body.fs aside > .card:first-child { padding: 10px 14px; flex: none; max-height: 96px; overflow-y: auto; border-bottom: 1px solid var(--border); }
 body.fs aside > .card:first-child h3 { margin-bottom: 8px; }
 body.fs .chat-card { padding: 12px 14px; }
-body.fs #chat { flex: 1 1 0; height: auto; }
+body.fs #chat, body.fs #log { flex: 1 1 0; height: auto; }
 #chatBtn { position: relative; }
 #chatBtn.unread::after { content: ''; position: absolute; top: 3px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
 @media (max-aspect-ratio: 1/1) {
@@ -319,6 +320,12 @@ body.fs #chat { flex: 1 1 0; height: auto; }
   body.fs aside { border-left: 0; border-top: 1px solid var(--border); }
   body.fs.uiAway main { cursor: auto; }
 }
+.tabs { display: flex; gap: 14px; }
+.tab { position: relative; padding: 2px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font: inherit;
+  letter-spacing: inherit; text-transform: inherit; color: var(--muted); cursor: pointer; }
+.tab:hover { color: var(--soft); }
+.tab[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.tab.unread::after { content: ''; position: absolute; top: 0; right: -9px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .chatSound { margin-left: auto; display: flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
 .chatSound .iconbtn { padding: 4px; }
 .chatSound svg { width: 16px; height: 16px; }

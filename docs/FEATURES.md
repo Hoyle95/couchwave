@@ -43,8 +43,11 @@
   own free KLIPY key (see [GIFs in the chat](INSTALL.md#gifs-in-the-chat)).
 - **Who's online** (anyone with the page open, even in a background tab), and an **Activity log** of who
   added, removed or skipped songs, paused, and joined or left, with a sound for comings and goings (its own
-  volume and mute).
-- **Profile pictures**: an emoji and a colour of your choice.
+  volume and mute). Activity shares its place with the chat, a tab away (the page remembers which you had),
+  with the newest line at the bottom like the chat, and the Chat tab gets a dot when a message comes in while
+  you're looking at Activity.
+- **Profile pictures**: an emoji and a colour of your choice. As you choose, it shows all over the page;
+  everyone else sees it once you click off the picker.
 - **Your own nickname** with its own password, so nobody can join as you. Use it on as many devices as you
   like, at the same time; logging out only logs out that one. A login lasts a year from when you last used
   it, and wrong passwords are limited (for each visitor and each nickname), so nobody can sit there guessing.

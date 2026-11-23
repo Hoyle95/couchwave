@@ -34,6 +34,14 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Lots added at once doesn't swamp the computer**: Couchwave reads at most 3 searches or playlists from
   YouTube at a time (the rest wait their turn), and the queue holds up to 500 songs. A playlist that doesn't
   fit adds what does, and Activity says how many were left out.
+- **Activity is a tab beside the chat**: it moved from below the player into the chat's place, with tabs to
+  switch between the two. Like the chat, the newest line is at the bottom, and it stays scrolled there unless
+  you scroll up to read. The page remembers which tab you had, and a dot on the Chat tab shows a message came
+  in while you were looking at Activity. History and the queue get the space it left.
+- **The light / dark button sits just left of Log out**, evenly spaced with it.
+- **Changing your colour or emoji is smooth again**: every change shows all over the page as you choose (the
+  chat, who's online, Activity, the queue and History), and it's saved once you click off the picker, instead
+  of after each change, so the speed limit on changing them no longer gets in the way.
 - **The DJ doesn't pick the same song again within an hour**: one it couldn't download, or one you voted out,
   used to come straight back.
 

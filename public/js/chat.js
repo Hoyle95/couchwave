@@ -145,24 +145,36 @@ async function sendGif({ item, q }) {
 
 const bigEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t)
   && [...t.replace(/\s|\uFE0F|\u200D/g, "")].filter(c => /\p{Extended_Pictographic}/u.test(c)).length <= 3;
-let chatStuck = true;
-const stickChat = () => { const c = $('chat'); if (chatStuck) c.scrollTop = c.scrollHeight; };
-$('chat').addEventListener('scroll', () => { const c = $('chat'); chatStuck = c.scrollHeight - c.scrollTop - c.clientHeight < 40; });
-$('chat').addEventListener('load', stickChat, true);
-new ResizeObserver(stickChat).observe($('chat'));
+const stickChat = stickToBottom($('chat')), stickLog = stickToBottom($('log'));
+
+// ---------- Chat or Activity ----------
+let sidePanel = 'chat';
+try { if (localStorage.getItem('sidePanel') === 'log') sidePanel = 'log'; } catch {}
+function drawSidePanel() {
+  const onLog = sidePanel === 'log';
+  $('chat').hidden = $('chatForm').hidden = onLog;
+  $('log').hidden = !onLog;
+  $('chatTab').setAttribute('aria-selected', !onLog);
+  $('logTab').setAttribute('aria-selected', onLog);
+  if (onLog) stickLog(); else { $('chatTab').classList.remove('unread'); stickChat(); }
+}
+function showPanel(which) {
+  sidePanel = which;
+  try { localStorage.setItem('sidePanel', which); } catch {}
+  drawSidePanel();
+}
+const showChatTab = () => showPanel('chat'), showLogTab = () => showPanel('log');
+drawSidePanel();
 function drawChat() {
-  const c = $('chat');
-  const atBottom = !chatDrawn || chatStuck;
-  c.innerHTML = [...chatList, ...pendingChat].map(m => `
+  $('chat').innerHTML = [...chatList, ...pendingChat].map(m => `
     <div class="msg${m.pending ? ' pending' : ''}">
       ${avatar(m.by)}
       <div class="body">
-        <div class="head"><b class="nm" style="color:${nameColor(m.by)}">${esc(m.by)}</b><span class="time">${hhmm(m.t)}</span></div>
+        <div class="head">${nameTag(m.by, 'b')}<span class="time">${hhmm(m.t)}</span></div>
         ${m.gif ? `<div class="text">${gifImg(m.gif)}</div>` : `<div class="text${bigEmoji(m.text) ? ' big' : ''}">${esc(m.text)}</div>`}
       </div>
     </div>`).join('') || '<div class="empty">No messages yet — say hi!</div>';
-  chatDrawn = true;
-  if (atBottom) c.scrollTop = c.scrollHeight;
+  stickChat();
 }
 
 // ---------- Sounds: chat ding, joined and left ----------
