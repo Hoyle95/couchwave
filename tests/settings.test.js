@@ -49,6 +49,9 @@ test('config.json and the data folder: only whoever runs Couchwave can read them
   assert.equal(fs.statSync(path.join(s.dir, 'config.json')).mode & 0o777, 0o600, 'config.json (the room password)');
   assert.equal(fs.statSync(path.join(s.dir, 'data')).mode & 0o777, 0o700, 'the data folder (accounts, logins, the log, backups)');
   assert.equal((await s.state()).me, 'Alice', 'and it still works');
+  const touched = () => fs.statSync(path.join(s.dir, 'config.json')).ctimeMs, before = touched();
+  assert.equal((await s.command('--status')).status, 0);
+  assert.equal(touched(), before, 'once private, config.json is left alone (node --watch would see any change as a reason to restart)');
 });
 
 test('settings that don\'t make sense fall back to their defaults, and the log says so', async () => {
