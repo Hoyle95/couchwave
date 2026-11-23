@@ -51,7 +51,7 @@ It does everything the step-by-step guides below do, with good defaults:
 
 - installs Node.js, yt-dlp and ffmpeg if they're missing (with winget on Windows, apt on Linux),
 - downloads the newest Couchwave release into a `Couchwave` folder in your home folder (`couchwave` on
-  Linux),
+  Linux), after checking it against the checksum GitHub publishes for it,
 - makes it start with the computer (a scheduled task on Windows, a service on Linux), and lets friends on
   your home network in (a Windows Firewall rule for private networks, or ufw rules if ufw is on),
 - starts it, then shows its address, the address for friends on your network, and the room password. If
@@ -201,7 +201,10 @@ itself when you save it; otherwise, restart it.
   proxies on this computer and on private networks (your home network, Docker, Tailscale). For a proxy
   anywhere else, like a rented server, list its address, or a range of them, and they're trusted as well:
   `"trustProxy": ["203.0.113.5"]` or `["10.8.0.0/24"]`. `false` trusts no proxy at all: only use it if nothing
-  sits in front of Couchwave.
+  sits in front of Couchwave. Because of that default, a device on your home network or Tailscale could
+  pretend to be visiting from somewhere else, so keep it to people you trust. And if Couchwave can be reached
+  straight from the internet with no proxy (like Docker Desktop with a port opened on your router, where every
+  visit seems to come from inside), set it to `false`.
 - `updateCheck`: once a day Couchwave asks GitHub whether there's a newer release, and if there is, says so in
   Activity and the log (it doesn't install anything, and nothing about you or your room is sent). `false`
   turns this off.
@@ -483,7 +486,8 @@ them to `config.json` (see [Settings](#settings)).
   network, add its address to `trustProxy` (see [Letting friends in](#letting-friends-in)).
 - **"Lots of new nicknames have been made from here"**: 10 new nicknames came from the same address within
   an hour (a guard against someone making endless accounts). It clears after an hour, or when Couchwave
-  restarts. The computer running Couchwave isn't limited.
+  restarts. The computer running Couchwave isn't limited (only visits really from it, not ones that just
+  say they are).
 - **The log says someone reached Couchwave "straight from the internet over plain http"**: a port on your
   router leads straight to Couchwave, so passwords travel unencrypted. Close that port and use Cloudflare
   Tunnel or Caddy instead (see [Letting friends in](#letting-friends-in)).

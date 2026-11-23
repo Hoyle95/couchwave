@@ -45,7 +45,7 @@ function song(id, title, by = 'Alice', extra = {}) {
 }
 
 class Server {
-  constructor({ initial, files, expectProblems, config, env } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; this.config = config; this.env = env; }
+  constructor({ initial, files, expectProblems, config, env, nodeArgs } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; this.config = config; this.env = env; this.nodeArgs = nodeArgs || []; }
 
   async start() {
     if (!this.dir) {
@@ -64,7 +64,7 @@ class Server {
       const started = () => (this.logText().match(new RegExp(`Running on http://localhost:${this.port}\\b`, 'g')) || []).length;
       const before = started();
       this.out = '';
-      this.proc = spawn(process.execPath, ['server.js'], { cwd: this.dir, env: { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: String(TIME), ...this.env } });
+      this.proc = spawn(process.execPath, [...this.nodeArgs, 'server.js'], { cwd: this.dir, env: { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: String(TIME), ...this.env } });
       this.proc.stdout.on('data', d => (this.out += d));
       this.proc.stderr.on('data', d => (this.out += d));
       let gone = false;
@@ -105,18 +105,18 @@ class Server {
     return /auth=([^;]*)/.exec(r.headers['set-cookie'].find(c => c.startsWith('auth=')))[1];
   }
   async cookie(name = 'Alice') {
-    this.auths ||= {};
+    this.auths ||= Object.create(null);
     this.auths[name] ||= this.login(name);
     try { return `auth=${await this.auths[name]}; name=${encodeURIComponent(name)}`; }
     catch (e) { delete this.auths[name]; throw e; }
   }
-  forget(name) { if (name) delete (this.auths || {})[name]; else this.auths = {}; }
+  forget(name) { if (name) delete (this.auths || {})[name]; else this.auths = Object.create(null); }
   command(...args) { return run(this.dir, args); }
 
-  async req(method, url, { as = 'Alice', body, cookie, headers = {} } = {}) {
+  async req(method, url, { as = 'Alice', body, cookie, headers = {}, host = '127.0.0.1' } = {}) {
     if (cookie === undefined) cookie = await this.cookie(as);
     return new Promise((resolve, reject) => {
-      const r = http.request({ host: '127.0.0.1', port: this.port, path: url, method, headers: { Cookie: cookie, ...headers } }, res => {
+      const r = http.request({ host, port: this.port, path: url, method, headers: { Cookie: cookie, ...headers } }, res => {
         const chunks = [];
         res.on('data', c => chunks.push(c));
         res.on('end', () => {

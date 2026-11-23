@@ -75,8 +75,14 @@ $releases = Invoke-RestMethod 'https://api.github.com/repos/Hoyle95/couchwave/re
 $release = $releases | Where-Object { -not $_.draft } | Select-Object -First 1
 $asset = $release.assets | Where-Object { $_.name -like 'couchwave-*.zip' } | Select-Object -First 1
 if (-not $asset) { throw "Couldn't find the Couchwave download on GitHub. Try again in a few minutes." }
+if ("$($asset.digest)" -notmatch '^sha256:([0-9a-f]{64})$') { throw "GitHub gave no checksum to check the Couchwave download against, so it wasn't installed. Try again in a few minutes." }
+$sum = $Matches[1].ToLower()
 $zip = Join-Path $env:TEMP $asset.name
 Invoke-WebRequest $asset.browser_download_url -OutFile $zip -UseBasicParsing
+if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $sum) {
+  Remove-Item $zip -Force
+  throw "The Couchwave download doesn't match its checksum, so it wasn't installed. Try again in a few minutes."
+}
 Write-Host "  $($release.tag_name)"
 
 if (Test-Path (Join-Path $Dir 'server.js')) {

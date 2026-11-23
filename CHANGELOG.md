@@ -19,9 +19,24 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ### Changed
 
-- **A bigger chat on wide screens**: on screens wider than about 1330 pixels, the page now uses more of the
-  width instead of stopping at 1280, and the chat grows with it (up to 480 pixels wide, from 320), as does the
-  video. Full screen gets the wider chat too. Smaller screens look the same.
+- **A bigger chat on wide screens**: on screens wider than about 1450 pixels, the page now uses more of the
+  width instead of stopping at 1280, and the video and the chat grow with it (the chat up to about 430 pixels
+  wide, from 320). On a wide but short screen it stops growing before the buttons under the video would go off
+  the bottom. Full screen gets the wider chat too (up to 480). Smaller screens look the same.
+- **The one-line installers check the download**: like `--update`, they now check the Couchwave zip against
+  the checksum GitHub publishes for it, and stop if it doesn't match.
+
+### Fixed
+
+- **Nicknames like "toString" or "valueOf"** (words built into browsers) showed a line of code as their
+  profile picture. They now get an emoji and a colour like everyone else.
+- **Deleting a song while it was still being searched for**: when the search finished, Activity said the song
+  was added, though it wasn't in the queue. It now says what the search found (Undo still brings it back).
+- **A crash lost the last moment's changes**: Couchwave now saves everything before it stops, then starts again
+  as usual.
+- **Only the computer running Couchwave counts as it**: a device on the home network could pretend to be that
+  computer, to skip the limit of 10 new nicknames an hour and see the addresses for friends at home on the
+  join screen. Now only visits that really come from it count.
 
 ## v0.4.0 beta (2026-11-22)
 

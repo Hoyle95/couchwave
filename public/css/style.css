@@ -51,7 +51,7 @@ body {
   background-attachment: fixed;
 }
 [hidden] { display: none !important; }
-.wrap { max-width: clamp(1280px, 88vw, 1760px); margin: 0 auto; padding: 16px; }
+.wrap { max-width: clamp(1280px, min(88vw, 237vh - 560px), 1760px); margin: 0 auto; padding: 16px; }
 .muted { color: var(--muted); }
 svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
 ul { list-style: none; margin: 0; padding: 0; }
@@ -154,7 +154,7 @@ header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify
 @media (max-width: 560px) { .pop { right: auto; left: 0; max-width: calc(100vw - 32px); } }
 
 /* ---------- Layout ---------- */
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 480px); gap: 16px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 25%, 480px); gap: 16px; }
 .layout > main { display: flex; flex-direction: column; }
 .layout > main > .card { flex: 1; }
 .rest { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }

@@ -24,7 +24,7 @@ async function poll() {
 
   showReactions(s.reactions);
 
-  const mine = colors[myName], myFace = faces[myName];
+  const mine = own(colors, myName), myFace = own(faces, myName);
   colors = s.colors || {};
   faces = s.faces || {};
   if (!$('colorPop').hidden) { if (mine != null) colors[myName] = mine; if (myFace) faces[myName] = myFace; }

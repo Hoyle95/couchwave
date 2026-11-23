@@ -40,6 +40,10 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     assert.ok(await page.eval(`document.getElementById('meAvatar').textContent.length > 0`), 'a profile picture');
     assert.equal(await page.visible('#gifBtn'), false);
     assert.deepEqual((await s.state('Bob')).users.sort(), ['Alice', 'Bob'], 'online for everyone');
+    await s.state('toString');
+    await page.waitFor(`document.getElementById('userCount').textContent === '3'`, 5000, 'toString to be online');
+    assert.deepEqual(await page.eval(`[...document.querySelectorAll('#users li')].filter(li => /function|native code/.test(li.textContent) || /function/.test(li.querySelector('.avatar').style.background)).length`), 0,
+      'a nickname that is also a word built into the browser (toString) still gets an emoji and a colour');
     noErrors(page);
   });
 
@@ -151,6 +155,35 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
       await waitFor(() => asked.includes('POST /api/v1/test_Key-123456/gifs/share/gif-1'), 3000, 'KLIPY to be told which GIF was shared');
       noErrors(page);
     } finally { klipy.close(); }
+  });
+
+  test('wide windows: the video and chat only ever grow as the window gets wider, and the controls stay on screen when it\'s short', async () => {
+    const s = await start();
+    const page = await open(s, 'Alice');
+    const at = async (width, height) => {
+      await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+      return page.eval(`new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const box = s => document.querySelector(s).getBoundingClientRect();
+        r({ video: box('#player').width, chat: box('aside').width, controls: box('.controls').bottom + scrollY, height: innerHeight });
+      })))`);
+    };
+    let last = null;
+    for (const width of [1280, 1366, 1440, 1460, 1500, 1600, 1920, 2560]) {
+      const now = await at(width, 1440);
+      if (last) {
+        assert.ok(now.video >= last.video - 0.5, `the video doesn't shrink going from ${last.width} to ${width} wide (${last.video} → ${now.video})`);
+        assert.ok(now.chat >= last.chat - 0.5, `the chat doesn't shrink going from ${last.width} to ${width} wide (${last.chat} → ${now.chat})`);
+      }
+      last = { ...now, width };
+    }
+    const narrow = await at(1440, 900), wide = await at(1920, 1080);
+    assert.ok(wide.video > narrow.video + 200 && wide.chat > narrow.chat + 50, 'a 1920 wide screen gets a bigger video and chat');
+    for (const [width, height] of [[2560, 900], [1920, 800], [3440, 1100]]) {
+      const short = await at(width, height);
+      assert.ok(short.controls <= short.height, `on a ${width}x${height} window the controls under the video are on screen (${short.controls} of ${short.height})`);
+    }
+    await page.send('Emulation.clearDeviceMetricsOverride');
+    noErrors(page);
   });
 
   test('the theme is remembered, and logging out goes back to the join screen', async () => {

@@ -156,4 +156,15 @@ test('told to stop (Ctrl+C, systemctl stop): it saves and ends cleanly', { skip:
   s.proc.kill('SIGTERM');
   assert.deepEqual(await exited, [0, null], 'it ended by itself, not killed');
 });
+
+test('a crash: what changed just before is saved, and server.log says what went wrong', async () => {
+  const s = await start({ nodeArgs: ['--require', path.join(__dirname, 'fakes', 'crash.js')], expectProblems: /a crash, on purpose/ });
+  const exited = new Promise(r => s.proc.on('exit', code => r(code)));
+  fs.writeFileSync(path.join(s.dir, 'crash-now'), '');
+  assert.equal(await exited, 1, 'it stops, so start.cmd or the service starts it again');
+  assert.match(s.logText(), /CRASH Error: a crash, on purpose/);
+  assert.ok(JSON.parse(fs.readFileSync(s.statePath, 'utf8')).chat.some(m => m.text === 'said just before the crash'), 'saved before stopping');
+  await s.start();
+  assert.ok((await s.state()).chat.some(m => m.text === 'said just before the crash'), 'still there after starting again');
+});
 });

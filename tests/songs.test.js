@@ -66,7 +66,7 @@ test('a song name shows "Searching" in the queue straight away, and keeps its pl
   assert.ok(found(q[0], 'slow one') && found(q[1], 'fast two'), 'in the order asked, though "fast two" was found first: ' + q.map(x => x.url).join(', '));
 });
 
-test('searches cut short by a restart start again; a "Searching" stand-in that was deleted stays deleted, but can still be undone', async () => {
+test('searches cut short by a restart start again; a "Searching" stand-in that was deleted stays deleted (Activity says what it found, not that it was added), but can still be undone', async () => {
   const s = await start();
   await s.post('/add', { url: 'slow restart' });
   await s.post('/add', { url: 'slow gone' });
@@ -76,7 +76,8 @@ test('searches cut short by a restart start again; a "Searching" stand-in that w
   await s.restart();
   assert.equal((await s.state()).queue[0].status, 'searching', 'still searching after the restart');
   await waitFor(() => inQueue(s, x => found(x, 'slow restart')), 6000, 'the search to finish after the restart');
-  await waitFor(async () => (await s.log()).includes('Alice: added "slow gone - top result"'), 6000, 'the deleted one\'s search to finish too');
+  await waitFor(async () => (await s.log()).includes('Alice: searched for "slow gone" and found "slow gone - top result"'), 6000, 'the deleted one\'s search to finish too');
+  assert.ok(!(await s.log()).includes('Alice: added "slow gone - top result"'), 'not "added": it isn\'t in the queue');
   assert.ok(!(await inQueue(s, x => x.id === gone.id)), 'it doesn\'t come back by itself');
   await s.post('/undo', { id: gone.id });
   await waitFor(() => inQueue(s, x => x.id === gone.id && found(x, 'slow gone')), 5000, 'undo: back, as the song found');

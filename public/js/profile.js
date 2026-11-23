@@ -118,7 +118,7 @@ function setFace(em) {
 }
 $('facePick').onclick = e => { const b = e.target.closest('button[data-e]'); if (b) setFace(b.dataset.e); };
 $('colorPop').onkeydown = e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.target.blur(); } };
-const myHex = () => colors[myName]
+const myHex = () => own(colors, myName)
   || toHex(getComputedStyle($('meAvatar')).backgroundColor.match(/\d+/g).slice(0, 3).map(Number));
 
 function toggleColorPop(e) {

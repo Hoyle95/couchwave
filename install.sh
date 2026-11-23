@@ -40,14 +40,17 @@ echo "  Node.js $(node --version), yt-dlp $(yt-dlp --version)"
 step "Downloading the newest Couchwave"
 AUTH=()
 [ -n "${GITHUB_TOKEN:-}" ] && AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
-URL=$(curl -fsSL "${AUTH[@]}" -H 'User-Agent: Couchwave installer' 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' | node -e '
+FOUND=$(curl -fsSL "${AUTH[@]}" -H 'User-Agent: Couchwave installer' 'https://api.github.com/repos/Hoyle95/couchwave/releases?per_page=10' | node -e '
   let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => {
     const r = JSON.parse(s).find(r => !r.draft), a = r && r.assets.find(a => /^couchwave-.*\.zip$/.test(a.name));
     if (!a) process.exit(1);
-    console.log(a.browser_download_url);
+    console.log(a.browser_download_url, (/^sha256:([0-9a-f]{64})$/i.exec(a.digest || "") || [, "none"])[1].toLowerCase());
   });') || die "Couldn't find the Couchwave download on GitHub. Try again in a few minutes."
+URL=${FOUND% *}; SUM=${FOUND##* }
+[ "$SUM" != none ] || die "GitHub gave no checksum to check the Couchwave download against, so it wasn't installed. Try again in a few minutes."
 TMP=$(mktemp -d)
 curl -fsSL "$URL" -o "$TMP/couchwave.zip"
+[ "$(sha256sum "$TMP/couchwave.zip" | cut -d' ' -f1)" = "$SUM" ] || { rm -rf "$TMP"; die "The Couchwave download doesn't match its checksum, so it wasn't installed. Try again in a few minutes."; }
 echo "  $(basename "$URL" .zip)"
 
 HAS_SYSTEMD=0

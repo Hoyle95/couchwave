@@ -42,10 +42,11 @@ function rgbToHsv(r, g, b) {
 // ---------- Names and profile pictures ----------
 let colors = {}, myName = '';
 const DJ_NAME = 'DJ';
+const own = (list, name) => (Object.prototype.hasOwnProperty.call(list, name) ? list[name] : null);
 function autoHue(name) {
   let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) % 360; return h;
 }
-const picked = name => colors[name] || null;
+const picked = name => own(colors, name) || null;
 const avatarBg = name => picked(name) || `hsl(${autoHue(name)} 65% 50%)`;
 const nameColor = name => picked(name) || `hsl(${autoHue(name)} 70% var(--name-l))`;
 
@@ -53,7 +54,7 @@ const FACES = ('🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷
                '👽 🤖 👻 🎃 😎 🤠 🥳 🤓 🤡 💀 🌵 🍄 🌻 🍕 🍩 🍉 🍓 🥑 🍒 🔥 ⚡ 🌈 ⭐ 🌙 🎧 🎸 🎮 🚀 💎 👑').split(' ');
 let faces = {};
 function autoFace(name) { let h = 7; for (const c of String(name)) h = (h * 33 + c.codePointAt(0)) % 1000003; return FACES[h % FACES.length]; }
-const face = name => faces[name] || autoFace(name);
+const face = name => own(faces, name) || autoFace(name);
 const avatar = name => `<span class="avatar" style="background:${avatarBg(name)}">${esc(face(name))}</span>`;
 
 let myPick = {};

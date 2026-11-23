@@ -1,11 +1,13 @@
 // ---------- Wrong passwords: who is guessing, and the limits ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
+const fs = require('fs'), os = require('os');
 const { testServers, PASSWORD, ownPassword } = require('./helpers');
 
 const start = testServers({ after });
-const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
+const HOME_IP = Object.values(os.networkInterfaces()).flat()
+  .find(a => a && (a.family === 'IPv4' || a.family === 4) && !a.internal && /^(10|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(a.address))?.address;
+const join = (s, body, headers, host) => s.req('POST', '/login', { body, cookie: '', headers, host });
 const right = name => ({ password: PASSWORD, name, own: ownPassword(name) });
 const wrongRoom = (s, headers) => join(s, { password: 'wrong', name: 'Eve', own: 'xxxx' }, headers);
 async function lockedAfter20(s, headersFor) {
@@ -46,6 +48,15 @@ describe('wrong passwords', { concurrency: true }, () => {
     assert.ok(await lockedAfter20(s, i => ({ 'X-Forwarded-For': `198.51.100.${i}, 203.0.113.9` })), 'addresses written before the one the proxy added');
     assert.ok(await lockedAfter20(s, () => ({ 'X-Forwarded-For': '203.0.113.10, 192.168.1.2, 10.0.0.3' })), 'several proxies on the home network');
     assert.equal((await wrongRoom(s, { 'X-Forwarded-For': '203.0.113.10' })).status, 429, 'the same visitor, through one proxy');
+  });
+
+  test('only a visit really from the computer running Couchwave counts as it: one from the home network that writes 127.0.0.1 doesn\'t', { skip: !HOME_IP && 'this computer has no home network address' }, async () => {
+    const s = await start();
+    const fake = { 'X-Forwarded-For': '127.0.0.1' };
+    assert.ok((await s.req('GET', '/room', { cookie: '', headers: fake })).json.home, 'from this computer: the addresses for friends at home');
+    assert.equal((await s.req('GET', '/room', { cookie: '', headers: fake, host: HOME_IP })).json.home, undefined, 'from the home network: not');
+    for (let i = 0; i < 10; i++) assert.equal((await join(s, right('Home' + i), fake, HOME_IP)).status, 204, `nickname ${i + 1}`);
+    assert.equal((await join(s, right('Home10'), fake, HOME_IP)).status, 429, 'the new-nickname limit still counts it');
   });
 
   test('Cloudflare\'s header counts when the visit came through Cloudflare, and nowhere else', async () => {
