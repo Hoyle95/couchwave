@@ -13,16 +13,41 @@ const downloaded = s => fs.readdirSync(path.join(s.dir, 'data', 'downloads')).fi
 const saved = (s, text) => waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes(text), 3000, `"${text}" to be saved`);
 
 describe('songs', { concurrency: true }, () => {
-test('a link: queued, downloaded, and its real title (in any language) replaces the link', async () => {
+test('a link: queued, downloaded, and its real title and channel (in any language) replace the link', async () => {
   const s = await start();
   assert.equal((await s.post('/add', { url: yt('okay_000001') })).status, 204);
   const q = await waitFor(() => inQueue(s, q => q.status === 'ready'), 5000, 'the download');
   assert.equal(q.title, 'Song okay_000001');
-  assert.ok((await s.log()).includes('Alice: added "Song okay_000001"'), 'log shows the title, not the link');
+  assert.equal(q.duration, 200, 'its length, for the queue');
+  assert.equal((await s.state()).next.channel, 'Channel okay_000001', 'the channel, for the page');
+  assert.ok((await s.log()).includes('Alice: added "Song okay_000001" by Channel okay_000001'), 'log shows the title and channel, not the link');
   assert.ok(downloaded(s).some(f => f.endsWith('.m4a')), 'the audio-only copy was made');
-  await s.post('/add', { url: yt('uni_0000001') });
-  const u = await waitFor(() => inQueue(s, x => x.url === yt('uni_0000001') && x.status === 'ready'), 5000, 'the second download');
-  assert.equal(u.title, 'Café – Déjà Vu 🎵', 'UTF-8 comes through right');
+  for (const id of ['uni_0000001', 'tab_0000001', 'noch_000001', 'topi_000001']) await s.post('/add', { url: yt(id) });
+  await waitFor(async () => (await s.state()).queue.filter(x => x.status === 'ready').length === 5, 5000, 'the other downloads');
+  await saved(s, 'Some Artist"');
+  const kept = JSON.parse(fs.readFileSync(s.statePath, 'utf8')).queue.map(x => [x.title, x.channel]);
+  assert.deepEqual(kept.slice(1), [['Café – Déjà Vu 🎵', 'Chaîne Café'], ['Left\tRight', 'Channel tab_0000001'], ['Song noch_000001', undefined], ['Song topi_000001', 'Some Artist']],
+    'UTF-8 comes through right, a title can hold anything, a video without a channel has none, and YouTube\'s " - Topic" is dropped');
+});
+
+test('yt-dlp is only ever allowed to read YouTube: for links, searches and playlists alike', async () => {
+  const s = await start();
+  await s.post('/add', { url: yt('okay_000003') });
+  await s.post('/add', { url: 'some song' });
+  await s.post('/add', { url: 'https://www.youtube.com/playlist?list=PLtest', playlist: true });
+  const sites = path.join(s.dir, 'yt-dlp-sites.log'), lines = () => { try { return fs.readFileSync(sites, 'utf8').trim().split('\n'); } catch { return []; } };
+  await waitFor(() => lines().some(l => l.startsWith('download')) && lines().filter(l => l.startsWith('list')).length >= 2, 5000, 'a download, a search and a playlist');
+  assert.deepEqual([...new Set(lines().map(l => l.split(' ')[1]))], ['youtube.*']);
+});
+
+test('a song\'s length is known in the queue before it downloads, when YouTube said it (searches and playlists)', async () => {
+  const s = await servers({ initial: playing, env: { COUCHWAVE_FAKE_FREE_DISK: '0' } });
+  await s.post('/add', { url: 'daft punk' });
+  await s.post('/add', { url: 'https://www.youtube.com/playlist?list=PLtest', playlist: true });
+  await s.post('/add', { url: yt('okay_000004') });
+  await waitFor(async () => (await s.state()).queue.length === 5 && !(await s.state()).queue.some(q => q.status === 'searching'), 5000, 'the search and the playlist');
+  const lengths = Object.fromEntries((await s.state()).queue.map(q => [q.url.slice(-11), q.duration]));
+  assert.deepEqual(lengths, { '1daftpunk00': 180, plist_00001: 100, plist_00003: 120, plist_00004: 130, okay_000004: undefined }, 'a link\'s length comes once it has downloaded');
 });
 
 test('not a YouTube link, a cut-off one, or nothing at all: refused, and nothing in Activity', async () => {
@@ -41,7 +66,7 @@ test('a song name: the result that matches best (not just YouTube\'s first, neve
   const s = await start();
   await s.post('/add', { url: 'daft punk' });
   await waitFor(() => inQueue(s, q => found(q, 'daft punk')), 5000, 'the search');
-  assert.ok((await s.log()).some(l => /^Alice: added "(daft punk - top result|Song 1daftpunk00)"$/.test(l)));
+  assert.ok((await s.log()).some(l => /^Alice: added "(daft punk - top result|Song 1daftpunk00)" by Channel 1daftpunk00$/.test(l)));
   await s.post('/add', { url: 'a-ha Take On Me' });
   const q = await waitFor(() => inQueue(s, x => x.by === 'Alice' && x.url?.includes('aha_')), 5000, 'the second search');
   assert.ok(q.url.endsWith('aha_take001'), 'Take On Me, not The Sun Always Shines on T.V.: ' + q.url);
@@ -90,8 +115,8 @@ test('searches cut short by a restart start again; a "Searching" stand-in that w
   await s.restart();
   assert.equal((await s.state()).queue[0].status, 'searching', 'still searching after the restart');
   await waitFor(() => inQueue(s, x => found(x, 'slow restart')), 6000, 'the search to finish after the restart');
-  await waitFor(async () => (await s.log()).includes('Alice: searched for "slow gone" and found "slow gone - top result"'), 6000, 'the deleted one\'s search to finish too');
-  assert.ok(!(await s.log()).includes('Alice: added "slow gone - top result"'), 'not "added": it isn\'t in the queue');
+  await waitFor(async () => (await s.log()).includes('Alice: searched for "slow gone" and found "slow gone - top result" by Channel 1slowgone00'), 6000, 'the deleted one\'s search to finish too');
+  assert.ok(!(await s.log()).some(l => l.startsWith('Alice: added "slow gone - top result"')), 'not "added": it isn\'t in the queue');
   assert.ok(!(await inQueue(s, x => x.id === gone.id)), 'it doesn\'t come back by itself');
   await s.post('/undo', { id: gone.id });
   await waitFor(() => inQueue(s, x => x.id === gone.id && found(x, 'slow gone')), 5000, 'undo: back, as the song found');

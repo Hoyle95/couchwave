@@ -312,7 +312,7 @@ function setMediaSession(cur) {
   const art = ytThumb(cur.url);
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: cur.title, artist: 'added by ' + cur.by, album: 'Couchwave',
+      title: cur.title, artist: (cur.channel ? cur.channel + ' · ' : '') + 'added by ' + cur.by, album: 'Couchwave',
       artwork: art ? [{ src: art, sizes: '480x360', type: 'image/jpeg' }] : [],
     });
   } catch {}

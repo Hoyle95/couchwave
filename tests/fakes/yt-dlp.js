@@ -10,6 +10,9 @@ if (args[0] === '--version') { console.log('2026.10.26'); process.exit(0); }
 const cookies = args.findIndex(a => a === '--cookies' || a === '--cookies-from-browser');
 if (cookies >= 0) fs.appendFileSync('cookies-used.log', `${args.includes('--flat-playlist') ? 'list' : 'download'} ${args[cookies]} ${args[cookies + 1]}\n`);
 
+const sites = args.indexOf('--use-extractors');
+if (!args.includes('-U')) fs.appendFileSync('yt-dlp-sites.log', `${args.includes('--flat-playlist') ? 'list' : 'download'} ${sites >= 0 ? args[sites + 1] : 'any'}\n`);
+
 if (args.includes('-U')) {
   fs.appendFileSync('update-checks.log', 'checked\n');
   if (fs.existsSync('yt-dlp-cant-update')) { console.error('ERROR: You installed yt-dlp with pip or using the wheel from PyPi; Use that to update'); process.exit(1); }
@@ -25,7 +28,7 @@ if (args.includes('--flat-playlist')) {
   process.on('exit', () => fs.rmSync(mine, { force: true }));
   const max = Number(args[args.indexOf('--playlist-end') + 1]) || Infinity;
   let rows = 0;
-  const row = (id, duration, title, playlist = 'NA') => { if (rows++ < max) console.log(text([id, duration, title, playlist].join('\t'))); };
+  const row = (id, duration, title, playlist = 'NA') => { if (rows++ < max) console.log(text([id, duration, id.startsWith('noch') ? '' : `Channel ${id}`, title, playlist].join('\t'))); };
   const q = target.replace(/^ytsearch\d*:/, '');
   setTimeout(() => {
     const mix = /[?&]list=RD([\w-]{11})/.exec(target);
@@ -95,7 +98,8 @@ if (args.includes('--flat-playlist')) {
     const max = /^duration <=\? (\d+)$/.exec(args[args.indexOf('--break-match-filters') + 1] || '');
     if (args.includes('--break-match-filters') && max && typeof duration === 'number' && duration > +max[1]) process.exit(101);
     fs.writeFileSync(out, Buffer.alloc(64 * 1024, 7));
-    console.log(text(`${duration}|${id.startsWith('uni_') ? 'Café – Déjà Vu 🎵' : `Song ${id}`}`));
+    const channel = id.startsWith('noch') ? '' : id.startsWith('uni_') ? 'Chaîne Café' : id.startsWith('topi') ? 'Some Artist - Topic' : `Channel ${id}`;
+    console.log(text(`${duration}\t${channel}\t${id.startsWith('uni_') ? 'Café – Déjà Vu 🎵' : id.startsWith('tab_') ? 'Left\tRight' : `Song ${id}`}`));
     process.exit(0);
   };
   setTimeout(finish, id.startsWith('slow_') ? 1500 : 50);

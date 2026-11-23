@@ -35,8 +35,11 @@ async function add(e) {
   adding = true;
   try {
     const r = await fetch('/add', { method: 'POST', body: JSON.stringify({ url: link, playlist }) }).catch(() => null);
-    if (!r) return alert("Couldn't reach the server, try again in a moment");
-    if (!r.ok) return alert(await r.text());
+    if (!r || !r.ok) {
+      const why = await failText(r);
+      if (/^(That link looks cut off|Not a YouTube link)/.test(why) && input.value.trim() === link) { input.value = ''; input.focus(); }
+      return notice(why);
+    }
     if (input.value.trim() === link) input.value = '';
     poll();
   } finally { adding = false; }
@@ -44,6 +47,24 @@ async function add(e) {
 
 // ---------- Queue, Activity and History ----------
 let nowUrl = '';
+function copyBox(url) {
+  const modal = $('copyModal'), input = $('copyText'), back = document.activeElement;
+  input.value = url;
+  modal.hidden = false;
+  input.focus();
+  input.select();
+  const close = () => {
+    modal.hidden = true;
+    document.removeEventListener('keydown', onKey);
+    if (back && back.focus) back.focus();
+  };
+  const onKey = e => { if (e.key === 'Escape' || (e.key === 'Enter' && e.target === input)) close(); };
+  document.addEventListener('keydown', onKey);
+  input.onclick = () => input.select();
+  input.oncopy = () => setTimeout(close, 300);
+  $('copyDone').onclick = close;
+  modal.onclick = e => { if (e.target === modal) close(); };
+}
 async function copyLink(url, b) {
   if (!url) return;
   let ok = false;
@@ -55,7 +76,7 @@ async function copyLink(url, b) {
     try { ok = document.execCommand('copy'); } catch {}
     ta.remove();
   }
-  if (!ok) return prompt('Copy this link:', url);
+  if (!ok) return copyBox(url);
   b.classList.add('done'); b.innerHTML = icon('check'); b.title = 'Copied!';
   clearTimeout(b._t);
   b._t = setTimeout(() => { b.classList.remove('done'); b.innerHTML = icon('copy'); b.title = 'Copy the YouTube link'; }, 1500);
@@ -64,7 +85,7 @@ const undoSeen = {};
 $('log').onclick = e => {
   const b = e.target.closest('.undo');
   if (b && Date.now() - (undoSeen[b.dataset.undo] || 0) < 1500) return;
-  if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(r => { if (!r || !r.ok) drawLog(); return poll(); }); }
+  if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(r => { if (!r || !r.ok) { b.disabled = false; b.textContent = 'Undo'; } return poll(); }); }
 };
 $('history').onclick = e => {
   const copy = e.target.closest('.copy'), again = e.target.closest('.requeue'), like = e.target.closest('.like');
@@ -89,7 +110,7 @@ async function requeue(b) {
   const reset = () => { b.classList.remove('done'); b.innerHTML = icon('plus'); b.title = 'Add it to the queue again'; };
   b.classList.add('done'); b.innerHTML = icon('check'); b.title = 'Added to the queue';
   const r = await post('/add', { url: b.dataset.url });
-  if (!r || !r.ok) { reset(); return alert(r ? await r.text() : "Couldn't reach the server, try again in a moment"); }
+  if (!r || !r.ok) { reset(); return notice(await failText(r)); }
   poll();
   setTimeout(reset, 1500);
 }
@@ -127,6 +148,17 @@ $('queue').onclick = e => {
   post('/remove', { id: +li.dataset.id }).then(r => { if (!r || !r.ok) li.style.opacity = ''; poll(); });
 };
 
+function queueTimes(s) {
+  const now = Date.now(), starts = [];
+  let at = s.current ? Math.max(0, (s.current.duration || 0) - s.elapsed) : 0, sure = !s.paused, total = 0, unknown = false;
+  for (const q of s.queue) {
+    if (q.status === 'failed') { starts.push(null); continue; }
+    starts.push(sure ? now + at * 1000 : null);
+    if (q.duration > 0) { total += q.duration; at += q.duration; } else { unknown = true; sure = false; }
+  }
+  return { starts, total, unknown, ends: sure && total ? now + at * 1000 : null };
+}
+
 function whenPlayed(t) {
   const d = new Date(t), today = new Date();
   const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
@@ -144,7 +176,7 @@ function drawHistory() {
   const html = historyList.map(h => `
     <li>
       <a href="${esc(h.url)}" target="_blank" rel="noopener" title="Open on YouTube"><img class="hthumb" src="${esc(ytThumbSmall(h.url))}" alt="" loading="lazy" referrerpolicy="no-referrer">${h.duration > 0 ? `<span class="hlen" title="How long it is">${fmt(h.duration)}</span>` : ''}</a>
-      <span class="htitle" title="${esc(h.title)}">${esc(h.title)}</span>
+      <span class="htitle" title="${esc(h.title)}${h.channel ? ` by ${esc(h.channel)}` : ''}">${esc(h.title)}${byChannel(h)}</span>
       <span class="hmeta">${avatar(h.by)} ${nameTag(h.by)}<span class="hbtns">${h.by === DJ_NAME ? likeButton(h) : ''}<button class="ghost copy" data-url="${esc(h.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button><button class="ghost requeue" data-url="${esc(h.url)}" title="Add it to the queue again" aria-label="Add it to the queue again">${icon('plus')}</button></span></span>
       <span class="hmeta htime"><span class="hwhen" title="When it played">${icon('clock')}${whenPlayed(h.t)}</span></span>
     </li>`).join('') || '<li class="empty">Nothing played yet</li>';
@@ -152,9 +184,9 @@ function drawHistory() {
 }
 
 function drawLog() {
-  $('log').innerHTML = logList.map(e =>
-    `<li><span class="time">${hhmm(e.t)}</span><span>${e.by ? `${nameTag(e.by, 'b')} ` : ''}${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`
-  ).join('') || '<li class="empty">Nothing yet</li>';
+  const lines = logList.map(e =>
+    `<li><span class="time">${hhmm(e.t)}</span><span>${e.by ? `${nameTag(e.by, 'b')} ` : ''}${esc(e.text)}</span>${e.undo && e.by === myName ? (undoSeen[e.undo] = undoSeen[e.undo] || Date.now(), `<button class="ghost undo" data-undo="${+e.undo}" title="Put it back in the queue">Undo</button>`) : ''}</li>`);
+  drawList($('log'), lines.length ? lines : ['<li class="empty">Nothing yet</li>']);
   stickLog();
 }
 const QUEUE_BADGE = { ready: 'Ready', downloading: 'Downloading', waiting: 'Waiting', failed: 'Failed', searching: 'Searching' };

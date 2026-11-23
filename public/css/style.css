@@ -182,7 +182,9 @@ video { width: 100%; height: 100%; display: block; background: #000; }
 
 .now { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 14px 2px 4px; min-height: 30px; }
 .nowMain { display: flex; align-items: center; gap: 10px; min-width: 0; }
-#nowTitle { min-width: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.nowText { min-width: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.chan { font-weight: 400; letter-spacing: 0; color: var(--muted); }
+.nowText .chan { font-weight: 500; }
 .by { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .by .avatar { width: 20px; height: 20px; font-size: 12px; }
 .copy, .requeue { width: 34px; height: 34px; padding: 0; border-radius: 50%; flex: none; }
@@ -232,11 +234,21 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
 #queue li:nth-child(odd) { background: var(--surface2); }
 @media (max-width: 640px) {
   #queue li { flex-wrap: wrap; gap: 6px 10px; }
-  #queue .qtitle { order: -1; flex: 1 1 100%; }
+  #queue .qsong { order: -1; flex: 1 1 100%; }
   #queue .by { margin-right: auto; }
 }
 .num { width: 22px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+.qsong { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.qthumb { position: relative; flex: none; width: 80px; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; background: var(--surface); }
+.qthumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.qlen { position: absolute; right: 3px; bottom: 3px; padding: 0 4px; border-radius: 3px; background: rgba(0, 0, 0, .75); color: #fff; font-size: 10px; font-weight: 600; line-height: 15px; font-variant-numeric: tabular-nums; }
 .qtitle { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.qeta svg { width: 12px; height: 12px; flex: none; }
+.qtotal svg { width: 13px; height: 13px; }
+.qtotal[hidden] { display: none; }
+.qeta { display: flex; align-items: center; gap: 4px; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.qtotal > span { display: inline-flex; align-items: center; gap: 4px; }
+.qtotal { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); font-variant-numeric: tabular-nums; }
 .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
 .badge.ready { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .badge.downloading { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); animation: pulse 1.4s ease-in-out infinite; }
@@ -394,6 +406,18 @@ body.fs #chat, body.fs #log { flex: 1 1 0; height: auto; }
 .modal-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 .modal-btns .iconbtn { margin-left: auto; padding: 11px 14px; }
 .modal-note { font-size: 13px; margin: 14px 0 0 !important; }
+#copyText { width: 100%; margin-bottom: 14px; font-size: 14px; }
+
+/* ---------- Notices ---------- */
+#notices { position: fixed; left: 50%; bottom: 20px; z-index: 30; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
+.notice { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid var(--border); border-left: 3px solid var(--err); border-radius: 12px;
+  background: var(--surface); color: var(--fg); box-shadow: var(--shadow); font-size: 14px; font-weight: 500; line-height: 1.4; cursor: pointer; pointer-events: auto;
+  animation: noticeIn .2s ease-out; transition: opacity .2s, transform .2s; }
+.notice svg { width: 18px; height: 18px; flex: none; color: var(--err); }
+.notice.going { opacity: 0; transform: translateY(6px); }
+@keyframes noticeIn { from { opacity: 0; transform: translateY(8px); } }
+@media (prefers-reduced-motion: reduce) { .notice { animation: none; transition: none; } }
 
 /* ---------- Join screen ---------- */
 .overlay {

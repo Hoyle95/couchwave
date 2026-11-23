@@ -124,12 +124,18 @@ class Page {
     await this.waitFor(`document.getElementById('me').textContent === ${JSON.stringify(name)} && !document.querySelector('.me.loading')`, 5000, `${name} to be in`);
   }
   async answer(urlPattern, status) {
-    this.browser.listeners.add(m => {
-      if (m.sessionId !== this.sessionId || m.method !== 'Fetch.requestPaused') return;
-      const code = status(m.params.request), requestId = m.params.requestId;
-      (code ? this.send('Fetch.fulfillRequest', { requestId, responseCode: code, body: '' }) : this.send('Fetch.continueRequest', { requestId })).catch(() => {});
-    });
-    await this.send('Fetch.enable', { patterns: [{ urlPattern }] });
+    const matches = new RegExp(`^${urlPattern.split('*').map(p => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+    if (!this.answers) {
+      this.answers = [];
+      this.browser.listeners.add(m => {
+        if (m.sessionId !== this.sessionId || m.method !== 'Fetch.requestPaused') return;
+        const answer = this.answers.findLast(a => a.matches.test(m.params.request.url));
+        const code = answer ? answer.status(m.params.request) : 0, requestId = m.params.requestId;
+        (code ? this.send('Fetch.fulfillRequest', { requestId, responseCode: code, body: '' }) : this.send('Fetch.continueRequest', { requestId })).catch(() => {});
+      });
+    }
+    this.answers.push({ urlPattern, matches, status });
+    await this.send('Fetch.enable', { patterns: this.answers.map(a => ({ urlPattern: a.urlPattern })) });
   }
   close() { return this.browser.send('Target.disposeBrowserContext', { browserContextId: this.contextId }).catch(() => {}); }
 }

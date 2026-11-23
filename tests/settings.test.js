@@ -20,6 +20,7 @@ test('the first start: config.json is made (a random room password, every settin
     const { password, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.match(password, /^[\w-]{8}$/, 'a random room password');
     assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false });
+    if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only whoever runs Couchwave can read it');
     await waitFor(() => /To let friends in from the internet/.test(logged()), 5000, 'the welcome');
     for (const line of [/Welcome to Couchwave! It's running\./, /  Open it: +http:\/\/localhost:3000\n/, new RegExp(`  Room password: +${password} +\\(in config\\.json\\)`),
       /  To let friends in from the internet, see docs\/INSTALL\.md#letting-friends-in/]) assert.match(logged(), line);
@@ -37,6 +38,17 @@ test('the room password and port come from config.json only, never the environme
   assert.equal((await join(s, { password: PASSWORD, name: 'Alice', own: 'secret1' })).status, 204);
   const short = await start({ config: { password: 'abc' } });
   await short.logHas(/the room password is short \(3 characters\), so it's easy to guess/);
+});
+
+test('config.json and the data folder: only whoever runs Couchwave can read them (Linux and Mac), even if anyone could before', { skip: process.platform === 'win32' && 'Windows has no such permissions' }, async () => {
+  const s = await start();
+  await s.stop();
+  fs.chmodSync(path.join(s.dir, 'config.json'), 0o644);
+  fs.chmodSync(path.join(s.dir, 'data'), 0o755);
+  await s.start();
+  assert.equal(fs.statSync(path.join(s.dir, 'config.json')).mode & 0o777, 0o600, 'config.json (the room password)');
+  assert.equal(fs.statSync(path.join(s.dir, 'data')).mode & 0o777, 0o700, 'the data folder (accounts, logins, the log, backups)');
+  assert.equal((await s.state()).me, 'Alice', 'and it still works');
 });
 
 test('settings that don\'t make sense fall back to their defaults, and the log says so', async () => {

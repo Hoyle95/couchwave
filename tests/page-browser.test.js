@@ -15,7 +15,12 @@ async function open(s, name) {
   else await page.goto(`http://127.0.0.1:${s.port}/`);
   return page;
 }
-const noErrors = (...ps) => { for (const p of ps) assert.deepEqual(p.errors, [], 'no script errors on the page'); };
+const noErrors = (...ps) => {
+  for (const p of ps) {
+    assert.deepEqual(p.errors, [], 'no script errors on the page');
+    assert.deepEqual(p.dialogs, [], 'none of the browser\'s own pop-ups (alert, confirm, prompt)');
+  }
+};
 
 describe('the page in a browser', { skip: missing || false, concurrency: true }, () => {
   before(async () => { browser = await Browser.launch(); });
@@ -47,7 +52,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('chat: a message shows for everyone exactly as typed (never as HTML), and the emoji picker adds to what you\'re typing; Activity shares its place, a tab away (remembered), newest at the bottom like the chat, with a dot on Chat for new messages', async () => {
+  test('chat: a message shows for everyone exactly as typed (never as HTML), and the emoji picker adds to what you\'re typing; Activity shares its place, a tab away (remembered), newest at the bottom like the chat, with a dot on Chat for new messages; new lines are added without redrawing the ones already there', async () => {
     const s = await start({ initial: { log: Array.from({ length: 40 }, (_, i) => ({ t: Date.now() - (40 - i) * 1000, by: 'Zed', text: `did thing ${i}` })) } });
     const alice = await open(s, 'Alice'), bob = await open(s, 'Bob');
     await alice.type('#chatText', '<b>hi</b> & bye');
@@ -55,6 +60,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     await bob.waitFor(`[...document.querySelectorAll('#chat .msg .text')].some(t => t.textContent === '<b>hi</b> & bye')`, 5000, 'Bob to see it');
     assert.equal(await bob.eval(`document.querySelectorAll('#chat b:not(.nm)').length`), 0, 'not turned into HTML');
     assert.equal(await alice.eval(`document.getElementById('chatText').value`), '', 'the box is emptied');
+    await bob.eval(`document.querySelector('#chat .msg').kept = true`);
     await alice.click('#emojiBtn');
     assert.equal(await alice.visible('#emojiPop'), true);
     const em = await alice.eval(`document.querySelector('#emojiPop button[data-e]').dataset.e`);
@@ -62,6 +68,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     assert.equal(await alice.eval(`document.getElementById('chatText').value`), em);
     await alice.submit('#chatForm');
     await bob.waitFor(`[...document.querySelectorAll('#chat .text.big')].some(t => t.textContent === ${JSON.stringify(em)})`, 5000, 'a big emoji');
+    assert.equal(await bob.eval(`document.querySelector('#chat .msg').kept`), true, 'the first message is the same one, not drawn again');
     const showing = p => p.eval(`['chat', 'chatForm', 'log'].filter(id => !document.getElementById(id).closest('[hidden]'))`);
     assert.deepEqual(await showing(bob), ['chat', 'chatForm'], 'the chat first');
     await bob.click('#logTab');
@@ -69,8 +76,10 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     const below = (later, earlier) => `(l => { const at = t => [...l.children].findIndex(li => li.textContent.includes(t));
       return at(${JSON.stringify(later)}) > at(${JSON.stringify(earlier)}) && at(${JSON.stringify(earlier)}) >= 0 && l.scrollHeight - l.scrollTop - l.clientHeight < 2; })(document.getElementById('log'))`;
     await bob.waitFor(below('did thing 39', 'did thing 0'), 5000, 'Activity oldest first, scrolled to the bottom');
+    await bob.eval(`document.querySelector('#log li').kept = true`);
     await s.post('/add', { url: yt('okay_000011') }, { as: 'Alice' });
     await bob.waitFor(below('Alice added', 'did thing 39'), 5000, 'a new line at the bottom, scrolled to');
+    assert.equal(await bob.eval(`document.querySelector('#log li').kept`), true, 'the older lines are the same ones, not drawn again');
     await alice.type('#chatText', 'while Bob looks at Activity');
     await alice.submit('#chatForm');
     await bob.waitFor(`document.getElementById('chatTab').classList.contains('unread')`, 5000, 'a dot on the Chat tab');
@@ -80,6 +89,53 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     await bob.click('#chatTab');
     assert.deepEqual(await showing(bob), ['chat', 'chatForm']);
     assert.equal(await bob.eval(`document.getElementById('chatTab').classList.contains('unread')`), false, 'the dot goes');
+    noErrors(alice, bob);
+  });
+
+  test('the queue: each song\'s picture, its length, and roughly when it starts; the whole queue\'s length and when it ends; every title says "by" its channel, when it\'s known', async () => {
+    const t = Date.now();
+    const s = await start({ env: { COUCHWAVE_FAKE_FREE_DISK: '0' }, initial: {
+      current: song(1, 'Playing', 'Zed', { duration: 300, channel: 'Zed Music' }), startedAt: t,
+      queue: [song(2, 'Two', 'Zed', { duration: 200, channel: '<b>Two</b> Music' }), song(3, 'Three', 'Zed', { duration: 100 }), { id: 4, url: yt('nolen000001'), title: 'Four', by: 'Zed', status: 'waiting' }],
+      history: [{ url: yt('old_0000001'), title: 'Old', channel: 'Old Music', by: 'Zed', t: t - 60000 }],
+    } });
+    const page = await open(s, 'Alice');
+    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 3`, 5000, 'the queue');
+    assert.equal(await page.text('.nowText'), 'Playing by Zed Music', 'what\'s playing');
+    assert.deepEqual(await page.eval(`[...document.querySelectorAll('#queue .qtitle')].map(t => t.firstChild.textContent + (t.querySelector('.chan')?.textContent || ''))`),
+      ['Two by <b>Two</b> Music', 'Three', 'Four'], 'the queue (as typed, never as HTML), and nothing when the channel isn\'t known');
+    assert.equal(await page.text('#history .htitle'), 'Old by Old Music', 'the history');
+    const rows = () => page.eval(`[...document.querySelectorAll('#queue li[data-id]')].map(li => [
+      li.querySelector('.qthumb img')?.getAttribute('src') || '', li.querySelector('.qlen')?.textContent || '', li.querySelector('.qeta')?.textContent || ''])`);
+    const at = secs => page.eval(`'~' + hhmm(${t + secs * 1000})`);
+    assert.deepEqual(await rows(), [
+      ['https://i.ytimg.com/vi/song0000002/mqdefault.jpg', '3:20', await at(300)],
+      ['https://i.ytimg.com/vi/song0000003/mqdefault.jpg', '1:40', await at(500)],
+      ['https://i.ytimg.com/vi/nolen000001/mqdefault.jpg', '', await at(600)],
+    ], 'its length isn\'t known until it downloads, but when it starts is');
+    assert.equal(await page.eval(`document.querySelectorAll('#queue .qeta use[href="#i-clock"]').length`), 3, 'each start time with the clock, like the history\'s');
+    const total = () => page.eval(`[...document.querySelectorAll('#queueTotal > span')].map(s => [s.querySelector('use').getAttribute('href'), s.textContent])`);
+    assert.deepEqual(await total(), [['#i-hourglass', '5:00+']], 'the songs whose length is known (and a + for the rest), with an hourglass; no end time while one isn\'t known');
+    await s.post('/remove', { id: 4 }, { as: 'Zed' });
+    await page.waitFor(`document.querySelectorAll('#queueTotal > span').length === 2`, 5000, 'the end time, once every length is known');
+    assert.deepEqual(await total(), [['#i-hourglass', '5:00'], ['#i-clock', await at(600)]], 'when it ends, with the clock');
+    await s.post('/pause', {}, { as: 'Zed' });
+    await page.waitFor(`!document.querySelector('#queue .qeta')`, 5000, 'no start times while paused');
+    assert.deepEqual(await total(), [['#i-hourglass', '5:00']]);
+    noErrors(page);
+  });
+
+  test('reactions: one sent on one page floats over the video on the others straight away, once', async () => {
+    const s = await start({ initial: { current: song(1, 'Song A', 'Zed', { duration: 100000 }) } });
+    const alice = await open(s, 'Alice'), bob = await open(s, 'Bob');
+    await bob.waitFor(`document.getElementById('userCount').textContent === '2'`, 5000, 'both to be online');
+    await bob.eval(`window.floated = []; new MutationObserver(l => { for (const m of l) for (const n of m.addedNodes) if (n.classList && n.classList.contains('particle')) floated.push(n.textContent); })
+      .observe(document.getElementById('player'), { childList: true })`);
+    const em = await alice.eval(`document.querySelector('#reactRecent [data-e]').dataset.e`);
+    await alice.click('#reactRecent [data-e]');
+    await bob.waitFor(`floated.length > 0`, 3000, 'it to float up on Bob\'s page');
+    await new Promise(r => setTimeout(r, 1500));
+    assert.deepEqual(await bob.eval('floated'), [em], 'once, even though the next check of the room has it too');
     noErrors(alice, bob);
   });
 
@@ -109,7 +165,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(alice, bob);
   });
 
-  test('adding songs: a link goes in the queue and plays; a playlist link asks first; a link that isn\'t YouTube says why', async () => {
+  test('adding songs: a link goes in the queue and plays; a playlist link asks first; a link that isn\'t YouTube says why, in a notice that goes away by itself or when clicked; it and a cut-off link are cleared from the box', async () => {
     const s = await start();
     const page = await open(s, 'Alice');
     await page.type('#url', yt('okay_000001'));
@@ -125,17 +181,37 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     assert.equal((await s.state()).queue.length, 0, 'nothing added');
     await page.type('#url', 'https://example.com/video');
     await page.submit('#addForm');
-    await waitFor(() => page.dialogs.includes('Not a YouTube link'), 3000, 'the page to say why');
+    await page.waitFor(`[...document.querySelectorAll('#notices .notice')].some(n => n.textContent === 'Not a YouTube link')`, 3000, 'the page to say why');
+    assert.equal(await page.eval(`document.getElementById('notices').getAttribute('aria-live')`), 'assertive', 'read out by screen readers');
+    const cleared = () => page.eval(`(u => [u.value, document.activeElement === u])(document.getElementById('url'))`);
+    assert.deepEqual(await cleared(), ['', true], 'cleared from the box, ready for a YouTube link');
+    await page.click('#notices .notice');
+    await page.waitFor(`!document.querySelector('#notices .notice')`, 3000, 'it to go when clicked');
+    await page.type('#url', 'https://example.com/video');
+    await page.submit('#addForm');
+    await page.waitFor(`!!document.querySelector('#notices .notice')`, 3000, 'it again');
+    await page.waitFor(`!document.querySelector('#notices .notice')`, 8000, 'it to go by itself');
+    await page.type('#url', 'https://www.youtube.com/watch?v=R8wM-EaYVd');
+    await page.submit('#addForm');
+    await page.waitFor(`[...document.querySelectorAll('#notices .notice')].some(n => n.textContent === 'That link looks cut off. Copy the whole link from YouTube again')`, 3000, 'a cut-off link');
+    assert.deepEqual(await cleared(), ['', true], 'a cut-off link is cleared too, ready to paste the whole one');
     noErrors(page);
   });
 
-  test('the queue: your own song is removed with a second click, and Undo in Activity brings it back; a song waiting on YouTube says when it tries again; a button whose request fails comes back', async () => {
+  test('the queue: your own song is removed with a second click, and Undo in Activity brings it back; a song waiting on YouTube says when it tries again; a button whose request fails comes back; a link the browser won\'t copy is shown, selected, to copy by hand', async () => {
     const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Mine', 'Alice'), song(3, 'Held up', 'Bob', { status: 'failed', error: 'YouTube bot check', tries: 1, retryAt: Date.now() + 10 * 60000 }), song(4, 'Gone', 'Bob', { status: 'failed', error: 'Unavailable', tries: 3 })] } });
     const page = await open(s, 'Alice');
     await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 3`, 5000, 'the queue');
     const [badge, why] = await page.eval(`(b => [b.textContent, b.title])(document.querySelector('#queue li[data-id="3"] .badge'))`);
     assert.match(badge, /^Retry at \d{1,2}:\d{2}/, 'when it tries again');
     assert.match(why, /^YouTube asked Couchwave to slow down, so it tries again at \d{1,2}:\d{2}/);
+    await page.eval(`navigator.clipboard.writeText = () => Promise.reject(new Error('not allowed')); document.execCommand = () => false`);
+    await page.click('#queue li[data-id="2"] .copy');
+    await page.waitFor(`!document.getElementById('copyModal').hidden`, 3000, 'the copy box');
+    assert.deepEqual(await page.eval(`(i => [i.value, document.activeElement === i, i.selectionStart, i.selectionEnd])(document.getElementById('copyText'))`),
+      [yt('song0000002'), true, 0, yt('song0000002').length], 'the whole link, selected');
+    await page.eval(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    assert.equal(await page.visible('#copyModal'), false, 'Escape closes it');
     await page.answer('*/retry', () => 500);
     assert.equal(await page.eval(`(b => { b.click(); return b.disabled; })(document.querySelector('#queue li[data-id="4"] .retry'))`), true, 'Retry waits for its answer');
     await page.waitFor(`(b => b && !b.disabled)(document.querySelector('#queue li[data-id="4"] .retry'))`, 5000, 'Retry to come back after its request failed');
@@ -147,6 +223,10 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     await page.click('#logTab');
     await page.waitFor(`!!document.querySelector('#log .undo')`, 5000, 'the Undo button');
     await new Promise(r => setTimeout(r, 1600));
+    let undos = 0;
+    await page.answer('*/undo', () => (++undos === 1 ? 500 : 0));
+    await page.click('#log .undo');
+    await page.waitFor(`(b => b && !b.disabled && b.textContent === 'Undo')(document.querySelector('#log .undo'))`, 5000, 'Undo to come back after its request failed');
     await page.click('#log .undo');
     await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 3`, 5000, 'it to come back');
     noErrors(page);

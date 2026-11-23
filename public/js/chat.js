@@ -140,7 +140,7 @@ async function sendGif({ item, q }) {
     fetch(gifApi(shared, `share/${encodeURIComponent(item.slug)}`), { method: 'POST', credentials: 'omit', referrerPolicy: 'no-referrer',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer_id: shared.customer, q }) }).catch(() => {});
   } else if (r && r.status === 429) chatCooldown(+r.headers.get('Retry-After') || 30);
-  else alert(r ? await r.text() : "Couldn't reach the server, try again in a moment");
+  else notice(await failText(r));
 }
 
 const bigEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t)
@@ -166,14 +166,15 @@ function showPanel(which) {
 const showChatTab = () => showPanel('chat'), showLogTab = () => showPanel('log');
 drawSidePanel();
 function drawChat() {
-  $('chat').innerHTML = [...chatList, ...pendingChat].map(m => `
+  const msgs = [...chatList, ...pendingChat].map(m => `
     <div class="msg${m.pending ? ' pending' : ''}">
       ${avatar(m.by)}
       <div class="body">
         <div class="head">${nameTag(m.by, 'b')}<span class="time">${hhmm(m.t)}</span></div>
         ${m.gif ? `<div class="text">${gifImg(m.gif)}</div>` : `<div class="text${bigEmoji(m.text) ? ' big' : ''}">${esc(m.text)}</div>`}
       </div>
-    </div>`).join('') || '<div class="empty">No messages yet — say hi!</div>';
+    </div>`);
+  drawList($('chat'), msgs.length ? msgs : ['<div class="empty">No messages yet — say hi!</div>']);
   stickChat();
 }
 

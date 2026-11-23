@@ -15,6 +15,14 @@
   songs) or just the one song. A song already queued or playing can't go in twice, and livestreams can't
   go in at all. The queue holds up to 500 songs, and YouTube is read for at most 3 searches or playlists
   at a time (the rest wait their turn).
+- **What's coming up**: each song in the queue shows its picture, its length and roughly when it should
+  start, and the queue's header says how long the whole queue is and when it should end (if nothing is
+  skipped; not while paused). A song's length shows as soon as YouTube says it: straight away for searches,
+  playlists and the DJ's picks, once it has downloaded for a link.
+- **Which channel it's from**: every song's title ends with its YouTube channel, like "Summer Is Blue by
+  Sainté": what's playing, the queue, the history, Activity and `--status`, and the phone's lock screen.
+  YouTube's automatic artist channels lose their " - Topic". It's known once a song is found or downloaded,
+  so songs downloaded by an older Couchwave don't have one.
 - **In sync** for everyone: the song and where it's up to are the same on every screen. Anyone can pause or
   resume for everyone with the pause button, or by clicking the video (double-clicking goes full screen).
   While it's paused, the video says who paused it. The pause button in your phone's lock-screen controls (or
@@ -79,11 +87,14 @@
   save file is kept aside instead of stopping Couchwave, its log file trims itself, and it backs itself up
   every day (the last 7 days, in `data/backups/`). `/health` tells an uptime monitor whether it's well.
 - **Easy to get going**: the first start says where to open Couchwave, the address for friends at home and
-  the room password, and the join screen, opened on the computer running it, shows the address to share.
+  the room password, and the join screen, opened at `localhost` on the computer running it, shows the address
+  to share.
 - **Locked down**: browsers only run Couchwave's own scripts (so even a bug letting code into a chat message
   couldn't run it), other sites can't show it inside theirs or act as someone who's logged in, and YouTube
   isn't told your room's address. Over `https://`, browsers are told to always use it; if friends reach it
   over plain http from the internet, the log warns you. Wrong passwords and new nicknames are limited.
+  yt-dlp is only allowed to read YouTube, so a link that only looks like YouTube can't send it anywhere
+  else. On Linux and Mac, only the user running Couchwave can read `config.json` and `data/`.
 
 ## Server commands
 
@@ -141,7 +152,7 @@ The DJ:
 |---|---|
 | `server.js` | Where it starts: the version, then either one of the commands above or the server. |
 | `lib/start.js` | Starts the server, in order: settings, the saved room, the DJ, upkeep, then the web server. |
-| `lib/room.js` | Everything the room has (the queue, what's playing, history, chat, Activity, votes, who's here), loading and saving it, and telling pages something changed. |
+| `lib/room.js` | Everything the room has (the queue, what's playing, history, chat, Activity, votes, who's here), loading and saving it, and telling pages something changed (reactions go to them as they are). |
 | `lib/songs.js` | Adding songs (links, playlists, searches), where they go in the queue, removing them, and votes to remove. |
 | `lib/downloads.js` | Reading YouTube with yt-dlp, downloading, loudness, retries, and the disk space check. |
 | `lib/playback.js` | Playing the next song, votes to skip, and what happens every second. |
@@ -157,7 +168,7 @@ The DJ:
 | `lib/common.js`, `lib/tools.js` | Shared basics (folders, saving files safely, times, YouTube links), and running yt-dlp, ffmpeg and ffprobe. |
 | `lib/dj.js` | The DJ. It only uses what `lib/start.js` hands it. |
 | `public/` | What browsers load: `index.html`, `css/style.css`, the scripts in `js/`, `fonts/` and `icons/`. |
-| `public/js/core.js` | The page's shared basics: helpers, names and profile pictures. |
+| `public/js/core.js` | The page's shared basics: helpers, names and profile pictures, and drawing lists (the chat, Activity) so lines that didn't change stay as they are. |
 | `public/js/profile.js` | Joining, logging out, your colour and emoji, and the theme. |
 | `public/js/player.js` | Playing in sync, the controls, voting to skip, full screen, reactions and the lock screen. |
 | `public/js/chat.js`, `public/js/lists.js` | Chat, emoji, GIFs and sounds; adding songs, the queue, Activity and the history. |

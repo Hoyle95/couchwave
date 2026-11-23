@@ -12,12 +12,17 @@ const html = read('public/index.html');
 const SCRIPTS = [...html.matchAll(/<script src="\/js\/([\w-]+\.js)"><\/script>/g)].map(m => m[1]);
 const pageCode = () => SCRIPTS.filter(f => f !== 'theme.js').map(f => read(`public/js/${f}`)).join('\n');
 
-test('this computer\'s home-network addresses, for the join screen: only for a visit from this computer itself', async () => {
+test('this computer\'s home-network addresses, for the join screen: only for a visit from this computer itself, at a localhost address', async () => {
   const local = (await s.get('/room', { cookie: '' })).json;
   assert.ok(Array.isArray(local.home), 'visiting from this computer');
   for (const u of local.home) assert.match(u, new RegExp(`^http://(10|192\\.168|172\\.(1[6-9]|2\\d|3[01]))\\.[\\d.]+:${s.port}$`));
+  for (const host of [`localhost:${s.port}`, `[::1]:${s.port}`, 'localhost']) {
+    assert.ok(Array.isArray((await s.get('/room', { cookie: '', headers: { Host: host } })).json.home), host);
+  }
   const viaTunnel = (await s.get('/room', { cookie: '', headers: { 'X-Forwarded-For': '203.0.113.5' } })).json;
   assert.deepEqual(viaTunnel, { public: false }, 'not for a visitor from elsewhere, even through a tunnel or proxy on this computer');
+  const quietProxy = (await s.get('/room', { cookie: '', headers: { Host: 'couchwave.example.com' } })).json;
+  assert.deepEqual(quietProxy, { public: false }, 'nor through a proxy on this computer that doesn\'t say who\'s visiting (the address it was asked for gives it away)');
 });
 
 test('the version, for the footer: only for people who are logged in', async () => {
@@ -83,6 +88,10 @@ test('every element and icon the page\'s scripts use is on the page', () => {
   assert.deepEqual([...used].filter(id => !ids.has(id)), [], 'missing from index.html');
   const icons = [...app.matchAll(/icon\(([^)]*)\)/g)].flatMap(m => [...m[1].matchAll(/'([\w-]+)'/g)].map(x => x[1]));
   assert.deepEqual(icons.filter(i => !html.includes(`<symbol id="i-${i}"`)), [], 'icons missing from index.html');
+});
+
+test('the page never uses the browser\'s own pop-ups (alert, confirm, prompt): problems show in its own notices and boxes, in its colours', () => {
+  assert.deepEqual(pageCode().match(/\b(alert|confirm|prompt)\s*\(/g), null);
 });
 
 test('the page and its files are public; the page, style and scripts are always re-checked, compressed when the browser can take it, and "unchanged" (304) when it has them', async () => {

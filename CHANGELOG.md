@@ -6,6 +6,13 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ### Added
 
+- **The queue shows what's coming**: each song's picture, its length and roughly when it should start, and
+  how long the whole queue is and when it should end (if nothing is skipped). A song's length shows as soon
+  as YouTube says it: straight away for searches, playlists and the DJ's picks, once it has downloaded for a
+  link.
+- **Every song says which YouTube channel it's from**, like "Summer Is Blue by Sainté": what's playing, the
+  queue, the history, Activity, `--status` and the phone's lock screen. Songs already downloaded before you
+  update don't have one; the next ones do.
 - **Click the video to pause or play** (for everyone, like the pause button; double-clicking still goes full
   screen). While it's paused, the video is dimmed with a pause sign and who paused it.
 - **A friendlier first start**: the first time Couchwave starts, it says where to open it, the address for
@@ -50,9 +57,29 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   again within an hour either: one it couldn't download, or one you voted out, used to come straight back.
 - **The DJ never rushes YouTube**: at most one Mix every 10 seconds (it was only between Mixes for one
   top-up) and no more than 60 an hour, however often its songs are voted out.
+- **yt-dlp is only allowed to read YouTube**, for links, searches and playlists alike, so a link that only
+  looks like YouTube can never send it to another site.
+- **On Linux and Mac, only the user running Couchwave can read its settings and data**: `config.json` (the
+  room password) and `data/` (accounts, logins, the log and backups) are made private every time it starts.
+  Copy or back them up as that user, or with `sudo`. Not in Docker, where the container keeps them apart.
+- **Problems show in the page's own style**: when a song can't be added or a GIF can't be sent, a notice in
+  Couchwave's colours says why at the bottom of the screen, and goes away by itself or when clicked, instead
+  of the browser's grey pop-up you had to click OK on. A link that isn't YouTube, or looks cut off, is cleared
+  from the box, ready for you to paste the right one. When the browser won't copy a link, the link shows
+  selected in a box, ready to copy by hand.
+- **A lighter chat and Activity**: a new message or line is added on its own instead of the whole list being
+  drawn again, so GIFs already in the chat don't reload or start over, and text you're selecting stays
+  selected.
+- **Reactions are lighter on the server**: they go straight to everyone's page as they're sent, instead of
+  every page asking for the whole room again for each one. With a few people sending reactions, that's far
+  fewer requests.
 
 ### Fixed
 
+- **A proxy that doesn't say who's visiting no longer makes everyone look like the host**: behind a proxy on
+  the same computer that doesn't send `X-Forwarded-For` (nginx needs it added), every visitor counted as
+  being on the computer running Couchwave, so they skipped the limit on new nicknames and the join screen
+  showed them your home network address. Now only a visit to `localhost` counts.
 - **The chat opens at the newest message**: after a refresh, GIFs that finished loading pushed the latest
   messages out of view. It now stays at the bottom while they load (unless you've scrolled up to read).
 - **Nicknames like "toString" or "valueOf"** (words built into browsers) showed a line of code as their

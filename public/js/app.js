@@ -40,17 +40,28 @@ async function pollOnce() {
   $('idle').hidden = !!s.current;
   $('nowTitle').textContent = s.current ? s.current.title : 'Nothing playing';
   $('nowTitle').className = s.current ? '' : 'muted';
+  $('nowChannel').textContent = s.current && s.current.channel ? `by ${s.current.channel}` : '';
+  $('nowChannel').hidden = !(s.current && s.current.channel);
   $('nowBy').innerHTML = s.current ? `added by ${avatar(s.current.by)} ${esc(s.current.by)}` : '';
   nowUrl = s.current ? s.current.url : '';
   $('copyBtn').hidden = !nowUrl;
 
   $('queueCount').textContent = s.queue.length;
+  const times = queueTimes(s);
+  $('queueTotal').hidden = !times.total;
+  $('queueTotal').innerHTML = !times.total ? ''
+    : `<span id="queueLength" title="How long the queue is${times.unknown ? ' (some songs\' lengths aren\'t known yet)' : ''}">${icon('hourglass')}${fmt(times.total)}${times.unknown ? '+' : ''}</span>`
+    + (times.ends ? `<span id="queueEnds" title="When the queue should end, if nothing is skipped">${icon('clock')}~${hhmm(times.ends)}</span>` : '');
   const queueHtml = s.queue.map((q, i) => `
     <li data-id="${q.id}">
       <span class="num">${i + 1}</span>
       ${q.url ? `<button class="ghost copy" data-url="${esc(q.url)}" title="Copy the YouTube link" aria-label="Copy the YouTube link">${icon('copy')}</button>`
         : '<span class="copygap" aria-hidden="true"></span>'}
-      <span class="qtitle">${esc(q.title)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>` : ''}</span>
+      <span class="qsong">
+        <span class="qthumb">${ytThumb(q.url) ? `<img src="${esc(ytThumbSmall(q.url))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}${q.duration > 0 ? `<span class="qlen" title="How long it is">${fmt(q.duration)}</span>` : ''}</span>
+        <span class="qtitle">${esc(q.title)}${byChannel(q)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>`
+          : times.starts[i] ? `<small class="qeta" title="When it should start, if nothing is skipped">${icon('clock')}~${hhmm(times.starts[i])}</small>` : ''}</span>
+      </span>
       <span class="by">${avatar(q.by)} ${esc(q.by)}</span>
       ${q.held ? '<span class="badge failed" title="Downloads are paused: the computer running Couchwave is nearly out of disk space">Disk full</span>'
         : q.status === 'failed' && q.retrying && q.retryIn >= 60 ? `<span class="badge waiting" title="YouTube asked Couchwave to slow down, so it tries again at ${hhmm(Date.now() + q.retryIn * 1000)}">Retry at ${hhmm(Date.now() + q.retryIn * 1000)}</span>`
@@ -148,6 +159,7 @@ function listen() {
   if (events || !('EventSource' in window)) return;
   events = new EventSource('/events');
   events.onmessage = () => poll();
+  events.addEventListener('react', e => { try { showReactions([JSON.parse(e.data)]); } catch {} });
   events.onerror = () => { if (events.readyState !== EventSource.CLOSED) return; events = null; setTimeout(() => { if (joined) listen(); }, 5000); };
 }
 const live = () => events && events.readyState === EventSource.OPEN;

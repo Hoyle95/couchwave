@@ -11,12 +11,12 @@ const saved = (s, text) => waitFor(() => fs.readFileSync(s.statePath, 'utf8').in
 
 describe('commands', { concurrency: true }, () => {
 test('--status: whether it\'s running, who\'s online, what\'s playing, the queue, the DJ, disk space, the tools and the newest release', async () => {
-  const s = await start({ initial: { ...playing, queue: [song(2, 'Next up', 'Bob')] } });
+  const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000, channel: 'Zed Music' }), queue: [song(2, 'Next up', 'Bob')] } });
   const leave = await s.keepOnline('Alice');
   let r = await s.command('--status').finally(leave);
   assert.equal(r.status, 0, r.out);
   for (const line of [
-    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" \(added by Zed\), \d+:\d\d of 27:46:40$/m,
+    new RegExp(`^Couchwave v\\S+ is running on port ${s.port}\\.$`, 'm'), /^Online now: Alice$/m, /^Playing: "Playing now" by Zed Music \(added by Zed\), \d+:\d\d of 27:46:40$/m,
     /^Queue: 1 song \(1 ready\)$/m, /^The DJ is off\.$/m, /^Disk: [\d.]+ GB free$/m,
     /^Tools: yt-dlp 2026\.10\.26, ffmpeg 7\.1-test, ffprobe 7\.1-test, Node\.js \S+$/m, /^Newest release: couldn't check$/m,
   ]) assert.match(r.stdout, line);

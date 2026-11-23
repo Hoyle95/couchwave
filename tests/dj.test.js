@@ -120,7 +120,7 @@ describe('the DJ', { concurrency: true }, () => {
     await s.post('/add', { url: yt('bobs_000009') }, { as: 'Bob' });
     await waitFor(async () => (await s.state()).history.some(h => h.url.endsWith('bobs_000009')), 12000, 'Bob\'s song to play');
     const t = Date.now();
-    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" \(like (".+"|a song), from Bob\)$/.test(l)), secs(60), 'the DJ to carry on from Bob\'s song');
+    await waitFor(async () => (await s.log()).some(l => /^DJ: added ".+" by Channel [\w-]{11} \(like (".+"|a song), from Bob\)$/.test(l)), secs(60), 'the DJ to carry on from Bob\'s song');
     assert.ok(Date.now() - t < secs(20), `picked up in ${((Date.now() - t) / secs(1)).toFixed(1)} (server) seconds, not after its 30-second wait`);
   });
 

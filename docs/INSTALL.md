@@ -137,7 +137,8 @@ delete the folder. On Linux, run `sudo systemctl disable --now couchwave`,
 
 3. Open <http://localhost:3000>. The first start shows the address, the address for friends at home and the
    room password it made up, saved in **`config.json`** with the other [settings](#settings) (restart
-   Couchwave after changing them). The join screen, opened on this computer, shows the address for friends too.
+   Couchwave after changing them). The join screen, opened at `localhost` on this computer, shows the address
+   for friends too.
 
 ## Docker
 
@@ -263,6 +264,11 @@ never stored as typed) and who's logged in, the downloaded songs and the logs. *
 (and `config.json`). Downloads pause by themselves if the disk gets down to its last 2 GB, so Couchwave
 never fills it. To wipe the chat, the Activity log or the played history, see `--clear` in the
 [server commands](FEATURES.md#server-commands).
+
+On Linux and Mac, only the user running Couchwave can read `data/` and `config.json` (they hold the
+accounts, logins and the room password): Couchwave sets that every time it starts, so copy or back them up
+as that user (or with `sudo`). In Docker it doesn't, since the container keeps them apart and you may want
+to edit `config.json` from outside it.
 
 Couchwave also backs itself up once a day, into `data/backups/` (a folder for each day, keeping the last 7):
 the accounts and logins, the queue, chat and history, and `config.json`. To go back to one, stop Couchwave,

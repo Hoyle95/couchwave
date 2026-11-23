@@ -20,10 +20,21 @@ test('messages: kept as typed (the page escapes them), trimmed, capped, empty on
 
 async function listen(s, as) {
   const got = [], cookie = await s.cookie(as);
+  got.reacts = [];
   await new Promise((ok, fail) => {
     const req = http.get({ port: s.port, path: '/events', headers: { Cookie: cookie } }, res => {
       got.status = res.statusCode; got.type = res.headers['content-type'];
-      res.on('data', d => { for (const m of String(d).matchAll(/^data: /gm)) got.push(Date.now()); });
+      let held = '';
+      res.setEncoding('utf8');
+      res.on('data', d => {
+        const parts = (held + d).split('\n\n');
+        held = parts.pop();
+        for (const m of parts) {
+          const data = /^data: (.*)$/m.exec(m);
+          if (!data) continue;
+          if (/^event: react$/m.test(m)) got.reacts.push(JSON.parse(data[1])); else got.push(Date.now());
+        }
+      });
       ok();
     });
     req.on('error', fail);
@@ -32,7 +43,7 @@ async function listen(s, as) {
   return got;
 }
 
-test('instant updates: everyone is nudged the moment someone sends a message or reacts, and nudges close together go out as one', async () => {
+test('instant updates: everyone is nudged the moment someone sends a message, nudges close together go out as one, and reactions go to every page as they are, without a nudge', async () => {
   const s = await start();
   const bob = await listen(s, 'Bob'), cara = await listen(s, 'Cara');
   assert.equal(bob.status, 200);
@@ -44,8 +55,11 @@ test('instant updates: everyone is nudged the moment someone sends a message or 
   await waitFor(() => bob.length > before && cara.length > 0, 1000, 'both pages to be nudged');
   assert.ok(bob.at(-1) - sent < 1000, `within ${bob.at(-1) - sent}ms, not on the next 2-second check`);
   let n = bob.length;
-  await s.post('/react', { e: '🔥', n: 1 }, { as: 'Alice' });
-  await waitFor(() => bob.length > n, 1000, 'a nudge for the reaction');
+  for (const e of ['🔥', '🎉', '😂']) { await s.post('/react', { e, n: 2, cid: 'alices-page' }, { as: 'Alice' }); await sleep(100); }
+  await waitFor(() => bob.reacts.length === 3 && cara.reacts.length === 3, 1000, 'the reactions, on every page');
+  assert.deepEqual(bob.reacts.map(r => [r.e, r.n, r.cid]), [['🔥', 2, 'alices-page'], ['🎉', 2, 'alices-page'], ['😂', 2, 'alices-page']]);
+  assert.ok(bob.reacts[0].id < bob.reacts[1].id && bob.reacts[1].id < bob.reacts[2].id, 'numbered in order');
+  assert.ok(bob.length - n < 2, `reactions don't make every page fetch the whole room again (${bob.length - n} nudges for 3 reactions)`);
   await sleep(100);
   n = bob.length;
   await Promise.all([1, 2, 3, 4, 5].map(i => s.post('/chat', { text: 'msg ' + i }, { as: 'Alice' })));

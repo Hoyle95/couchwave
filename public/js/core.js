@@ -18,6 +18,42 @@ function stickToBottom(el) {
   return stick;
 }
 const icon = name => `<svg><use href="#i-${name}"/></svg>`;
+const byChannel = song => (song.channel ? ` <span class="chan">by ${esc(song.channel)}</span>` : '');
+
+// ---------- Notices ----------
+const NOTICES_AT_ONCE = 3;
+function notice(text) {
+  const box = $('notices'), el = document.createElement('div'), words = document.createElement('span');
+  el.className = 'notice';
+  el.title = 'Click to close';
+  words.textContent = text;
+  el.innerHTML = icon('alert');
+  el.appendChild(words);
+  const close = () => { if (el.classList.contains('going')) return; el.classList.add('going'); setTimeout(() => el.remove(), 200); };
+  el.onclick = close;
+  setTimeout(close, Math.max(5000, text.length * 80));
+  while (box.children.length >= NOTICES_AT_ONCE) box.firstElementChild.remove();
+  box.appendChild(el);
+}
+const failText = async r => (r ? (await r.text().catch(() => '')) || 'Something went wrong. Try again in a moment' : "Couldn't reach the server, try again in a moment");
+
+// ---------- Lists that keep what hasn't changed ----------
+const drawnLists = new WeakMap();
+function drawList(box, items) {
+  const before = drawnLists.get(box) || new Map(), now = new Map(), nodes = [], tpl = document.createElement('template');
+  for (const html of items) {
+    let node = (before.get(html) || []).shift();
+    if (!node) { tpl.innerHTML = html.trim(); node = tpl.content.firstElementChild; }
+    if (!now.has(html)) now.set(html, []);
+    now.get(html).push(node);
+    nodes.push(node);
+  }
+  const keep = new Set(nodes);
+  for (const child of [...box.childNodes]) if (!keep.has(child)) child.remove();
+  let at = box.firstChild;
+  for (const node of nodes) { if (node === at) at = at.nextSibling; else box.insertBefore(node, at); }
+  drawnLists.set(box, now);
+}
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
 const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
