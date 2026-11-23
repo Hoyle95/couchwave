@@ -85,19 +85,25 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('the queue: your own song is removed with a second click, and Undo in Activity brings it back', async () => {
-    const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Mine', 'Alice')] } });
+  test('the queue: your own song is removed with a second click, and Undo in Activity brings it back; a song waiting on YouTube says when it tries again; a button whose request fails comes back', async () => {
+    const s = await start({ initial: { current: song(1, 'Playing now', 'Zed', { duration: 100000 }), queue: [song(2, 'Mine', 'Alice'), song(3, 'Held up', 'Bob', { status: 'failed', error: 'YouTube bot check', tries: 1, retryAt: Date.now() + 10 * 60000 }), song(4, 'Gone', 'Bob', { status: 'failed', error: 'Unavailable', tries: 3 })] } });
     const page = await open(s, 'Alice');
-    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 1`, 5000, 'the queue');
+    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 3`, 5000, 'the queue');
+    const [badge, why] = await page.eval(`(b => [b.textContent, b.title])(document.querySelector('#queue li[data-id="3"] .badge'))`);
+    assert.match(badge, /^Retry at \d{1,2}:\d{2}/, 'when it tries again');
+    assert.match(why, /^YouTube asked Couchwave to slow down, so it tries again at \d{1,2}:\d{2}/);
+    await page.answer('*/retry', () => 500);
+    assert.equal(await page.eval(`(b => { b.click(); return b.disabled; })(document.querySelector('#queue li[data-id="4"] .retry'))`), true, 'Retry waits for its answer');
+    await page.waitFor(`(b => b && !b.disabled)(document.querySelector('#queue li[data-id="4"] .retry'))`, 5000, 'Retry to come back after its request failed');
     await page.click('#queue .del');
     assert.ok(await page.eval(`document.querySelector('#queue .del').classList.contains('armed')`), 'the first click only arms it');
     await new Promise(r => setTimeout(r, 400));
     await page.click('#queue .del');
-    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 0`, 5000, 'it to go');
+    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 2`, 5000, 'it to go');
     await page.waitFor(`!!document.querySelector('#log .undo')`, 5000, 'the Undo button');
     await new Promise(r => setTimeout(r, 1600));
     await page.click('#log .undo');
-    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 1`, 5000, 'it to come back');
+    await page.waitFor(`document.querySelectorAll('#queue li[data-id]').length === 3`, 5000, 'it to come back');
     noErrors(page);
   });
 
@@ -130,30 +136,53 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('GIFs: with a key, the GIF button opens KLIPY\'s trending GIFs (searched by the browser), and clicking one sends it to the chat', async () => {
+  test('GIFs: with a key, the GIF button opens KLIPY\'s trending GIFs (searched by the browser), and clicking one sends it to the chat; the chat opens at the newest message, after its GIFs load; closed, the picker stops loading, and a failed load is tried again', async () => {
     const asked = [];
+    let fail = false, more = false;
     const klipy = http.createServer((req, res) => {
       asked.push(req.method + ' ' + req.url.split('?')[0]);
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+      if (fail && req.method === 'GET') { res.writeHead(500); return res.end('{}'); }
       const gif = n => ({ slug: `gif-${n}`, title: `Funny ${n}`, file: { sm: { webp: { url: `https://static.klipy.com/ii/test/${n}.webp`, width: 220, height: 160 } } } });
-      res.end(JSON.stringify({ result: true, data: { data: [1, 2, 3, 4].map(gif), has_next: false } }));
+      res.end(JSON.stringify({ result: true, data: { data: [1, 2, 3, 4].map(gif), has_next: more } }));
     });
     await new Promise(r => klipy.listen(0, '127.0.0.1', r));
     try {
-      const s = await start({ config: { klipyKey: 'test_Key-123456' }, env: { COUCHWAVE_KLIPY_URL: `http://127.0.0.1:${klipy.address().port}` } });
+      const gif = { url: '/icons/icon-512.png', width: 512, height: 512, title: 'A GIF' };
+      const chat = Array.from({ length: 30 }, (_, i) => (i % 6 === 5 ? { t: Date.now(), by: 'Bob', text: '', gif } : { t: Date.now(), by: 'Bob', text: `message ${i}` }));
+      const s = await start({ config: { klipyKey: 'test_Key-123456' }, env: { COUCHWAVE_KLIPY_URL: `http://127.0.0.1:${klipy.address().port}` }, initial: { chat } });
       const page = await open(s, 'Alice');
+      await page.waitFor(`(i => i && i.complete && i.naturalWidth > 0)([...document.querySelectorAll('#chat img.gif')].pop())`, 5000, 'the newest GIF to load');
+      await page.waitFor(`(c => c.scrollHeight - c.scrollTop - c.clientHeight < 2)(document.getElementById('chat'))`, 2000, 'the chat at its newest message');
       await page.waitFor(`!document.getElementById('gifBtn').hidden`, 5000, 'the GIF button');
       await page.click('#gifBtn');
       assert.equal(await page.eval(`document.getElementById('gifSearch').placeholder`), 'Search KLIPY');
       await page.waitFor(`document.querySelectorAll('#gifGrid .gifItem').length === 4`, 5000, 'the trending GIFs');
       await page.click('#gifGrid .gifItem');
-      await page.waitFor(`!!document.querySelector('#chat .msg:not(.pending) img.gif')`, 5000, 'the GIF in the chat');
+      await page.waitFor(`[...document.querySelectorAll('#chat .msg:not(.pending) img.gif')].some(i => i.src.includes('klipy.com'))`, 5000, 'the GIF in the chat');
       assert.equal(await page.visible('#gifPop'), false, 'the picker closes');
       assert.match((await s.state()).chat.at(-1).gif.url, /^https:\/\/static\.klipy\.com\/ii\/test\/\d\.webp$/);
       await waitFor(() => asked.includes('POST /api/v1/test_Key-123456/gifs/share/gif-1'), 3000, 'KLIPY to be told which GIF was shared');
-      noErrors(page);
+      const trending = () => asked.filter(a => a.startsWith('GET ') && a.endsWith('/trending')).length;
+      fail = true;
+      const bob = await open(s, 'Bob');
+      await bob.waitFor(`!document.getElementById('gifBtn').hidden`, 5000, "Bob's GIF button");
+      await bob.click('#gifBtn');
+      await bob.waitFor(`/Couldn't reach KLIPY/.test(document.getElementById('gifGrid').textContent)`, 5000, 'the load to fail');
+      await bob.click('#gifBtn');
+      fail = false;
+      await bob.click('#gifBtn');
+      await bob.waitFor(`document.querySelectorAll('#gifGrid .gifItem').length === 4`, 5000, 'opened again, it tries again');
+      more = true;
+      const cara = await open(s, 'Cara');
+      await cara.waitFor(`!document.getElementById('gifBtn').hidden`, 5000, "Cara's GIF button");
+      const before = trending();
+      await cara.eval(`document.getElementById('gifBtn').click(); document.getElementById('gifBtn').click()`);
+      await new Promise(r => setTimeout(r, 1500));
+      assert.ok(trending() - before <= 2, `closed straight away, it stops loading pages (${trending() - before} loaded)`);
+      noErrors(page, bob, cara);
     } finally { klipy.close(); }
   });
 
@@ -186,6 +215,37 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
+  test('live updates: after a proxy in front of Couchwave answers with an error page (while it restarts), the page connects again', async () => {
+    const s = await start();
+    const page = await open(s, 'Alice');
+    await page.waitFor(`events && events.readyState === 1`, 5000, 'live updates');
+    let blocked = 0;
+    await page.answer('*/events*', () => (blocked >= 0 ? (blocked++, 502) : 0));
+    await s.restart();
+    await waitFor(() => blocked > 0, 15000, 'the page to try again, and get the error page');
+    blocked = -1;
+    await page.waitFor(`events && events.readyState === 1`, 15000, 'live updates again');
+    let asked = 0;
+    await page.answer('*/state*', () => (asked++, 0));
+    await page.eval('Promise.all(Array.from({ length: 10 }, () => poll()))');
+    assert.ok(asked <= 2, `10 updates at once ask the server ${asked} times (one, then one more for anything since)`);
+    noErrors(page);
+  });
+
+  test('the player: a song this browser can\'t load is tried again 3 times, not on every update; out of full screen, nothing checks whether to hide the controls', async () => {
+    const s = await start({ initial: { current: song(1, 'Broken audio', 'Zed', { duration: 100000 }) } });
+    const page = await open(s, 'Alice');
+    let loads = 0;
+    await page.answer('*/audio/*', () => (loads++, 500));
+    await page.eval(`a.src = '/audio/1'`);
+    for (let i = 0; i < 8; i++) { await page.eval('poll()'); await new Promise(r => setTimeout(r, 250)); }
+    assert.ok(loads <= 5, `${loads} tries`);
+    await page.eval(`(() => { let n = 0; const later = window.setTimeout; window.setTimeout = (f, ms, ...rest) => { if (ms === 3000) n++; return later(f, ms, ...rest); }; window.uiChecks = () => n; showUi(); })()`);
+    await new Promise(r => setTimeout(r, 3500));
+    assert.equal(await page.eval('uiChecks()'), 1, 'one check, which then stops');
+    noErrors(page);
+  });
+
   test('the theme is remembered, and logging out goes back to the join screen', async () => {
     const s = await start();
     const page = await open(s, 'Alice');
@@ -195,9 +255,20 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     assert.notEqual(now, was);
     await page.goto(`http://127.0.0.1:${s.port}/`);
     assert.equal(await page.eval(`document.documentElement.dataset.theme`), now, 'still the same after reloading');
+    const LIGHT = 'rgb(243, 243, 247)', DARK = 'rgb(12, 12, 17)';
+    const shows = async (system, chosen) => {
+      await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: system }] });
+      return page.eval(`(() => { const r = document.documentElement; ${chosen ? `r.dataset.theme = '${chosen}'` : 'delete r.dataset.theme'};
+        const d = document.body.appendChild(document.createElement('div')); d.style.background = 'var(--bg)'; const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`);
+    };
+    assert.deepEqual([await shows('light', ''), await shows('dark', ''), await shows('light', 'dark'), await shows('dark', 'light')], [LIGHT, DARK, DARK, LIGHT],
+      'the system\'s light or dark, unless the theme button picked one');
+    await page.send('Emulation.setEmulatedMedia', { features: [] });
+    await page.eval(`document.documentElement.dataset.theme = ${JSON.stringify(now)}`);
+    const url = `http://127.0.0.1:${s.port}/`, auth = (await page.send('Network.getCookies', { urls: [url] })).cookies.find(c => c.name === 'auth').value;
     await page.click('#logoutBtn');
     await page.waitFor(`!document.getElementById('join').hidden`, 5000, 'the join screen');
-    assert.equal((await s.get('/state', { cookie: await page.eval('document.cookie') })).status, 401, 'logged out for real');
+    assert.equal((await s.get('/state', { cookie: `auth=${auth}` })).status, 401, 'logged out for real: the login it had no longer works');
     noErrors(page);
   });
 });

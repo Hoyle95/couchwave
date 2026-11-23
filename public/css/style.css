@@ -1,29 +1,13 @@
 /* ---------- Theme ---------- */
+:root { color-scheme: dark; --L: ; --D: initial; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { color-scheme: light; --L: initial; --D: ; } }
+:root[data-theme="light"] { color-scheme: light; --L: initial; --D: ; }
 :root {
-  color-scheme: dark;
-  --bg: #0c0c11; --glow1: #ff3d5a22; --glow2: #7c4dff1c;
-  --surface: #16161e; --surface2: #1e1e28; --border: #272733;
-  --fg: #f2f2f6; --muted: #8a8a9a; --soft: #b4b4c2;
-  --accent: #ff3d5a; --accent2: #ff8a3d; --ok: #2fd27a; --warn: #ffb020; --err: #ff5c6c; --like: #4d9cff;
-  --shadow: 0 10px 30px #0006; --name-l: 66%;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-    --bg: #f3f3f7; --glow1: #ff3d5a18; --glow2: #7c4dff14;
-    --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
-    --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
-    --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839; --like: #1f6fe0;
-    --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%;
-  }
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f3f3f7; --glow1: #ff3d5a18; --glow2: #7c4dff14;
-  --surface: #ffffff; --surface2: #f4f4f8; --border: #e3e3ea;
-  --fg: #16161c; --muted: #6c6c7a; --soft: #4a4a57;
-  --accent: #e8243f; --accent2: #ff7a2f; --ok: #12a35a; --warn: #c98200; --err: #d62839; --like: #1f6fe0;
-  --shadow: 0 8px 24px #1a1a2a14; --name-l: 38%;
+  --bg: var(--L, #f3f3f7) var(--D, #0c0c11); --glow1: var(--L, #ff3d5a18) var(--D, #ff3d5a22); --glow2: var(--L, #7c4dff14) var(--D, #7c4dff1c);
+  --surface: var(--L, #ffffff) var(--D, #16161e); --surface2: var(--L, #f4f4f8) var(--D, #1e1e28); --border: var(--L, #e3e3ea) var(--D, #272733);
+  --fg: var(--L, #16161c) var(--D, #f2f2f6); --muted: var(--L, #6c6c7a) var(--D, #8a8a9a); --soft: var(--L, #4a4a57) var(--D, #b4b4c2);
+  --accent: var(--L, #e8243f) var(--D, #ff3d5a); --accent2: var(--L, #ff7a2f) var(--D, #ff8a3d); --ok: var(--L, #12a35a) var(--D, #2fd27a); --warn: var(--L, #c98200) var(--D, #ffb020); --err: var(--L, #d62839) var(--D, #ff5c6c); --like: var(--L, #1f6fe0) var(--D, #4d9cff);
+  --shadow: var(--L, 0 8px 24px #1a1a2a14) var(--D, 0 10px 30px #0006); --name-l: var(--L, 38%) var(--D, 66%);
 }
 
 /* ---------- Font ---------- */

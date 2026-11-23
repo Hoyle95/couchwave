@@ -3,7 +3,7 @@ const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path'), http = require('http'), zlib = require('zlib'), crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
-const { waitFor, sleep, ROOT, PASSWORD, TOOL_ENV, appCopy, run, freePort } = require('./helpers');
+const { waitFor, sleep, ROOT, PASSWORD, testEnv, appCopy, run, freePort } = require('./helpers');
 const { readZip, batchSafe } = require('../lib/update');
 
 const versionIn = text => /const VERSION = '([^']+)'/.exec(text)[1];
@@ -65,7 +65,7 @@ async function folder() {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ password: PASSWORD, port }));
   fs.mkdirSync(path.join(dir, 'data'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'data', 'state.json'), JSON.stringify({ chat: [{ t: 1, by: 'Alice', text: 'kept across the update' }] }));
-  const env = { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: '0.1' };
+  const env = testEnv({ COUCHWAVE_TIME_SCALE: '0.1' });
   const read = name => fs.readFileSync(path.join(dir, name), 'utf8');
   const cli = (args, extra = {}) => run(dir, args, { timeout: 90000, env: { COUCHWAVE_TIME_SCALE: '0.1', ...extra } });
   const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
@@ -89,6 +89,11 @@ describe('updating', { concurrency: true }, () => {
     assert.ok(!fs.existsSync(path.join(f.dir, 'data', 'update', 'new')), 'the download is cleaned up');
     assert.ok(!fs.existsSync(path.join(f.dir, 'data', 'update', 'lock')));
     assert.equal((await f.cli(['--version'])).out.trim(), NEW);
+    const g = await folder(), elsewhere = path.join(g.dir, 'data', 'kept-elsewhere.json');
+    fs.renameSync(path.join(g.dir, 'config.json'), elsewhere);
+    const r2 = await g.cli(['--update'], { COUCHWAVE_RELEASES_URL: await github(release(NEW)), COUCHWAVE_CONFIG: elsewhere });
+    assert.equal(r2.status, 0, 'with config.json kept elsewhere (COUCHWAVE_CONFIG): ' + r2.out);
+    assert.equal(g.version(), NEW);
   });
 
   test('already the newest: says so and changes nothing', async () => {
@@ -152,6 +157,7 @@ describe('updating', { concurrency: true }, () => {
     const f = await folder(), url = await github(release(NEW));
     let proc, stopped = false;
     const run = () => {
+      if (stopped) return;
       proc = spawn(process.execPath, ['server.js'], { cwd: f.dir, env: { ...f.env, COUCHWAVE_FAKE_SYSTEMD: '1' }, stdio: 'ignore' });
       proc.on('exit', () => { if (!stopped) setTimeout(run, 300); });
     };

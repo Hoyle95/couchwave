@@ -76,11 +76,12 @@ function chatCooldown(seconds) {
 
 // ---------- GIFs (KLIPY) ----------
 let gifs = null, gifItems = [], gifCols = [0, 0], gifShown = null, gifPage = 1, gifMore = false, gifBusy = false, gifSeq = 0, gifTimer = null;
+const GIF_PAGES = 10;
 const gifImg = (g, lazy = true) => `<img class="gif" src="${esc(g.url)}" width="${+g.width}" height="${+g.height}" alt="${esc(g.title || 'GIF')}" title="${esc(g.title || '')}"${lazy ? ' loading="lazy"' : ''} referrerpolicy="no-referrer">`;
 const gifFile = item => { const f = item && item.file && (item.file.sm || item.file.md); return f && (f.webp || f.gif); };
 const gifApi = (g, path) => `${g.api}/api/v1/${encodeURIComponent(g.key)}/gifs/${path}`;
 async function loadGifs(more) {
-  if (!gifs || (more && (gifBusy || !gifMore))) return;
+  if (!gifs || (more && (gifBusy || !gifMore || gifPage >= GIF_PAGES))) return;
   const q = $('gifSearch').value.trim(), seq = ++gifSeq;
   gifPage = more ? gifPage + 1 : 1;
   gifBusy = true;
@@ -96,7 +97,7 @@ async function loadGifs(more) {
   gifBusy = false;
   const grid = $('gifGrid');
   if (!more) { gifItems = []; gifCols = [0, 0]; grid.innerHTML = '<div class="gifCol"></div><div class="gifCol"></div>'; grid.scrollTop = 0; gifShown = q; }
-  if (!list) { if (!gifItems.length) grid.innerHTML = '<div class="empty">Couldn\'t reach KLIPY. Try again in a moment.</div>'; gifMore = false; return; }
+  if (!list) { if (!more) gifShown = null; if (!gifItems.length) grid.innerHTML = '<div class="empty">Couldn\'t reach KLIPY. Try again in a moment.</div>'; gifMore = false; return; }
   if (!more && !list.length) { grid.innerHTML = `<div class="empty">No GIFs found for “${esc(q)}”.</div>`; return; }
   for (const item of list) {
     const f = gifFile(item), c = gifCols[0] <= gifCols[1] ? 0 : 1;
@@ -104,7 +105,7 @@ async function loadGifs(more) {
     grid.children[c].insertAdjacentHTML('beforeend', `<button type="button" class="gifItem" data-g="${gifItems.length}" title="${esc(item.title || '')}">${gifImg({ ...f, title: item.title })}</button>`);
     gifItems.push({ item, q });
   }
-  if (gifMore && grid.scrollHeight - grid.clientHeight < 200) loadGifs(true);
+  if (gifMore && !$('gifPop').hidden && grid.clientHeight > 0 && grid.scrollHeight - grid.clientHeight < 200) loadGifs(true);
 }
 function toggleGifs(e) {
   e.stopPropagation();
@@ -112,7 +113,9 @@ function toggleGifs(e) {
   pop.hidden = !pop.hidden;
   $('emojiPop').hidden = true;
   if (pop.hidden) return;
+  const grid = $('gifGrid');
   if (gifShown !== $('gifSearch').value.trim()) loadGifs(false);
+  else if (gifMore && grid.scrollHeight - grid.clientHeight < 200) loadGifs(true);
   if (!matchMedia('(pointer: coarse)').matches) $('gifSearch').focus();
 }
 $('gifPop').onclick = e => {
@@ -142,9 +145,14 @@ async function sendGif({ item, q }) {
 
 const bigEmoji = t => /^(\p{Extended_Pictographic}|\p{Emoji_Modifier}|\uFE0F|\u200D|\s)+$/u.test(t)
   && [...t.replace(/\s|\uFE0F|\u200D/g, "")].filter(c => /\p{Extended_Pictographic}/u.test(c)).length <= 3;
+let chatStuck = true;
+const stickChat = () => { const c = $('chat'); if (chatStuck) c.scrollTop = c.scrollHeight; };
+$('chat').addEventListener('scroll', () => { const c = $('chat'); chatStuck = c.scrollHeight - c.scrollTop - c.clientHeight < 40; });
+$('chat').addEventListener('load', stickChat, true);
+new ResizeObserver(stickChat).observe($('chat'));
 function drawChat() {
   const c = $('chat');
-  const atBottom = !chatDrawn || c.scrollHeight - c.scrollTop - c.clientHeight < 40;
+  const atBottom = !chatDrawn || chatStuck;
   c.innerHTML = [...chatList, ...pendingChat].map(m => `
     <div class="msg${m.pending ? ' pending' : ''}">
       ${avatar(m.by)}

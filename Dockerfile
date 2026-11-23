@@ -28,5 +28,5 @@ VOLUME /app/data
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "const c = require(process.env.COUCHWAVE_CONFIG); fetch('http://127.0.0.1:' + (c.port || 3000) + '/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "const c = require('/app/lib/common'); fetch('http://127.0.0.1:' + c.portOf(c.configFile()) + '/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ENTRYPOINT ["tini", "--", "couchwave-start"]

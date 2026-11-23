@@ -2,7 +2,7 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
-const { testServers, song, yt, waitFor, sleep, PASSWORD, TOOL_ENV, appCopy, run, freePort } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, PASSWORD, testEnv, appCopy, run, freePort } = require('./helpers');
 
 const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
@@ -11,7 +11,7 @@ describe('settings', { concurrency: true }, () => {
 test('the first start: config.json is made (a random room password, every setting at its default), and a welcome says where to open it and the password, once', async () => {
   const copy = appCopy(), log = path.join(copy.dir, 'data', 'server.log');
   const startIt = () => require('child_process').spawn(process.execPath, ['-r', path.join(__dirname, 'fakes', 'any-port.js'), 'server.js'],
-    { cwd: copy.dir, env: { ...process.env, ...TOOL_ENV } });
+    { cwd: copy.dir, env: testEnv() });
   const logged = () => { try { return fs.readFileSync(log, 'utf8'); } catch { return ''; } };
   let server = startIt();
   try {
@@ -102,7 +102,7 @@ test('COUCHWAVE_CONFIG (what the Docker image uses): settings live in that file 
   const copy = appCopy(), inData = path.join(copy.dir, 'data', 'config.json'), port = await freePort();
   fs.mkdirSync(path.join(copy.dir, 'data'), { recursive: true });
   fs.writeFileSync(inData, JSON.stringify({ password: PASSWORD, port }));
-  const server = require('child_process').spawn(process.execPath, ['server.js'], { cwd: copy.dir, env: { ...process.env, ...TOOL_ENV, COUCHWAVE_CONFIG: inData } });
+  const server = require('child_process').spawn(process.execPath, ['server.js'], { cwd: copy.dir, env: testEnv({ COUCHWAVE_CONFIG: inData }) });
   try {
     await waitFor(() => fetch(`http://127.0.0.1:${port}/health`).then(r => r.ok, () => false), 8000, 'it to start, on the port in that file');
     assert.ok(!fs.existsSync(path.join(copy.dir, 'config.json')), 'no config.json made next to server.js');

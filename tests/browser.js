@@ -22,11 +22,16 @@ class Browser {
       '--autoplay-policy=no-user-gesture-required', '--window-size=1280,900', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
       '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1', ...(process.platform === 'linux' ? ['--no-sandbox'] : []), 'about:blank',
     ], { stdio: 'ignore' });
-    const portFile = path.join(profile, 'DevToolsActivePort');
-    const [port, where] = await waitFor(() => { try { const l = fs.readFileSync(portFile, 'utf8').split('\n'); return l[1] && l; } catch { return false; } }, 15000, 'the browser to start');
-    const ws = new WebSocket(`ws://127.0.0.1:${port.trim()}${where.trim()}`);
-    await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error('can\'t reach the browser')); });
-    return new Browser(proc, profile, ws);
+    try {
+      const portFile = path.join(profile, 'DevToolsActivePort');
+      const [port, where] = await waitFor(() => { try { const l = fs.readFileSync(portFile, 'utf8').split('\n'); return l[1] && l; } catch { return false; } }, 15000, 'the browser to start');
+      const ws = new WebSocket(`ws://127.0.0.1:${port.trim()}${where.trim()}`);
+      await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error('can\'t reach the browser')); });
+      return new Browser(proc, profile, ws);
+    } catch (err) {
+      await end(proc, profile);
+      throw err;
+    }
   }
   constructor(proc, profile, ws) {
     Object.assign(this, { proc, profile, ws, id: 0, waiting: new Map(), listeners: new Set() });
@@ -38,11 +43,18 @@ class Browser {
         if (m.error) w.fail(new Error(`${w.method}: ${m.error.message}`)); else w.ok(m.result);
       } else for (const l of this.listeners) l(m);
     };
+    ws.onclose = ws.onerror = () => {
+      this.gone = true;
+      for (const w of this.waiting.values()) w.fail(new Error(`${w.method}: the browser went away`));
+      this.waiting.clear();
+    };
   }
   send(method, params = {}, sessionId) {
     return new Promise((ok, fail) => {
+      if (this.gone) return fail(new Error(`${method}: the browser went away`));
       const id = ++this.id;
-      this.waiting.set(id, { ok, fail, method });
+      const timer = setTimeout(() => { this.waiting.delete(id); fail(new Error(`${method}: no answer from the browser within 30 seconds`)); }, 30000);
+      this.waiting.set(id, { ok: v => { clearTimeout(timer); ok(v); }, fail: e => { clearTimeout(timer); fail(e); }, method });
       this.ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
   }
@@ -58,13 +70,16 @@ class Browser {
     const exited = new Promise(r => this.proc.once('exit', r));
     try { this.ws.send(JSON.stringify({ id: ++this.id, method: 'Browser.close' })); } catch {}
     await Promise.race([exited, sleep(5000)]);
-    if (this.proc.exitCode === null) {
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(this.proc.pid), '/T', '/F']); else this.proc.kill('SIGKILL');
-    }
     try { this.ws.close(); } catch {}
-    await sleep(300);
-    try { fs.rmSync(this.profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {}
+    await end(this.proc, this.profile);
   }
+}
+async function end(proc, profile) {
+  if (proc.exitCode === null && proc.signalCode === null) {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F']); else proc.kill('SIGKILL');
+  }
+  await sleep(300);
+  try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {}
 }
 
 class Page {
@@ -107,6 +122,14 @@ class Page {
     ] });
     await this.goto(`http://127.0.0.1:${server.port}/`);
     await this.waitFor(`document.getElementById('me').textContent === ${JSON.stringify(name)} && !document.querySelector('.me.loading')`, 5000, `${name} to be in`);
+  }
+  async answer(urlPattern, status) {
+    this.browser.listeners.add(m => {
+      if (m.sessionId !== this.sessionId || m.method !== 'Fetch.requestPaused') return;
+      const code = status(m.params.request), requestId = m.params.requestId;
+      (code ? this.send('Fetch.fulfillRequest', { requestId, responseCode: code, body: '' }) : this.send('Fetch.continueRequest', { requestId })).catch(() => {});
+    });
+    await this.send('Fetch.enable', { patterns: [{ urlPattern }] });
   }
   close() { return this.browser.send('Target.disposeBrowserContext', { browserContextId: this.contextId }).catch(() => {}); }
 }

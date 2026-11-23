@@ -19,6 +19,10 @@ if (args.includes('-U')) {
 }
 
 if (args.includes('--flat-playlist')) {
+  const mine = `reading-${process.pid}`;
+  fs.appendFileSync('list-reads.log', `${fs.readdirSync('.').filter(f => f.startsWith('reading-')).length}\n`);
+  fs.writeFileSync(mine, '');
+  process.on('exit', () => fs.rmSync(mine, { force: true }));
   const max = Number(args[args.indexOf('--playlist-end') + 1]) || Infinity;
   let rows = 0;
   const row = (id, duration, title, playlist = 'NA') => { if (rows++ < max) console.log(text([id, duration, title, playlist].join('\t'))); };
@@ -32,6 +36,7 @@ if (args.includes('--flat-playlist')) {
     } else if (mix) {
       const seed = mix[1], hash = require('crypto').createHash('md5').update(seed).digest('hex'), id = n => (n + hash).slice(0, 11);
       row(seed, '200', `Song ${seed}`);
+      if (seed.startsWith('brkn')) row(('fail_perm' + hash).slice(0, 11), '200', `Broken Band - Never Downloads ${seed}`);
       row(id('a'), '210', `Song ${seed} - B side`);
       row(id('b'), '190', `Other Band - Fresh Pick ${seed}`);
       row(id('c'), '3600', `Other Band - Full Album ${seed}`);
@@ -67,6 +72,7 @@ if (args.includes('--flat-playlist')) {
   if (id.startsWith('stall_')) { fs.writeFileSync(part, Buffer.alloc(1000)); setTimeout(() => process.exit(1), 20000); return; }
   const finish = () => {
     fs.rmSync(part, { force: true });
+    fs.appendFileSync('download-tries.log', `${id}\t${Date.now()}\n`);
     if (id.startsWith('fail_perm')) { console.error(`ERROR: [youtube] ${id}: Video unavailable`); process.exit(1); }
     if (id.startsWith('fail_sign')) { console.error(`ERROR: [youtube] ${id}: Please sign in. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication.`); process.exit(1); }
     if (id.startsWith('fail_temp')) { console.error('ERROR: unable to download video data: HTTP Error 403: Forbidden'); process.exit(1); }
@@ -74,6 +80,11 @@ if (args.includes('--flat-playlist')) {
     if (id.startsWith('fail_age')) { console.error(`ERROR: [youtube] ${id}: Sign in to confirm your age. This video may be inappropriate for some users.`); process.exit(1); }
     if (id.startsWith('fail_priv')) { console.error(`ERROR: [youtube] ${id}: Private video. Sign in if you've been granted access to this video`); process.exit(1); }
     if (id.startsWith('fail_memb')) { console.error(`ERROR: [youtube] ${id}: Join this channel to get access to members-only content like this video, and other exclusive perks.`); process.exit(1); }
+    if (fs.existsSync('youtube-pushes-back')) {
+      console.error(fs.readFileSync('youtube-pushes-back', 'utf8') === 'rate' ? 'ERROR: unable to download video data: HTTP Error 429: Too Many Requests'
+        : `ERROR: [youtube] ${id}: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication.`);
+      process.exit(1);
+    }
     if (id.startsWith('live_')) process.exit(0);
     const duration = id.startsWith('shrt_') ? 3 : id.startsWith('nolen') ? 'NA' : id.startsWith('long_') ? 14400 : 200;
     const max = /^duration <=\? (\d+)$/.exec(args[args.indexOf('--break-match-filters') + 1] || '');

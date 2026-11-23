@@ -66,6 +66,20 @@ test('a song name shows "Searching" in the queue straight away, and keeps its pl
   assert.ok(found(q[0], 'slow one') && found(q[1], 'fast two'), 'in the order asked, though "fast two" was found first: ' + q.map(x => x.url).join(', '));
 });
 
+test('lots of searches and playlists at once: YouTube is read 3 at a time, the rest wait their turn; a full queue (500 songs) takes no more', async () => {
+  const s = await start();
+  for (let i = 0; i < 7; i++) await s.post('/add', { url: `slow search ${i}` }, { as: i < 4 ? 'Alice' : 'Bob' });
+  await waitFor(async () => (await s.state()).queue.every(x => x.status !== 'searching'), 10000, 'all seven searches');
+  const already = fs.readFileSync(path.join(s.dir, 'list-reads.log'), 'utf8').trim().split('\n').map(Number);
+  assert.equal(already.length, 7);
+  assert.ok(Math.max(...already) <= 2, `at most 3 at once (how many were already reading as each started: ${already})`);
+  const full = await servers({ initial: { ...playing, queue: Array.from({ length: 499 }, (_, i) => ({ id: i + 2, url: yt(`full_${String(i).padStart(6, '0')}`), title: `Queued ${i}`, by: 'Bob', status: 'failed', error: 'Unavailable' })) } });
+  assert.equal((await full.post('/add', { url: yt('plist_00001') + '&list=PLtest', playlist: true })).status, 204);
+  await waitFor(async () => (await full.log()).includes('Alice: added playlist "Test Playlist" (1 song, 1 longer than 3 hours and 2 more than the queue has room for (500 songs) left out)'), 5000, 'the playlist, as far as it fits');
+  const r = await full.post('/add', { url: yt('okay_000009') });
+  assert.deepEqual([r.status, r.text], [409, 'The queue is full (500 songs). Add more once some have played']);
+});
+
 test('searches cut short by a restart start again; a "Searching" stand-in that was deleted stays deleted (Activity says what it found, not that it was added), but can still be undone', async () => {
   const s = await start();
   await s.post('/add', { url: 'slow restart' });
@@ -130,7 +144,7 @@ test('a download that fails says why; YouTube\'s hiccups are retried by themselv
   const cases = [
     ['fail_perm01', 'Unavailable', false], ['fail_priv01', 'Private video', false], ['fail_age001', 'Age-restricted', false],
     ['fail_memb01', 'Members only', false], ['live_000001', 'Livestreams aren\'t supported', false],
-    ['fail_temp01', 'Blocked by YouTube (403)', true], ['fail_rate01', 'YouTube rate limit', true], ['fail_sign01', 'YouTube bot check', true],
+    ['fail_temp01', 'Blocked by YouTube (403)', true],
   ];
   for (const [id] of cases) await s.post('/add', { url: yt(id) });
   const q = await waitFor(async () => {
@@ -148,6 +162,29 @@ test('a download that fails says why; YouTube\'s hiccups are retried by themselv
   await s.post('/retry', { id: perm.id });
   assert.ok((await s.log()).some(l => /^Alice: retried "/.test(l)));
   await waitFor(() => inQueue(s, x => x.id === perm.id && x.status === 'failed'), 5000, 'failing again');
+});
+
+test('YouTube pushing back (rate limit or bot check) pauses downloads for the whole room; then one song at a time tries, taking turns, until one works and the rest follow', async () => {
+  const s = await servers({ config: { downloadsAtOnce: 3 }, initial: playing, env: { COUCHWAVE_TIME_SCALE: '0.01' } });
+  const blocked = path.join(s.dir, 'youtube-pushes-back'), PAUSE = 60 * 1000 * 0.01, songs = ['push_000001', 'push_000002', 'push_000003'];
+  const tries = () => { try { return fs.readFileSync(path.join(s.dir, 'download-tries.log'), 'utf8').trim().split('\n').map(l => l.split('\t')).map(([id, t]) => ({ id, t: +t })); } catch { return []; } };
+  fs.writeFileSync(blocked, 'rate');
+  for (const id of songs) await s.post('/add', { url: yt(id) });
+  const q = await waitFor(async () => { const q = (await s.state()).queue; return q.every(x => x.status === 'failed') && q; }, 5000, 'all three to fail');
+  assert.deepEqual(q.map(x => [x.error, x.retrying, x.retryIn >= 0]), songs.map(() => ['YouTube rate limit', true, true]));
+  assert.ok((await s.log()).includes('server: YouTube asked Couchwave to slow down (YouTube rate limit), so downloads wait a minute, then go one at a time until one works'), 'Activity says why');
+  fs.writeFileSync(blocked, 'bot');
+  await waitFor(() => tries().length >= 5, 8000, 'two more tries');
+  const t = tries();
+  assert.deepEqual(t.slice(3, 5).map(x => x.id), ['push_000001', 'push_000002'], 'after each pause, one song tries, taking turns');
+  assert.ok(t[3].t - t[2].t >= PAUSE * 0.9 && t[4].t - t[3].t >= PAUSE * 1.8, `the pause doubles each time: ${t.map(x => x.t - t[0].t)}`);
+  assert.equal((await inQueue(s, x => x.url === yt('push_000001'))).error, 'YouTube bot check');
+  fs.rmSync(blocked);
+  await waitFor(async () => (await s.state()).queue.every(x => x.status === 'ready'), 8000, 'all three to download once one works');
+  const after = tries().slice(5);
+  assert.equal(after[0].id, 'push_000003', 'the song tried least goes first');
+  assert.ok(after[1].t - after[0].t >= 40, `on its own: the others start once it has worked (${after.map(x => x.t - after[0].t)})`);
+  assert.ok((await s.log()).includes('server: downloads are back to normal: YouTube is answering again'), 'and Activity says when it\'s over');
 });
 
 test('longer than maxVideoHours (3 by default, any number of hours in config.json): taken out before downloading, and Activity says why', async () => {

@@ -64,7 +64,7 @@ const undoSeen = {};
 $('log').onclick = e => {
   const b = e.target.closest('.undo');
   if (b && Date.now() - (undoSeen[b.dataset.undo] || 0) < 1500) return;
-  if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(poll); }
+  if (b) { b.disabled = true; b.textContent = '…'; post('/undo', { id: +b.dataset.undo }).then(r => { if (!r || !r.ok) drawLog(); return poll(); }); }
 };
 $('history').onclick = e => {
   const copy = e.target.closest('.copy'), again = e.target.closest('.requeue'), like = e.target.closest('.like');
@@ -102,17 +102,18 @@ function delButton(q, s) {
   const count = voters.length ? `<span class="delCount">${voters.length}/${people}</span>` : '';
   return `<button class="ghost del${voted ? ' voted' : ''}${count ? ' counted' : ''}" data-mine="${mine ? 1 : ''}" data-voted="${voted ? 1 : ''}" aria-pressed="${voted}" title="${esc(title)}" aria-label="${esc(title)}">${icon('trash')}${count}</button>`;
 }
+const redrawQueue = r => { if (!r || !r.ok) lastQueue = ''; return poll(); };
 $('queue').onclick = e => {
   const copy = e.target.closest('.copy');
   if (copy) return copyLink(copy.dataset.url, copy);
   const again = e.target.closest('.retry');
-  if (again) { again.disabled = true; return post('/retry', { id: +again.closest('li').dataset.id }).then(poll); }
+  if (again) { again.disabled = true; return post('/retry', { id: +again.closest('li').dataset.id }).then(redrawQueue); }
   const del = e.target.closest('.del');
   if (!del) return;
   if (!del.dataset.mine) {
     const vote = !del.dataset.voted;
     del.dataset.voted = vote ? '1' : ''; del.classList.toggle('voted', vote);
-    return post('/remove', { id: +del.closest('li').dataset.id, vote }).then(poll);
+    return post('/remove', { id: +del.closest('li').dataset.id, vote }).then(redrawQueue);
   }
   if (!del.classList.contains('armed')) {
     del.classList.add('armed'); del._armedAt = Date.now(); del.title = 'Click again to remove';

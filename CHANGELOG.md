@@ -25,15 +25,54 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   the bottom. Full screen gets the wider chat too (up to 480). Smaller screens look the same.
 - **The one-line installers check the download**: like `--update`, they now check the Couchwave zip against
   the checksum GitHub publishes for it, and stop if it doesn't match.
+- **When YouTube pushes back, Couchwave backs off for everyone**: YouTube's bot check or rate limit now pauses
+  all downloads for a minute (longer each time it comes back, up to 15 minutes). Then songs try one at a
+  time, taking turns, until one works, and the rest follow. Before, each song retried on its own, so several
+  could try at once while YouTube was still pushing back. The DJ waits too. Activity says when this starts
+  and ends, the queue shows when each song tries again ("Retry at 03:20"), and songs keep trying for longer
+  before giving up.
+- **Lots added at once doesn't swamp the computer**: Couchwave reads at most 3 searches or playlists from
+  YouTube at a time (the rest wait their turn), and the queue holds up to 500 songs. A playlist that doesn't
+  fit adds what does, and Activity says how many were left out.
+- **The DJ doesn't pick the same song again within an hour**: one it couldn't download, or one you voted out,
+  used to come straight back.
 
 ### Fixed
 
+- **The chat opens at the newest message**: after a refresh, GIFs in the chat finished loading after it had
+  scrolled down, so it stopped short of the latest messages. It now stays at the bottom while they load
+  (unless you've scrolled up to read).
 - **Nicknames like "toString" or "valueOf"** (words built into browsers) showed a line of code as their
   profile picture. They now get an emoji and a colour like everyone else.
 - **Deleting a song while it was still being searched for**: when the search finished, Activity said the song
   was added, though it wasn't in the queue. It now says what the search found (Undo still brings it back).
-- **A crash lost the last moment's changes**: Couchwave now saves everything before it stops, then starts again
-  as usual.
+- **A crash lost the last moment's changes**: Couchwave now saves everything before it stops.
+- **On Windows, a crash left Couchwave stopped**: `start.cmd` was meant to start it again 5 seconds later, but
+  it waited for a file to change instead. It now starts again, and the same goes for when it can't start
+  (like when its port is taken).
+- **A full disk could stop Couchwave over and over**: when `server.log` can't be written, Couchwave now carries
+  on without it and tries again a minute later.
+- **Wrong room passwords sent all at once got past the limit**: hundreds sent together were all checked.
+  It's 20 every 15 minutes, however they arrive.
+- **The Windows one-line installer didn't work for user names with an apostrophe** (like O'Brien).
+- **Server commands could say "Done" when they weren't**: if Couchwave was running but didn't answer on the
+  port in `config.json` (say, after changing it), `--clear` and `--remove-song` changed the saved files,
+  and the running Couchwave then put everything back. They now say so and change nothing, and so does
+  `--update`.
+- **`--update` didn't work with `config.json` kept elsewhere** (`COUCHWAVE_CONFIG`): its trial run read the
+  real settings and failed every time.
+- **A `"port"` that isn't a whole number** (like `3000.5`): Couchwave uses 3000 then, and now so do
+  `--status`, `--stop`, `--update`, the Docker health check and the installers.
+- **The GIF picker kept loading after it closed**: closing it while GIFs were still coming in kept fetching
+  page after page from KLIPY, using up your key. And after "Couldn't reach KLIPY", opening it again now
+  tries again.
+- **Live updates stopped for good after an error page**: behind Caddy or Cloudflare, an error page while
+  Couchwave restarted left the page checking every 2 seconds until it was reloaded. It now connects again.
+- **A song your browser can't load** is tried again 3 times, instead of on every update for the whole song.
+- **Buttons stuck after a failed request**: Retry, Undo and the vote to remove now come back if the server
+  couldn't be reached.
+- **Pausing or moving through a song could jump back for a moment**: an update the page had asked for just
+  before the click could still arrive and undo it on screen.
 - **Only the computer running Couchwave counts as it**: a device on the home network could pretend to be that
   computer, to skip the limit of 10 new nicknames an hour and see the addresses for friends at home on the
   join screen. Now only visits that really come from it count.

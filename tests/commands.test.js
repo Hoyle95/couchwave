@@ -3,7 +3,7 @@ const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 const { spawn, spawnSync } = require('child_process');
-const { testServers, song, yt, waitFor, sleep, PASSWORD, appCopy, run, freePort, TOOL_ENV } = require('./helpers');
+const { testServers, song, yt, waitFor, sleep, PASSWORD, appCopy, run, freePort, testEnv } = require('./helpers');
 
 const start = testServers({ after });
 const playing = { current: song(1, 'Playing now', 'Zed', { duration: 100000 }) };
@@ -56,6 +56,12 @@ test('--clear: the chat, Activity or played history, any or all of them, with Co
   assert.deepEqual([st.chat, st.history], [[], []]);
   assert.deepEqual(st.log.filter(e => !/^(joined|left)$/.test(e.text)).map(e => `${e.by}: ${e.text}`),
     ['server: cleared the played history, the Activity log and the chat (whoever runs Couchwave did)']);
+  const configPath = path.join(s.dir, 'config.json'), config = fs.readFileSync(configPath, 'utf8');
+  fs.writeFileSync(configPath, JSON.stringify({ ...JSON.parse(config), port: await freePort() }));
+  r = await s.command('--clear', 'chat');
+  assert.equal(r.status, 1, 'running, but not on the port config.json now says: ' + r.out);
+  assert.match(r.stdout, /^Couchwave seems to be running \(process \d+\), but it didn't answer on port \d+\. If you changed "port" in config\.json, restart Couchwave first\. Nothing was changed\.$/m);
+  fs.writeFileSync(configPath, config);
 });
 
 test('--remove-song: by queue number, link or part of the name, straight away and without a vote, with Couchwave on or off', async () => {
@@ -113,7 +119,7 @@ async function folder(extra) {
   const copy = appCopy(extra), port = await freePort();
   fs.writeFileSync(path.join(copy.dir, 'config.json'), JSON.stringify({ password: PASSWORD, port }));
   const up = () => waitFor(() => fetch(`http://127.0.0.1:${port}/manifest.json`).then(x => x.ok, () => false), 15000, 'Couchwave to start');
-  return { ...copy, env: { ...process.env, ...TOOL_ENV }, up, stop: () => run(copy.dir, ['--stop']) };
+  return { ...copy, env: testEnv(), up, stop: () => run(copy.dir, ['--stop']) };
 }
 
 test('--stop under node --watch (as start.cmd runs it): the watcher stops too, so nothing starts it again', async () => {

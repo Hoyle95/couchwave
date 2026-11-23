@@ -16,7 +16,9 @@ async function waitFor(fn, ms = 5000, what = 'condition') {
   ms *= SLOW;
   const end = Date.now() + ms;
   for (;;) {
-    const v = await fn();
+    let timer;
+    const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error(`timed out after ${ms}ms waiting for: ${what} (it stopped answering)`)), Math.max(end - Date.now(), 2000)); });
+    const v = await Promise.race([fn(), late]).finally(() => clearTimeout(timer));
     if (v) return v;
     if (Date.now() > end) throw new Error(`timed out after ${ms}ms waiting for: ${what}`);
     await sleep(50);
@@ -28,14 +30,15 @@ const yt = id => `https://www.youtube.com/watch?v=${id}`;
 
 // ---------- A copy of Couchwave in a folder of its own (for tests that start it themselves) ----------
 const TOOL_ENV = { COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests' };
+const testEnv = (...extra) => Object.assign(Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('COUCHWAVE_'))), TOOL_ENV, ...extra);
 function appCopy(extra = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-copy-'));
   for (const f of [...APP_FILES, ...extra]) fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
   return { dir, clean: () => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {} } };
 }
 const run = (dir, args, { env = {}, input, timeout = 30000 } = {}) => new Promise(resolve => {
-  const p = require('child_process').execFile(process.execPath, ['server.js', ...args], { cwd: dir, encoding: 'utf8', timeout, env: { ...process.env, ...TOOL_ENV, ...env } },
-    (err, stdout, stderr) => resolve({ status: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr, out: stdout + stderr }));
+  const p = require('child_process').execFile(process.execPath, ['server.js', ...args], { cwd: dir, encoding: 'utf8', timeout, env: testEnv(env) },
+    (err, stdout, stderr) => resolve({ status: !err ? 0 : typeof err.code === 'number' ? err.code : err.killed ? 'timed out' : err.signal || 1, stdout, stderr, out: stdout + stderr }));
   if (input !== undefined) p.stdin.end(input);
 });
 
@@ -45,7 +48,7 @@ function song(id, title, by = 'Alice', extra = {}) {
 }
 
 class Server {
-  constructor({ initial, files, expectProblems, config, env, nodeArgs } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; this.config = config; this.env = env; this.nodeArgs = nodeArgs || []; }
+  constructor({ initial, files, expectProblems, config, env, nodeArgs } = {}) { this.initial = initial; this.files = files || {}; this.expectProblems = expectProblems; this.config = config; this.env = env; this.nodeArgs = nodeArgs || []; this.out = ''; }
 
   async start() {
     if (!this.dir) {
@@ -63,8 +66,10 @@ class Server {
     for (let tries = 1; ; tries++) {
       const started = () => (this.logText().match(new RegExp(`Running on http://localhost:${this.port}\\b`, 'g')) || []).length;
       const before = started();
-      this.out = '';
-      this.proc = spawn(process.execPath, [...this.nodeArgs, 'server.js'], { cwd: this.dir, env: { ...process.env, ...TOOL_ENV, COUCHWAVE_TIME_SCALE: String(TIME), ...this.env } });
+      this.out += `
+---- starting ----
+`;
+      this.proc = spawn(process.execPath, [...this.nodeArgs, 'server.js'], { cwd: this.dir, env: testEnv({ COUCHWAVE_TIME_SCALE: String(TIME) }, this.env) });
       this.proc.stdout.on('data', d => (this.out += d));
       this.proc.stderr.on('data', d => (this.out += d));
       let gone = false;
@@ -126,6 +131,7 @@ class Server {
         });
       });
       r.on('error', reject);
+      r.setTimeout(30000, () => r.destroy(new Error(`${method} ${url}: no answer within 30 seconds`)));
       if (body !== undefined) r.write(typeof body === 'string' ? body : JSON.stringify(body));
       r.end();
     });
@@ -163,4 +169,4 @@ function testServers({ after }) {
   return async (opts) => { const s = new Server(opts); all.push(s); return s.start(); };
 }
 
-module.exports = { Server, testServers, song, yt, waitFor, sleep, secs, TIME, PASSWORD, ownPassword, ROOT, APP_FILES, TOOL_ENV, appCopy, run, freePort };
+module.exports = { Server, testServers, song, yt, waitFor, sleep, secs, TIME, PASSWORD, ownPassword, ROOT, APP_FILES, TOOL_ENV, testEnv, appCopy, run, freePort };

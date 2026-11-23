@@ -1,12 +1,16 @@
 // ---------- Updates from the server ----------
-let pollSeq = 0, appliedSeq = 0, lastPoll = 0;
-async function poll() {
+let pollSeq = 0, appliedSeq = 0, lastPoll = 0, polling = null, pollNext = null;
+function poll() {
+  if (!polling) return (polling = pollOnce().finally(() => { polling = null; }));
+  return (pollNext ||= polling.then(() => { pollNext = null; return poll(); }));
+}
+async function pollOnce() {
   if (!joined) return;
   lastPoll = Date.now();
   const seq = ++pollSeq, asked = Date.now();
   let s;
   try {
-    const r = await fetch(`/state?log=${logRev}&chat=${chatRev}&history=${historyRev}`);
+    const r = await fetch(`/state?log=${logRev}&chat=${chatRev}&history=${historyRev}`, { signal: AbortSignal.timeout(15000) });
     if (r.status === 401) return location.reload();
     if (!r.ok) return;
     s = await r.json();
@@ -49,6 +53,7 @@ async function poll() {
       <span class="qtitle">${esc(q.title)}${q.status === 'failed' && q.error ? `<small class="qerr">${esc(q.error)}</small>` : ''}</span>
       <span class="by">${avatar(q.by)} ${esc(q.by)}</span>
       ${q.held ? '<span class="badge failed" title="Downloads are paused: the computer running Couchwave is nearly out of disk space">Disk full</span>'
+        : q.status === 'failed' && q.retrying && q.retryIn >= 60 ? `<span class="badge waiting" title="YouTube asked Couchwave to slow down, so it tries again at ${hhmm(Date.now() + q.retryIn * 1000)}">Retry at ${hhmm(Date.now() + q.retryIn * 1000)}</span>`
         : q.status === 'failed' && q.retrying ? '<span class="badge downloading" title="Trying again in a moment">Retrying</span>'
         : `<span class="badge ${esc(q.status)}">${QUEUE_BADGE[q.status] || esc(q.status)}</span>`}
       ${q.status === 'failed' && !q.retrying ? `<button class="ghost retry" title="Try downloading again" aria-label="Try downloading again">${icon('retry')}</button>` : ''}
@@ -116,7 +121,9 @@ async function poll() {
     seek.title = seekTitle;
   }
 
-  if (s.current.id !== playingId || a.error) {
+  const audioFailed = s.current.id === playingId && a.error;
+  if (s.current.id !== playingId || (audioFailed && audioRetries < 3)) {
+    if (audioFailed) audioRetries++;
     heldLocally = false;
     startTrack(s.current, s.elapsed, !s.paused);
     return;
@@ -139,6 +146,7 @@ function listen() {
   if (events || !('EventSource' in window)) return;
   events = new EventSource('/events');
   events.onmessage = () => poll();
+  events.onerror = () => { if (events.readyState !== EventSource.CLOSED) return; events = null; setTimeout(() => { if (joined) listen(); }, 5000); };
 }
 const live = () => events && events.readyState === EventSource.OPEN;
 setInterval(() => { if (!live() || Date.now() - lastPoll > 10000) poll(); }, 2000);

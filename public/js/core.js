@@ -8,7 +8,7 @@ let historyRev = '', historyList = [], lastHistory = '';
 let lastQueue = '', lastUsers = '', lastColorsKey = '';
 
 const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
-const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null); };
+const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null).finally(() => { actionAt = Date.now(); }); };
 const icon = name => `<svg><use href="#i-${name}"/></svg>`;
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }

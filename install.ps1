@@ -19,7 +19,13 @@ function Refresh-Path {
   $env:Path = ($all | Where-Object { $_ } | Select-Object -Unique) -join ';'
 }
 function Port {
-  try { $p = (Get-Content (Join-Path $Dir 'config.json') -Raw | ConvertFrom-Json).port; if ($p) { return [int]$p } } catch {}
+  try { $p = (Get-Content (Join-Path $Dir 'config.json') -Raw | ConvertFrom-Json).port } catch { $p = $null }
+  if ($null -ne $p) {
+    $n = 0.0
+    $number = [double]::TryParse("$p", [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)
+    if ($number -and $n -eq [math]::Floor($n) -and $n -ge 1 -and $n -le 65535) { return [int]$n }
+    return 3000
+  }
   if ($env:COUCHWAVE_PORT) { return [int]$env:COUCHWAVE_PORT }
   return 3000
 }
@@ -39,7 +45,8 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 if (-not $admin) {
   Write-Host 'Couchwave needs administrator rights once, to start with the PC and let friends on your network in.'
   Write-Host 'Windows will ask; the install carries on in a new window.'
-  $again = "`$env:COUCHWAVE_DIR='$Dir'; `$env:COUCHWAVE_FOR='$User'; `$env:COUCHWAVE_PORT='$env:COUCHWAVE_PORT'; irm $Url | iex"
+  $quoted = { param($s) "'" + ("$s" -replace "'", "''") + "'" }
+  $again = "`$env:COUCHWAVE_DIR=$(& $quoted $Dir); `$env:COUCHWAVE_FOR=$(& $quoted $User); `$env:COUCHWAVE_PORT=$(& $quoted $env:COUCHWAVE_PORT); irm $(& $quoted $Url) | iex"
   Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-Command', $again
   return
 }

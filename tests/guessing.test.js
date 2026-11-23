@@ -1,8 +1,8 @@
 // ---------- Wrong passwords: who is guessing, and the limits ----------
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs'), os = require('os');
-const { testServers, PASSWORD, ownPassword } = require('./helpers');
+const fs = require('fs'), os = require('os'), http = require('http');
+const { testServers, PASSWORD, ownPassword, sleep } = require('./helpers');
 
 const start = testServers({ after });
 const HOME_IP = Object.values(os.networkInterfaces()).flat()
@@ -26,6 +26,18 @@ describe('wrong passwords', { concurrency: true }, () => {
     assert.equal((await join(s, right('Alice'), from('5.6.7.8'))).status, 204, 'Alice herself, elsewhere, can still log in');
     await s.logHas(/logins: 1\.2\.3\.4 got a password wrong 20 times in 15 minutes, so it waits 15 minutes before trying again/);
     assert.equal(fs.readFileSync(s.logFile, 'utf8').match(/logins: 1\.2\.3\.4 got a password wrong/g).length, 1, 'said once');
+    const body = JSON.stringify({ password: 'wrong', name: 'Eve', own: 'xxxx' }), passwordsLater = [];
+    const asking = Array.from({ length: 40 }, () => new Promise(resolve => {
+      const r = http.request({ host: '127.0.0.1', port: s.port, path: '/login', method: 'POST', headers: { 'X-Forwarded-For': '9.9.9.9', 'Content-Length': Buffer.byteLength(body) } },
+        res => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+      r.on('error', () => resolve('failed'));
+      r.flushHeaders();
+      passwordsLater.push(() => r.end(body));
+    }));
+    await sleep(500);
+    for (const send of passwordsLater) send();
+    const codes = await Promise.all(asking);
+    assert.deepEqual([codes.filter(c => c === 401).length, codes.filter(c => c === 429).length], [20, 20], '40 at once, passwords sent after all of them had started, still stop at 20');
   });
 
   test('new nicknames: 10 an hour from any one visitor (the computer running Couchwave isn\'t limited)', async () => {

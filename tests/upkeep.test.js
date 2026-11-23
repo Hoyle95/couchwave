@@ -82,7 +82,7 @@ test('a damaged state.json: unreadable, it\'s kept aside and Couchwave starts af
   assert.ok(added.id > 50, `a new id (${added.id}), not one already taken`);
 });
 
-test('the log file is trimmed to its newest 2 MB once it passes 5 MB', async () => {
+test('the log file is trimmed to its newest 2 MB once it passes 5 MB; when it can\'t be written (a full disk), Couchwave carries on, and logs again a minute later', async () => {
   const s = await start();
   await s.stop();
   fs.writeFileSync(s.logFile, 'OLDEST LINE\n' + ('x'.repeat(99) + '\n').repeat(60000) + 'NEWEST OLD LINE\n');
@@ -92,6 +92,21 @@ test('the log file is trimmed to its newest 2 MB once it passes 5 MB', async () 
   assert.ok(text.length < 2.1 * 1024 * 1024, `${(text.length / 1024 / 1024).toFixed(1)} MB`);
   assert.match(text, /^---- .*: older lines trimmed, keeping the newest ----\n/);
   assert.ok(!text.includes('OLDEST LINE') && text.includes('NEWEST OLD LINE'));
+  await s.stop();
+  s.nodeArgs = ['--require', path.join(__dirname, 'fakes', 'full-disk.js')];
+  s.env = { ...s.env, COUCHWAVE_TIME_SCALE: '0.01' };
+  await s.start();
+  const full = path.join(s.dir, 'disk-full');
+  fs.writeFileSync(full, '');
+  await s.post('/add', { url: yt('fail_perm01') });
+  await waitFor(() => inQueue(s, q => q.url === yt('fail_perm01') && q.status === 'failed'), 5000, 'something to log');
+  await sleep(300);
+  assert.equal(s.proc.exitCode, null, 'still running');
+  fs.rmSync(full);
+  await sleep(1000);
+  await s.post('/add', { url: yt('fail_perm02') });
+  await s.logHas(/fail_perm02: Video unavailable/);
+  assert.ok(!s.logText().includes('fail_perm01'), 'what came up while the disk was full is left out');
 });
 
 test('leftover downloads are cleared away; the files of songs still queued or playing are kept', async () => {

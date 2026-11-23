@@ -2,8 +2,7 @@
 const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const { execFileSync, spawnSync } = require('child_process');
-const { testServers, waitFor, PASSWORD, ownPassword, APP_FILES, ROOT } = require('./helpers');
+const { testServers, waitFor, PASSWORD, ownPassword, APP_FILES, ROOT, run } = require('./helpers');
 
 const start = testServers({ after });
 const join = (s, body, headers) => s.req('POST', '/login', { body, cookie: '', headers });
@@ -173,20 +172,20 @@ test('a broken logins.json: everyone logs in again, rather than logged-out login
 test('--logout-everyone: old logins stop working, the passwords still work', async () => {
   const s = await start();
   assert.equal((await s.get('/state')).status, 200);
-  execFileSync(process.execPath, ['server.js', '--logout-everyone'], { cwd: s.dir });
+  await s.command('--logout-everyone');
   assert.equal((await s.get('/state')).status, 401, 'old cookie refused (while the server keeps running)');
   s.forget();
   assert.equal((await s.get('/state')).status, 200, 'logging in again works');
 });
 
-const admin = (s, ...args) => spawnSync(process.execPath, ['server.js', ...args], { cwd: s.dir, encoding: 'utf8' });
+const admin = (s, ...args) => s.command(...args);
 
 test('--delete-account (with Couchwave on or off): logged out at once, and whoever takes the nickname next starts fresh', async () => {
   const s = await start();
   const bobsOld = await s.cookie('Bob');
   await s.post('/face', { face: '🐸' }, { as: 'Bob' });
   await s.post('/chat', { text: 'old message' }, { as: 'Bob' });
-  let r = admin(s, '--delete-account', 'bob');
+  let r = await admin(s, '--delete-account', 'bob');
   assert.equal(r.status, 0);
   assert.match(r.stdout, /"Bob" is deleted/);
   assert.equal((await s.get('/state', { cookie: bobsOld })).status, 401, 'logged out (while the server keeps running)');
@@ -195,7 +194,7 @@ test('--delete-account (with Couchwave on or off): logged out at once, and whoev
   const st = await s.state('Cara');
   assert.equal(st.faces.Bob, undefined, 'the new Bob doesn\'t get the old one\'s picture');
   assert.equal(st.chat.at(-1).text, 'old message', 'chat history stays');
-  r = admin(s, '--delete-account', 'nobody');
+  r = await admin(s, '--delete-account', 'nobody');
   assert.equal(r.status, 1);
   assert.match(r.stdout, /No account "nobody". Accounts: .*Bob/);
 
@@ -203,7 +202,7 @@ test('--delete-account (with Couchwave on or off): logged out at once, and whoev
   await s.post('/face', { face: '🦊' }, { as: 'Cara' });
   await waitFor(() => fs.readFileSync(s.statePath, 'utf8').includes('🦊'), 3000, 'Cara\'s picture to be saved');
   await s.stop();
-  assert.equal(admin(s, '--delete-account', 'Cara').status, 0);
+  assert.equal((await admin(s, '--delete-account', 'Cara')).status, 0);
   await s.start();
   assert.equal((await s.get('/state', { cookie: caras })).status, 401);
   assert.equal((await join(s, { password: PASSWORD, name: 'cara', own: 'someone-new' })).status, 204);
@@ -214,8 +213,8 @@ test('--set-password: for a forgotten password. Old logins and password stop wor
   const s = await start();
   const bobsOld = await s.cookie('Bob');
   await s.post('/face', { face: '🐸' }, { as: 'Bob' });
-  assert.equal(admin(s, '--set-password', 'Bob', 'abc').status, 1, 'too short');
-  const r = admin(s, '--set-password', 'BOB', 'brand-new-pw');
+  assert.equal((await admin(s, '--set-password', 'Bob', 'abc')).status, 1, 'too short');
+  const r = await admin(s, '--set-password', 'BOB', 'brand-new-pw');
   assert.equal(r.status, 0);
   assert.match(r.stdout, /"Bob" has a new password/);
   assert.equal((await s.get('/state', { cookie: bobsOld })).status, 401, 'logged out everywhere');
@@ -223,17 +222,17 @@ test('--set-password: for a forgotten password. Old logins and password stop wor
   const back = await join(s, { password: PASSWORD, name: 'Bob', own: 'brand-new-pw' });
   assert.equal(back.status, 204, 'the new one does');
   assert.equal((await s.state('Alice')).faces.Bob, '🐸', 'picture kept');
-  assert.equal(admin(s, '--set-password', 'nobody', 'whatever').status, 1);
-  const asked = spawnSync(process.execPath, ['server.js', '--set-password', 'Bob'], { cwd: s.dir, encoding: 'utf8', input: 'typed-new-pw\n' });
+  assert.equal((await admin(s, '--set-password', 'nobody', 'whatever')).status, 1);
+  const asked = await run(s.dir, ['--set-password', 'Bob'], { input: 'typed-new-pw\n' });
   assert.equal(asked.status, 0, asked.stdout + asked.stderr);
   assert.match(asked.stdout, /^New password for "Bob" \(it won't show as you type\): /, 'without the password, it asks (so it stays out of the command history)');
   assert.equal((await join(s, { password: PASSWORD, name: 'Bob', own: 'typed-new-pw' })).status, 204, 'the typed one works');
-  const short = spawnSync(process.execPath, ['server.js', '--set-password', 'Bob'], { cwd: s.dir, encoding: 'utf8', input: 'abc\n' });
+  const short = await run(s.dir, ['--set-password', 'Bob'], { input: 'abc\n' });
   assert.equal(short.status, 1);
   assert.match(short.stdout, /too short.*Nothing was changed/);
   await join(s, { password: PASSWORD, name: 'Big   Al', own: 'secret1' });
-  assert.match(admin(s, '--set-password', ' big  al ', 'new-pw-1').stdout, /"Big Al" has a new password/);
-  assert.match(admin(s, '--delete-account', '  big al  ').stdout, /"Big Al" is deleted/);
+  assert.match((await admin(s, '--set-password', ' big  al ', 'new-pw-1')).stdout, /"Big Al" has a new password/);
+  assert.match((await admin(s, '--delete-account', '  big al  ')).stdout, /"Big Al" is deleted/);
 });
 
 test('look-alike nicknames: invisible characters, other widths and mixed alphabets don\'t make a second "Alice"', async () => {

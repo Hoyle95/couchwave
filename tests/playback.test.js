@@ -103,6 +103,8 @@ async function readWithStall(s, url, { pauseAt, stall, window }) {
   return new Promise((resolve, reject) => {
     const r = http.get({ port: s.port, path: url, headers: { Cookie: cookie } }, res => {
       let n = 0, after = 0, phase = 'start';
+      if (res.statusCode !== 200) { r.destroy(); return reject(new Error(`${url}: ${res.statusCode}`)); }
+      res.on('close', () => { if (phase === 'start') reject(new Error(`${url} ended after ${n} bytes, before ${pauseAt}`)); });
       res.on('data', c => {
         n += c.length;
         if (phase === 'start' && n >= pauseAt) {
@@ -115,6 +117,7 @@ async function readWithStall(s, url, { pauseAt, stall, window }) {
       });
     });
     r.on('error', e => (e.code === 'ECONNRESET' ? null : reject(e)));
+    r.on('close', () => reject(new Error(`${url}: the connection closed before an answer`)));
   });
 }
 
@@ -166,5 +169,11 @@ test('a crash: what changed just before is saved, and server.log says what went 
   assert.ok(JSON.parse(fs.readFileSync(s.statePath, 'utf8')).chat.some(m => m.text === 'said just before the crash'), 'saved before stopping');
   await s.start();
   assert.ok((await s.state()).chat.some(m => m.text === 'said just before the crash'), 'still there after starting again');
+  await s.stop();
+  s.nodeArgs = ['--watch', ...s.nodeArgs];
+  await s.start();
+  const watcher = new Promise(r => s.proc.on('exit', () => r('stopped')));
+  fs.writeFileSync(path.join(s.dir, 'crash-now'), '');
+  assert.equal(await Promise.race([watcher, sleep(8000).then(() => 'still waiting')]), 'stopped', 'run by node --watch (as start.cmd does), the watcher stops too, so start.cmd starts it again');
 });
 });

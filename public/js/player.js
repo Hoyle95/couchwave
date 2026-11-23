@@ -125,9 +125,10 @@ const SILENCE = (() => {
   return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
 })();
 
-let videoRetries = 0;
+let videoRetries = 0, audioRetries = 0;
 function startTrack(item, at, play) {
-  playingId = item.id; silent = false; videoRetries = 0;
+  if (item.id !== playingId) { videoRetries = 0; audioRetries = 0; }
+  playingId = item.id; silent = false;
   markOurPause();
   a.loop = false;
   a.src = '/audio/' + item.id;
@@ -282,7 +283,8 @@ function showUi() {
   document.body.classList.remove('uiAway');
   clearTimeout(uiTimer);
   uiTimer = setTimeout(() => {
-    const keep = !isFs() || serverPaused || !playingId || document.querySelector('.now:hover, .controls:hover, #reactPop:not([hidden])');
+    if (!isFs()) return;
+    const keep = serverPaused || !playingId || document.querySelector('.now:hover, .controls:hover, #reactPop:not([hidden])');
     if (keep) showUi(); else document.body.classList.add('uiAway');
   }, 3000);
 }

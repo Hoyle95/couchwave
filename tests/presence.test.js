@@ -3,7 +3,6 @@ const { test, describe, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const http = require('http');
-const { execFileSync } = require('child_process');
 const { testServers, song, waitFor, sleep, secs, TIME } = require('./helpers');
 
 async function openEvents(s, as, cookie) {
@@ -71,7 +70,7 @@ describe('joined / left', { concurrency: true }, () => {
     assert.ok(await waitFor(() => bob.ended, 3000, 'Bob\'s instant updates to end'));
     assert.deepEqual((await s.state()).users, ['Alice']);
     s.forget('Bob'); await s.state('Bob'); const bob2 = await openEvents(s, 'Bob');
-    execFileSync(process.execPath, ['server.js', '--logout-everyone'], { cwd: s.dir });
+    await s.command('--logout-everyone');
     assert.ok(await waitFor(() => bob2.ended, secs(20), 'the stream to end after --logout-everyone'));
     stop();
   });

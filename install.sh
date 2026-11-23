@@ -101,7 +101,7 @@ else
   (cd "$DIR" && nohup node server.js >/dev/null 2>&1 &)
 fi
 
-PORT=$(config port); PORT=${PORT:-3000}
+PORT=$(node -e 'let c = {}; try { c = require(process.argv[1]) } catch {} const p = Number(c.port); console.log(c.port != null && Number.isInteger(p) && p >= 1 && p <= 65535 ? p : 3000)' "$DIR/config.json")
 if command -v ufw >/dev/null && as_root ufw status 2>/dev/null | grep -q '^Status: active'; then
   step "Letting friends on your home network in (ufw)"
   for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do as_root ufw allow from "$net" to any port "$PORT" proto tcp >/dev/null; done

@@ -174,7 +174,7 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await s.state()).chat.filter(m => /no Mix for the other videos/.test(m.text)).length, 1, 'said once');
   });
 
-  test('a song of its own that can never be downloaded: the DJ drops it, so it doesn\'t sit in the queue', async () => {
+  test('a song of its own that can never be downloaded: the DJ drops it, so it doesn\'t sit in the queue, and doesn\'t pick it again', async () => {
     const s = await start({ here: {}, current: song(1, 'Playing now', 'Zed', { duration: 100000 }),
       queue: [song(2, 'Song mine_000001', 'Alice', { status: 'waiting', file: undefined, url: yt('fail_perm02') }),
         song(3, 'Song djsg_000001', 'DJ', { status: 'waiting', file: undefined, url: yt('fail_perm03') })] });
@@ -183,6 +183,12 @@ describe('the DJ', { concurrency: true }, () => {
     await waitFor(async () => (await s.state()).queue.find(x => x.id === 2)?.status === 'failed', 8000, 'someone else\'s to fail too');
     await sleep(500);
     assert.equal((await s.state()).queue.find(x => x.id === 2)?.status, 'failed', 'someone else\'s stays, with its Retry button');
+    const d = await start({ here: {}, current: song(1, 'Playing now', 'Zed', { duration: 100000 }),
+      history: [{ url: yt('brkn_000001'), title: 'Song brkn_000001', by: 'Alice', t: Date.now() }] });
+    await say(d, 'Bob', '!dj on');
+    await waitFor(async () => (await d.log()).some(l => /^DJ: dropped "Broken Band - Never Downloads brkn_000001"/.test(l)), 15000, 'the DJ to pick the broken one, and drop it');
+    await sleep(CHECKS);
+    assert.equal((await d.log()).filter(l => /^DJ: added "Broken Band/.test(l)).length, 1, 'picked once, not again and again');
   });
 
   test('only songs between 1 and 20 minutes are starting points: says so if that\'s all there is, and goes on from one once there is one', async () => {

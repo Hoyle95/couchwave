@@ -13,7 +13,8 @@
   (the best match of YouTube's top results goes in). People take turns, so one person's big playlist
   doesn't keep everyone else waiting. A playlist link asks whether to add the whole playlist (up to 100
   songs) or just the one song. A song already queued or playing can't go in twice, and livestreams can't
-  go in at all.
+  go in at all. The queue holds up to 500 songs, and YouTube is read for at most 3 searches or playlists
+  at a time (the rest wait their turn).
 - **In sync** for everyone: the song and where it's up to are the same on every screen. Anyone can pause or
   resume for everyone with the pause button; the pause button in your phone's lock-screen controls (or on
   your headphones) pauses just you.
@@ -26,7 +27,9 @@
 - **Undo**: removed one of your own songs by mistake? Put it back from the Activity log within 10 minutes
   (even if Couchwave restarts in between). Songs voted out of the queue stay out.
 - **Failed downloads** show why in the queue (unavailable, private, age-restricted, members only…), with a
-  retry button. YouTube's hiccups, and downloads that stop getting anywhere, are retried by themselves.
+  retry button. YouTube's hiccups, and downloads that stop getting anywhere, are retried by themselves. When
+  YouTube's bot check or rate limit comes up, downloads pause for everyone, then go one song at a time until
+  one works; the queue shows when each song tries again.
 - **History** of the last 100 songs played, with thumbnails, who asked and when, a copy link and a + to
   queue a song again.
 - **A DJ** that keeps the music going with songs like the ones you've played (see

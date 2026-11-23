@@ -293,7 +293,7 @@ Register-ScheduledTask -TaskName Couchwave -Action $action -Trigger (New-Schedul
   -Principal (New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U) -Settings $settings -Force
 ```
 
-It then starts at boot (no need to log in) and restarts itself if it ever crashes. If you move the
+It then starts at boot (no need to log in) and restarts itself 5 seconds after it crashes or can't start. If you move the
 Couchwave folder, run the same commands again from its new place.
 
 To stop it, double-click **`stop.cmd`** in the Couchwave folder (or run `node server.js --stop` there). It
@@ -444,8 +444,10 @@ them to `config.json` (see [Settings](#settings)).
 
 - **Songs fail with "Blocked by YouTube" or "bot check"**: run `yt-dlp -U`, then press the song's retry
   button. (Couchwave updates yt-dlp daily, but YouTube sometimes changes faster.) If it keeps happening,
-  YouTube may be checking your connection after a lot of downloads at once; it usually passes within a few
-  hours. If it keeps coming back, see `youtubeCookies` in the [settings](#settings). If it's just **one
+  YouTube may be checking your connection after a lot of downloads at once (a VPN makes this more likely); it
+  usually passes within a few hours. Meanwhile Couchwave backs off: it pauses downloads (a minute, then
+  longer, up to 15 minutes), then tries one song at a time until one works, and the queue shows when each
+  song tries again. If it keeps coming back, see `youtubeCookies` in the [settings](#settings). If it's just **one
   song**, again and again, while others download fine, YouTube wants a signed-in account for that video:
   remove it and pick another version of the song (or use `youtubeCookies`). If it's someone else's, `node
   server.js --remove-song <its number in the queue>` takes it out without a vote (see the
