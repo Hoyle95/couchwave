@@ -4,6 +4,17 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.5.0 beta (2026-11-23)
+
+Still a beta. The queue now shows what's coming (pictures, lengths, when each song starts and when it all
+ends), every song says which YouTube channel it's from, you can click the video to pause, and there's a
+Docker image, a `/health` check for uptime monitors, tighter security and a lot of fixes. **Download
+`couchwave-v0.5.0-beta.zip`** from the release (not "Source code"). **Updating?** Double-click `update.cmd`
+on Windows, or run `node server.js --update`: settings, data and logins are kept. Installed before v0.4.0?
+Run the one-line install again instead.
+
 ### Added
 
 - **The queue shows what's coming**: each song's picture, its length and roughly when it should start, and
