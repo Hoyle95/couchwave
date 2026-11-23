@@ -66,6 +66,45 @@ describe('the DJ', { concurrency: true }, () => {
     assert.equal((await djSongs(s)).length, 10, 'and no more');
   });
 
+  test('takes turns: every song people asked for in the whole history is a starting point once, in a random order, before any is used again', async () => {
+    const now = Date.now(), asked = Array.from({ length: 12 }, (_, i) => `hist_${String(i + 1).padStart(6, '0')}`);
+    const s = await start({
+      here: {}, current: song(1, 'Song play_000001', 'Zed', { duration: 100000, url: yt('play_000001') }),
+      history: asked.map((id, i) => ({ url: yt(id), title: `Song ${id}`, by: i % 2 ? 'Bob' : 'Alice', t: now - (i + 1) * 60000 })),
+    });
+    await say(s, 'Alice', '!dj on');
+    const starts = async () => {
+      const each = (await s.log()).filter(l => l.startsWith('DJ: added')).map(l => (/\(like "Song (hist_\d+)"/.exec(l) || [])[1]);
+      return each.filter((id, i) => id !== each[i - 1]);
+    };
+    for (let round = 0; round < 3; round++) {
+      await waitFor(() => djCount(10)(s), 30000, `10 DJ songs, round ${round + 1}`);
+      if ((await starts()).length >= 12) break;
+      for (const q of await djSongs(s)) await s.post('/remove', { id: q.id, vote: true });
+    }
+    const used = (await starts()).slice(0, 12);
+    assert.equal(used.length, 12, `12 starting points used: ${used}`);
+    assert.deepEqual([...used].sort(), asked, 'each of the 12 once, the oldest too, before any is used again');
+  });
+
+  test('never rushes YouTube: a Mix at most every 10 seconds, even when its songs keep being voted out, and no more than 60 an hour', async () => {
+    const SCALE = 0.005, GAP = 10000 * SCALE, HOUR = 3600000 * SCALE, now = Date.now();
+    const seeds = Array.from({ length: 8 }, (_, i) => `many_${String(i + 1).padStart(6, '0')}`);
+    const s = await servers({ env: { COUCHWAVE_TIME_SCALE: String(SCALE) }, initial: {
+      current: song(1, 'Song play_000001', 'Zed', { duration: 100000, url: yt('play_000001') }),
+      history: seeds.map((id, i) => ({ url: yt(id), title: `Song ${id}`, by: 'Alice', t: now - (i + 1) * 60000, duration: 200 })),
+    } });
+    const reads = () => { try { return fs.readFileSync(path.join(s.dir, 'mix-requests.log'), 'utf8').trim().split('\n').map(l => Number(l.split('\t')[1])); } catch { return []; } };
+    const on = Date.now();
+    await say(s, 'Alice', '!dj on');
+    for (const end = Date.now() + HOUR + 2000; Date.now() < end; await sleep(30)) {
+      for (const q of await djSongs(s)) await s.post('/remove', { id: q.id, vote: true });
+    }
+    const r = reads(), within = span => r.filter(t => t < on + span).length;
+    assert.ok(within(20 * GAP) <= 21, `a Mix at most every ${GAP} ms (at this clock): ${within(20 * GAP)} in the first ${20 * GAP} ms, of ${r.length} reads`);
+    assert.ok(within(HOUR) <= 60, `no more than 60 in the first hour (at this clock): ${within(HOUR)}`);
+  });
+
   test('run out of ideas: asks in the chat (once), and carries on as soon as someone adds a song', async () => {
     const seed = 'aaaa_000001', fromMix = n => (n + require('crypto').createHash('md5').update(seed).digest('hex')).slice(0, 11);
     const now = Date.now();

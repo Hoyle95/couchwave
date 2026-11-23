@@ -117,16 +117,18 @@ Anyone can type these in the chat (they aren't posted as messages):
 
 The DJ:
 
-- **Picks** from YouTube's Mix of songs people asked for, once they've played (the played history, not
-  songs still waiting in the queue), preferring other artists. It only goes on songs between 1 and 20
-  minutes long, and only picks songs that long. It skips repeats, and anything it added in the last hour
-  (so a song that couldn't download, or was voted out, doesn't come straight back). It never goes on its own
-  picks unless someone likes them (below).
+- **Picks** from YouTube's Mix of songs people asked for, once they've played: every one in the played
+  history, not songs still waiting in the queue. It takes them in a random order, each once, before
+  shuffling them all again; one whose Mix has nothing new left sits out for an hour. It prefers other
+  artists, only goes on and picks songs between 1 and 20 minutes long, and skips repeats and anything it
+  added in the last hour (so a song that couldn't download, or was voted out, doesn't come straight back).
+  It never goes on its own picks unless someone likes them (below).
 - **Learns from 👍**: its songs in the played history (including the one playing now) have a thumbs-up
   button. Once someone likes one, the DJ finds more like it too ("a liked song" in Activity). Click it again
   to take the like back. Likes are private: you see only your own, and only the DJ uses them.
-- **Fills up gently**: its first songs come straight away, then it asks YouTube for one more Mix every 10
-  seconds until it has 10 queued, so it doesn't rush YouTube.
+- **Never rushes YouTube**: its first songs come straight away, then it reads at most one Mix every 10
+  seconds (and 5 each time it tops up) until it has 10 queued, and never more than 60 Mixes an hour, however
+  often its songs are voted out. It waits too while YouTube is pushing back.
 - **Queues its songs after everyone else's**, as "DJ" 🎧. Skipping or removing them is a vote, like any song.
   If one of its songs can't be downloaded, it drops it (Activity says why) and picks another.
 - **Only plays music**: YouTube has no Mix for other videos (music Shorts work, other Shorts don't). With

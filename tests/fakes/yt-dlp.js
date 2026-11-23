@@ -33,6 +33,9 @@ if (args.includes('--flat-playlist')) {
     if (mix && mix[1].startsWith('nomx')) {
       console.error(`WARNING: [youtube:tab] Unable to recognize playlist. Downloading just video ${mix[1]}`);
       row(mix[1], '30', `Not music ${mix[1]}`);
+    } else if (mix && mix[1].startsWith('many')) {
+      const hash = require('crypto').createHash('md5').update(mix[1]).digest('hex');
+      for (let k = 0; k < 30; k++) row(('m' + k.toString(36).padStart(2, '0') + hash).slice(0, 11), '200', `Band ${k} - Song ${k} ${mix[1]}`);
     } else if (mix) {
       const seed = mix[1], hash = require('crypto').createHash('md5').update(seed).digest('hex'), id = n => (n + hash).slice(0, 11);
       row(seed, '200', `Song ${seed}`);

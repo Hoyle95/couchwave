@@ -44,8 +44,12 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Changing your colour or emoji is smooth again**: every change shows all over the page as you choose, and
   it's saved once you click off the picker instead of after each change, so the speed limit no longer gets in
   the way.
-- **The DJ doesn't pick a song again within an hour**: one it couldn't download, or one you voted out, used to
-  come straight back.
+- **The DJ goes through everything you've played**: every song in the history that people asked for (and its
+  own liked picks) is a starting point, once each in a random order, before it shuffles them all again. It
+  used to pick from only the latest 10, at random, so some came up again and again. It doesn't pick a song
+  again within an hour either: one it couldn't download, or one you voted out, used to come straight back.
+- **The DJ never rushes YouTube**: at most one Mix every 10 seconds (it was only between Mixes for one
+  top-up) and no more than 60 an hour, however often its songs are voted out.
 
 ### Fixed
 
