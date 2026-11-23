@@ -94,6 +94,7 @@ async function pollOnce() {
   if (s.chat || recolor) drawChat();
 
   serverPaused = s.paused;
+  pausedBy = s.pausedBy || '';
   updatePP();
 
   upNext = s.next;

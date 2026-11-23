@@ -10,9 +10,9 @@ let lastQueue = '', lastUsers = '', lastColorsKey = '';
 const getCookie = k => { try { return decodeURIComponent((document.cookie.match('(?:^|; )' + k + '=([^;]*)') || [])[1] || ''); } catch { return ''; } };
 const post = (url, data) => { actionAt = Date.now(); return fetch(url, { method: 'POST', body: JSON.stringify(data || {}) }).catch(() => null).finally(() => { actionAt = Date.now(); }); };
 function stickToBottom(el) {
-  let stuck = true;
-  const stick = () => { if (stuck) el.scrollTop = el.scrollHeight; };
-  el.addEventListener('scroll', () => { stuck = el.scrollHeight - el.scrollTop - el.clientHeight < 40; });
+  let stuck = true, putAt = 0;
+  const stick = () => { if (stuck) { el.scrollTop = el.scrollHeight; putAt = el.scrollTop; } };
+  el.addEventListener('scroll', () => { stuck = (stuck && el.scrollTop >= putAt - 1) || el.scrollHeight - el.scrollTop - el.clientHeight < 40; });
   el.addEventListener('load', stick, true);
   new ResizeObserver(stick).observe(el);
   return stick;

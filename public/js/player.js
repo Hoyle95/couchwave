@@ -206,14 +206,29 @@ function onTime() {
 a.ontimeupdate = onTime;
 v.ontimeupdate = onTime;
 
-function updatePP() { $('pp').innerHTML = icon(serverPaused ? 'play' : 'pause'); }
+let pausedBy = '';
+function updatePP() {
+  $('pp').innerHTML = icon(serverPaused ? 'play' : 'pause');
+  $('pausedCard').hidden = !(serverPaused && $('idle').hidden);
+  $('pausedBy').innerHTML = pausedBy ? `Paused by ${avatar(pausedBy)} ${nameTag(pausedBy)}` : 'Paused';
+}
 function togglePause() {
   serverPaused = !serverPaused;
   heldLocally = false;
-  if (serverPaused) { pauseBoth(); post('/pause'); } else { tryPlay(); post('/play'); }
+  if (serverPaused) { pausedBy = myName; pauseBoth(); post('/pause'); } else { tryPlay(); post('/play'); }
   updatePP();
 }
 updatePP();
+
+// ---------- Click the video to pause or play ----------
+let clickTimer = null, controlsWereAway = false;
+$('player').addEventListener('pointerdown', () => { controlsWereAway = document.body.classList.contains('uiAway'); });
+$('player').addEventListener('click', e => {
+  if (e.target.closest('button') || !$('idle').hidden || controlsWereAway) return;
+  clearTimeout(clickTimer);
+  clickTimer = setTimeout(togglePause, 250);
+});
+$('player').addEventListener('dblclick', () => clearTimeout(clickTimer));
 
 // ---------- Vote to skip ----------
 let votedSkip = false, skipSongId = null;

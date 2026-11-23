@@ -7,16 +7,18 @@ const { testServers, song, waitFor, sleep, secs } = require('./helpers');
 const start = testServers({ after });
 
 describe('playback', { concurrency: true }, () => {
-test('pause, seek and play: for everyone, and in the log', async () => {
+test('pause, seek and play: for everyone, and in the log; everyone is told who paused (even after a restart)', async () => {
   const t0 = Date.now();
   const s = await start({ initial: { current: song(1, 'Song A', 'Alice', { duration: 300 }), startedAt: t0 - 20000 } });
   await s.post('/pause');
   let st = await s.state('Bob');
-  assert.equal(st.paused, true);
+  assert.deepEqual([st.paused, st.pausedBy], [true, 'Alice']);
   const at = st.elapsed, upTo = 20.1 + (Date.now() - t0) / 1000;
   assert.ok(at >= 20 && at <= upTo, `paused 20 seconds in, plus however long the server took to start (up to ${upTo.toFixed(1)}): ${at}`);
   await sleep(600);
   assert.equal((await s.state('Bob')).elapsed, at, 'the clock stops while paused');
+  await s.restart();
+  assert.deepEqual([(await s.state('Bob')).elapsed, (await s.state('Bob')).pausedBy], [at, 'Alice'], 'still paused, by Alice, after a restart');
   await s.post('/seek', { t: 125 });
   assert.equal((await s.state('Bob')).elapsed, 125);
   await s.post('/seek', { t: 99999 });
@@ -25,7 +27,7 @@ test('pause, seek and play: for everyone, and in the log', async () => {
   await s.post('/play');
   await sleep(600);
   st = await s.state('Bob');
-  assert.equal(st.paused, false);
+  assert.deepEqual([st.paused, st.pausedBy], [false, undefined]);
   assert.ok(st.elapsed > 60.4 && st.elapsed < 62, 'playing on from 1:00: ' + st.elapsed);
   const log = await s.log();
   for (const line of [`Alice: paused at 0:${String(Math.floor(at)).padStart(2, '0')}`, 'Alice: jumped to 2:05', 'Alice: jumped to 1:00', 'Alice: resumed']) assert.ok(log.includes(line), line);

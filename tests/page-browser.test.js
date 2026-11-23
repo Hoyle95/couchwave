@@ -152,7 +152,7 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('skipping and pausing are for everyone: the skip button counts votes, and pause shows on every page', async () => {
+  test('skipping and pausing are for everyone: the skip button counts votes, and pause shows on every page; clicking the video pauses or plays (double-clicking doesn\'t), and paused, it says who paused', async () => {
     const s = await start({ initial: { current: song(1, 'Song A', 'Zed', { duration: 100000 }), queue: [song(2, 'Song B', 'Zed', { duration: 100000 })] } });
     const alice = await open(s, 'Alice'), bob = await open(s, 'Bob');
     await alice.waitFor(`document.getElementById('userCount').textContent === '2'`, 5000, 'both to be online');
@@ -163,6 +163,15 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     await alice.click('#pp');
     await bob.waitFor(`document.querySelector('#pp use').getAttribute('href') === '#i-play'`, 5000, 'Bob to see it paused');
     assert.equal((await s.state()).paused, true);
+    await bob.waitFor(`!document.getElementById('pausedCard').hidden && document.getElementById('pausedBy').textContent.trim() === 'Paused by ' + document.querySelector('#pausedBy .avatar').textContent + ' Alice'`, 5000, 'the paused overlay, saying Alice paused');
+    await bob.click('#v');
+    await alice.waitFor(`document.getElementById('pausedCard').hidden`, 5000, 'Bob\'s click on the video to play it for everyone');
+    assert.equal((await s.state()).paused, false);
+    await alice.click('#v');
+    await bob.waitFor(`/Paused by .* Alice/.test(document.getElementById('pausedBy').textContent)`, 5000, 'Alice\'s click on the video to pause it');
+    await bob.eval(`(v => { for (const type of ['click', 'click', 'dblclick']) v.dispatchEvent(new MouseEvent(type, { bubbles: true })); })(document.getElementById('v'))`);
+    await new Promise(r => setTimeout(r, 600));
+    assert.equal((await s.state()).paused, true, 'a double-click (full screen) doesn\'t play or pause');
     noErrors(alice, bob);
   });
 
@@ -291,11 +300,11 @@ describe('the page in a browser', { skip: missing || false, concurrency: true },
     noErrors(page);
   });
 
-  test('the theme button sits just left of Log out, evenly spaced; the theme is remembered, and logging out goes back to the join screen', async () => {
+  test('the theme button sits on its own, right of your name and Log out; the theme is remembered, and logging out goes back to the join screen', async () => {
     const s = await start();
     const page = await open(s, 'Alice');
-    assert.deepEqual(await page.eval(`(() => { const me = document.querySelector('.me').getBoundingClientRect(), t = document.getElementById('theme').getBoundingClientRect(), l = document.getElementById('logoutBtn').getBoundingClientRect();
-      return [t.right <= l.left, Math.round(l.left - t.right), Math.round(me.right - 1 - l.right), Math.round(t.top - me.top - 1)]; })()`), [true, 5, 5, 5], 'the theme button just left of Log out, as far from it as both are from the edge');
+    assert.deepEqual(await page.eval(`(() => { const me = document.querySelector('.me').getBoundingClientRect(), t = document.getElementById('theme').getBoundingClientRect();
+      return [!!document.querySelector('.me #theme'), Math.round(t.left - me.right), t.height === me.height && t.top === me.top]; })()`), [false, 10, true], 'outside the pill, just right of it, the same height');
     const was = await page.eval(`document.documentElement.dataset.theme || ''`);
     await page.click('#theme');
     const now = await page.eval(`document.documentElement.dataset.theme`);

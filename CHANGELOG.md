@@ -6,6 +6,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ### Added
 
+- **Click the video to pause or play** (for everyone, like the pause button; double-clicking still goes full
+  screen). While it's paused, the video is dimmed with a pause sign and who paused it.
 - **A friendlier first start**: the first time Couchwave starts, it says where to open it, the address
   friends at home can use and the room password it made up (in the log, and in the terminal if you started
   it there). Opened on the computer running Couchwave, the join screen shows the address to give friends at
@@ -38,7 +40,8 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   switch between the two. Like the chat, the newest line is at the bottom, and it stays scrolled there unless
   you scroll up to read. The page remembers which tab you had, and a dot on the Chat tab shows a message came
   in while you were looking at Activity. History and the queue get the space it left.
-- **The light / dark button sits just left of Log out**, evenly spaced with it.
+- **The light / dark button sits on its own**, just right of your name and Log out, instead of inside with
+  them.
 - **Changing your colour or emoji is smooth again**: every change shows all over the page as you choose (the
   chat, who's online, Activity, the queue and History), and it's saved once you click off the picker, instead
   of after each change, so the speed limit on changing them no longer gets in the way.
@@ -63,10 +66,10 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 - **Wrong room passwords sent all at once got past the limit**: hundreds sent together were all checked.
   It's 20 every 15 minutes, however they arrive.
 - **The Windows one-line installer didn't work for user names with an apostrophe** (like O'Brien).
-- **Server commands could say "Done" when they weren't**: if Couchwave was running but didn't answer on the
-  port in `config.json` (say, after changing it), `--clear` and `--remove-song` changed the saved files,
-  and the running Couchwave then put everything back. They now say so and change nothing, and so does
-  `--update`.
+- **Server commands could say "Done" when they weren't**: if Couchwave was running but not on the port in
+  `config.json` (say, after changing it), `--clear` and `--remove-song` changed the saved files, and the
+  running Couchwave then put everything back. A running Couchwave now notes the port it's really using (in
+  `data/running.json`), so `--clear`, `--remove-song`, `--status`, `--stop` and `--update` find it there.
 - **`--update` didn't work with `config.json` kept elsewhere** (`COUCHWAVE_CONFIG`): its trial run read the
   real settings and failed every time.
 - **A `"port"` that isn't a whole number** (like `3000.5`): Couchwave uses 3000 then, and now so do

@@ -128,11 +128,15 @@ describe('updating', { concurrency: true }, () => {
 
   test('under node --watch (as start.cmd runs it): restarts into the new version', async () => {
     const f = await folder(), url = await github(release(NEW));
-    const watcher = spawn(process.execPath, ['--watch', 'server.js'], { cwd: f.dir, env: f.env, stdio: 'ignore' });
+    const watcher = spawn(process.execPath, ['--watch', 'server.js'], { cwd: f.dir, env: f.env });
+    let said = '';
+    for (const out of [watcher.stdout, watcher.stderr]) out.on('data', d => (said += d));
+    watcher.on('exit', code => (said += `[the watcher stopped, code ${code}]`));
     try {
       await f.up();
       const r = await f.update(url);
-      assert.equal(r.status, 0, r.out);
+      let log = ''; try { log = fs.readFileSync(path.join(f.dir, 'data', 'server.log'), 'utf8').slice(-3000); } catch {}
+      assert.equal(r.status, 0, `${r.out}\n---- node --watch said ----\n${said}\n---- server.log ----\n${log}`);
       assert.match(r.out, /Done: Couchwave is now v9\.9\.9/);
       assert.match((await f.cli(['--status'])).out, /^Couchwave v9\.9\.9 is running/m);
     } finally { await f.cli(['--stop']); watcher.kill(); await sleep(300); }

@@ -105,28 +105,28 @@
       <div class="logo"><svg><use href="#i-logo"/></svg></div>
       <h1>Couchwave</h1>
     </div>
-    <div class="me loading">
-      <span class="editAv" data-click="toggleColorPop" data-enter="toggleColorPop" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
-      <b id="me" class="nm"></b>
-      <div id="colorPop" class="pop" hidden>
-        <div class="pop-preview"><span class="avatar" id="popAvatar"></span> <b id="popName" class="nm"></b></div>
-        <div class="pop-title">Your emoji</div>
-        <div id="facePick"></div>
-        <div class="pop-title">Your colour</div>
-        <div id="wheel"><div id="wheelDark"></div><div id="wheelDot"></div></div>
-        <input id="valSlider" type="range" min="0" max="100" step="1" aria-label="Brightness" title="Brightness">
-        <div class="pop-inputs">
-          <label>HEX <input id="hexIn" maxlength="7" spellcheck="false" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other"></label>
-          <label>R <input id="rIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
-          <label>G <input id="gIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
-          <label>B <input id="bIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+    <div class="headEnd">
+      <div class="me loading">
+        <span class="editAv" data-click="toggleColorPop" data-enter="toggleColorPop" tabindex="0" role="button" title="Change your profile picture" aria-label="Change your profile picture"><span class="avatar" id="meAvatar"></span><span class="editOv"><svg><use href="#i-edit"/></svg></span></span>
+        <b id="me" class="nm"></b>
+        <div id="colorPop" class="pop" hidden>
+          <div class="pop-preview"><span class="avatar" id="popAvatar"></span> <b id="popName" class="nm"></b></div>
+          <div class="pop-title">Your emoji</div>
+          <div id="facePick"></div>
+          <div class="pop-title">Your colour</div>
+          <div id="wheel"><div id="wheelDark"></div><div id="wheelDot"></div></div>
+          <input id="valSlider" type="range" min="0" max="100" step="1" aria-label="Brightness" title="Brightness">
+          <div class="pop-inputs">
+            <label>HEX <input id="hexIn" maxlength="7" spellcheck="false" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true" data-form-type="other"></label>
+            <label>R <input id="rIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+            <label>G <input id="gIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+            <label>B <input id="bIn" type="number" min="0" max="255" autocomplete="off" data-protonpass-ignore="true" data-1p-ignore data-lpignore="true" data-bwignore="true"></label>
+          </div>
+          <div id="swatches"></div>
         </div>
-        <div id="swatches"></div>
-      </div>
-      <span class="meBtns">
-        <button id="theme" class="ghost" data-click="toggleTheme" title="Switch light / dark"></button>
         <button id="logoutBtn" data-click="logout" title="Log out" aria-label="Log out"><svg><use href="#i-logout"/></svg></button>
-      </span>
+      </div>
+      <button id="theme" class="ghost" data-click="toggleTheme" title="Switch light / dark"></button>
     </div>
   </header>
 
@@ -145,6 +145,7 @@
           <div id="vSpin" hidden></div>
           <div id="audioCard" data-dblclick="toggleFs"><div><svg><use href="#i-logo"/></svg><b>Audio only</b><span>The video is off for you. Tap the video button to bring it back.</span></div></div>
           <div id="idle"><div><svg><use href="#i-logo"/></svg><div>Nothing playing — paste a YouTube link or type a song name above to get started</div></div></div>
+          <div id="pausedCard" hidden><div><svg><use href="#i-pause"/></svg><span id="pausedBy">Paused</span></div></div>
           <button id="unmute" hidden data-click="unmute"><svg><use href="#i-mute"/></svg> Tap to unmute</button>
         </div>
 

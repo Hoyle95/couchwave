@@ -16,8 +16,9 @@
   go in at all. The queue holds up to 500 songs, and YouTube is read for at most 3 searches or playlists
   at a time (the rest wait their turn).
 - **In sync** for everyone: the song and where it's up to are the same on every screen. Anyone can pause or
-  resume for everyone with the pause button; the pause button in your phone's lock-screen controls (or on
-  your headphones) pauses just you.
+  resume for everyone with the pause button, or by clicking the video (double-clicking goes full screen).
+  While it's paused, the video says who paused it. The pause button in your phone's lock-screen controls (or
+  on your headphones) pauses just you.
 - **Votes**: skipping a song or removing someone else's is a vote ("1 out of 3 voted to skip"), counted
   among the people online; the lock screen's "next" button votes too. Your own songs go straight away. How
   many votes it takes is a setting.

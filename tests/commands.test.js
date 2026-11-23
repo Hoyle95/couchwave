@@ -58,10 +58,14 @@ test('--clear: the chat, Activity or played history, any or all of them, with Co
     ['server: cleared the played history, the Activity log and the chat (whoever runs Couchwave did)']);
   const configPath = path.join(s.dir, 'config.json'), config = fs.readFileSync(configPath, 'utf8');
   fs.writeFileSync(configPath, JSON.stringify({ ...JSON.parse(config), port: await freePort() }));
+  await s.post('/chat', { text: 'before the port changed' }, { as: 'Bob' });
   r = await s.command('--clear', 'chat');
-  assert.equal(r.status, 1, 'running, but not on the port config.json now says: ' + r.out);
-  assert.match(r.stdout, /^Couchwave seems to be running \(process \d+\), but it didn't answer on port \d+\. If you changed "port" in config\.json, restart Couchwave first\. Nothing was changed\.$/m);
+  assert.equal(r.status, 0, 'running, on another port than config.json now says: ' + r.out);
+  assert.deepEqual((await s.state()).chat, [], 'it still reached the running Couchwave');
   fs.writeFileSync(configPath, config);
+  await s.stop();
+  fs.writeFileSync(path.join(s.dir, 'data', 'running.json'), JSON.stringify({ pid: process.pid, port: s.port }));
+  assert.match((await s.command('--status')).stdout, /isn't running/, 'a note left behind by a Couchwave that was killed is ignored');
 });
 
 test('--remove-song: by queue number, link or part of the name, straight away and without a vote, with Couchwave on or off', async () => {
