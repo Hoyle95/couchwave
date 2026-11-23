@@ -70,6 +70,9 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
   `config.json` (say, after changing it), `--clear` and `--remove-song` changed the saved files, and the
   running Couchwave then put everything back. A running Couchwave now notes the port it's really using (in
   `data/running.json`), so `--clear`, `--remove-song`, `--status`, `--stop` and `--update` find it there.
+- **`--update` on Windows could leave the old version running**: Windows sometimes doesn't notice a changed
+  file when it's busy, so `start.cmd` didn't restart Couchwave into the new version, and after 90 seconds the
+  update put the old files back. It now nudges `start.cmd` every 10 seconds until Couchwave is back.
 - **`--update` didn't work with `config.json` kept elsewhere** (`COUCHWAVE_CONFIG`): its trial run read the
   real settings and failed every time.
 - **A `"port"` that isn't a whole number** (like `3000.5`): Couchwave uses 3000 then, and now so do

@@ -70,7 +70,9 @@ if (args.includes('--flat-playlist')) {
   const part = out + '.part';
   try { fs.writeFileSync(part, ''); } catch {}
   if (id.startsWith('stall_')) { fs.writeFileSync(part, Buffer.alloc(1000)); setTimeout(() => process.exit(1), 20000); return; }
+  const growing = id.startsWith('slow_') && setInterval(() => { try { fs.appendFileSync(part, Buffer.alloc(1024)); } catch {} }, 100);
   const finish = () => {
+    clearInterval(growing);
     fs.rmSync(part, { force: true });
     fs.appendFileSync('download-tries.log', `${id}\t${Date.now()}\n`);
     if (id.startsWith('fail_perm')) { console.error(`ERROR: [youtube] ${id}: Video unavailable`); process.exit(1); }

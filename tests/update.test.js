@@ -142,6 +142,17 @@ describe('updating', { concurrency: true }, () => {
     } finally { await f.cli(['--stop']); watcher.kill(); await sleep(300); }
   });
 
+  test('under node --watch, when it misses the change (Windows sometimes does, when busy): nudged until it restarts into the new version', async () => {
+    const f = await folder(), url = await github(release(NEW));
+    const watcher = spawn(process.execPath, [path.join(__dirname, 'fakes', 'deaf-watch.js')], { cwd: f.dir, env: f.env, stdio: 'ignore' });
+    try {
+      await f.up();
+      const r = await f.update(url);
+      assert.equal(r.status, 0, r.out);
+      assert.match(r.out, /Done: Couchwave is now v9\.9\.9/);
+    } finally { await f.cli(['--stop']); watcher.kill(); await sleep(300); }
+  });
+
   test('under node --watch, when the new version won\'t start once it\'s in place: goes back to the old one', async () => {
     const f = await folder(), url = await github(release(NEW, s => s + "\nif (require('path').basename(__dirname) !== 'new') process.exit(3);\n"));
     const watcher = spawn(process.execPath, ['--watch', 'server.js'], { cwd: f.dir, env: f.env, stdio: 'ignore' });
