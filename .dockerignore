@@ -1,0 +1,6 @@
+# Only what the image needs
+*
+!server.js
+!lib/
+!public/
+!docker-entrypoint.sh

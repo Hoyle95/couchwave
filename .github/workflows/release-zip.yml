@@ -1,0 +1,46 @@
+# ---------- Build the release zip ----------
+name: Release zip
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release's tag, like v0.3.0-beta (rebuilds and replaces its zip)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    if: github.repository == 'Hoyle95/couchwave'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the tests (no zip if they fail)
+        run: node --test
+
+      - name: Build the zip (files at the top, the .cmd files with Windows line endings)
+        run: |
+          mkdir out
+          git archive --format=tar HEAD -- . ':!.github' | tar -x -C out
+          sed -i 's/\r*$/\r/' out/*.cmd
+          if grep -lq $'\r' out/server.js out/lib/*.js; then echo "::error::server.js or lib/ has Windows line endings"; exit 1; fi
+          (cd out && zip -qrX "../couchwave-$TAG.zip" .)
+          unzip -l "couchwave-$TAG.zip" | tail -1
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "couchwave-$TAG.zip" --clobber

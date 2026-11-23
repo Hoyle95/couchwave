@@ -1,0 +1,18 @@
+# Your own stuff, never committed:
+# the password and port (made on the first run)
+config.json
+# queue, chat, activity log, downloaded songs, log files. Back up by copying this folder.
+data/
+
+# Not needed in the repo
+node_modules/
+*.log
+*.tmp
+.env
+.vscode/
+.idea/
+# Claude Code: personal settings stay local; the shared commands (like /release) are in the repo
+.claude/*
+!.claude/commands/
+Thumbs.db
+.DS_Store
