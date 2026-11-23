@@ -1,0 +1,134 @@
+# ---------- Try the one-line installers on fresh machines ----------
+name: Installers
+
+on:
+  push:
+    branches: [main]
+    paths: ['install.sh', 'install.ps1', '.github/workflows/install.yml']
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  linux:
+    if: github.repository == 'Hoyle95/couchwave'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A new release - wait for its zip (the Release zip workflow attaches it once its tests pass)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for i in $(seq 1 60); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -q '^couchwave-.*[.]zip$' && exit 0
+            sleep 10
+          done
+          echo "The release zip didn't appear within 10 minutes"; exit 1
+
+      - name: Something else is already on port 3000
+        run: |
+          nohup python3 -m http.server 3000 > /dev/null 2>&1 &
+          sleep 2
+
+      - name: Install, as someone new would
+        run: bash install.sh
+
+      - name: It picked a free port, it's running, starts with the computer, and answers --status
+        run: |
+          PORT=$(node -p 'require(process.argv[1]).port' ~/couchwave/config.json)
+          test "$PORT" = 3001
+          curl -fsS "http://localhost:$PORT/manifest.json" | grep -q '"Couchwave"'
+          systemctl is-enabled couchwave
+          systemctl is-active couchwave
+          cd ~/couchwave && node server.js --status
+          cp ~/couchwave/config.json /tmp/config-before.json
+
+      - name: Run it again, to update
+        run: bash install.sh
+
+      - name: Still running, with the same settings
+        run: |
+          curl -fsS http://localhost:3001/manifest.json | grep -q '"Couchwave"'
+          systemctl is-active couchwave
+          cmp ~/couchwave/config.json /tmp/config-before.json
+
+  windows:
+    if: github.repository == 'Hoyle95/couchwave'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A new release - wait for its zip (the Release zip workflow attaches it once its tests pass)
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for i in $(seq 1 60); do
+            gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -q '^couchwave-.*[.]zip$' && exit 0
+            sleep 10
+          done
+          echo "The release zip didn't appear within 10 minutes"; exit 1
+
+      - name: Tools GitHub's machine doesn't have (it has no winget), where the startup task can find them
+        shell: powershell
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) { choco install ffmpeg -y --no-progress | Out-Null }
+          python -m pip install --quiet yt-dlp
+          $dirs = foreach ($tool in 'node', 'yt-dlp', 'ffmpeg') { Split-Path (Get-Command $tool).Source }
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          [Environment]::SetEnvironmentVariable('Path', (($dirs + ($machine -split ';')) | Select-Object -Unique) -join ';', 'Machine')
+
+      - name: Something else is already on port 3000
+        shell: powershell
+        run: |
+          Start-Process python -ArgumentList '-m', 'http.server', '3000' -WindowStyle Hidden
+          Start-Sleep -Seconds 3
+
+      - name: Install, as someone new would
+        shell: powershell
+        env:
+          COUCHWAVE_NO_BROWSER: '1'
+        run: Get-Content -Raw install.ps1 | Invoke-Expression
+
+      - name: It picked a free port, it's running, starts with the PC, lets the home network in, and answers --status
+        shell: powershell
+        run: |
+          $dir = Join-Path $HOME 'Couchwave'
+          $port = (Get-Content (Join-Path $dir 'config.json') -Raw | ConvertFrom-Json).port
+          if ($port -ne 3001) { throw "expected port 3001, got $port" }
+          $body = (Invoke-WebRequest "http://localhost:$port/manifest.json" -UseBasicParsing).Content
+          if ($body -is [byte[]]) { $body = [Text.Encoding]::UTF8.GetString($body) }
+          if (($body | ConvertFrom-Json).name -ne 'Couchwave') { throw 'not Couchwave' }
+          Get-ScheduledTask -TaskName Couchwave | Format-List TaskName, State
+          Get-NetFirewallRule -DisplayName Couchwave | Get-NetFirewallPortFilter | Format-List LocalPort
+          Set-Location $dir; node server.js --status
+          Copy-Item config.json (Join-Path $env:TEMP 'config-before.json')
+
+      - name: Run it again, to update
+        shell: powershell
+        env:
+          COUCHWAVE_NO_BROWSER: '1'
+        run: Get-Content -Raw install.ps1 | Invoke-Expression
+
+      - name: Still running, with the same settings, and --stop stops it
+        shell: powershell
+        run: |
+          $dir = Join-Path $HOME 'Couchwave'
+          Invoke-WebRequest http://localhost:3001/manifest.json -UseBasicParsing | Out-Null
+          if ((Get-Content (Join-Path $dir 'config.json') -Raw) -ne (Get-Content (Join-Path $env:TEMP 'config-before.json') -Raw)) { throw 'config.json changed' }
+          Set-Location $dir; node server.js --stop
+          Start-Sleep -Seconds 8
+          $still = $true
+          try { Invoke-WebRequest http://localhost:3001/manifest.json -UseBasicParsing -TimeoutSec 3 | Out-Null } catch { $still = $false }
+          if ($still) { throw 'still running after --stop' }
+          'stopped'
