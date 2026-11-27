@@ -4,6 +4,16 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
+Nothing yet.
+
+## v0.5.1 beta (2026-11-27)
+
+A small update: you can now choose to let Couchwave count your server, anonymously, so its maker knows
+roughly how many are running. It's off unless you say yes. **Download `couchwave-v0.5.1-beta.zip`** from
+the release (not "Source code"). **Updating?** Double-click `update.cmd` on Windows, or run
+`node server.js --update` (in Docker, pull the new image): settings, data and logins are kept, and counting
+stays off unless you add `"countMe": true` to config.json.
+
 ### Added
 
 - **You can let Couchwave count your server**, so its maker knows roughly how many are running. It's off
