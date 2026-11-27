@@ -4,7 +4,13 @@ Changes to Couchwave, newest first. "Unreleased" is what's been added since the 
 
 ## Unreleased
 
-Nothing yet.
+### Added
+
+- **You can let Couchwave count your server**, so its maker knows roughly how many are running. It's off
+  unless you say yes: a new one-line install asks once (type `y` or `n`), or set `"countMe": true` in
+  config.json. Once a day it sends just the Couchwave version, the operating system, the CPU type and whether
+  it's in Docker: nothing about you, your room or your friends, and no IP address is kept. Details in
+  [Counting servers](docs/INSTALL.md#counting-servers).
 
 ## v0.5.0 beta (2026-11-23)
 

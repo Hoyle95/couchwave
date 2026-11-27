@@ -19,7 +19,7 @@ test('the first start: config.json is made (a random room password, every settin
     await waitFor(() => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return false; } }, 5000, 'config.json to be made');
     const { password, ...rest } = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.match(password, /^[\w-]{8}$/, 'a random room password');
-    assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false });
+    assert.deepEqual(rest, { port: 3000, votePercent: 60, maxVideoHours: 3, downloadAhead: 20, downloadsAtOnce: 3, public: false, countMe: false });
     if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only whoever runs Couchwave can read it');
     await waitFor(() => /To let friends in from the internet/.test(logged()), 5000, 'the welcome');
     for (const line of [/Welcome to Couchwave! It's running\./, /  Open it: +http:\/\/localhost:3000\n/, new RegExp(`  Room password: +${password} +\\(in config\\.json\\)`),

@@ -4,7 +4,8 @@
 # Installs Node.js, ffmpeg and yt-dlp, downloads the newest Couchwave release into ~/couchwave, runs it as a
 # service that starts with the computer, lets friends on your home network in (if ufw is on), and starts it.
 # Run it again to update: config.json and data/ are kept. Optional: COUCHWAVE_DIR (where to install),
-# COUCHWAVE_PORT (the port for a new install; otherwise the first free one from 3000).
+# COUCHWAVE_PORT (the port for a new install; otherwise the first free one from 3000), COUCHWAVE_COUNT_ME (yes or no:
+# the answer to the one question a new install asks, see docs/INSTALL.md#counting-servers).
 set -euo pipefail
 
 DIR="${COUCHWAVE_DIR:-$HOME/couchwave}"
@@ -18,6 +19,26 @@ free() { node -e 'const s = require("net").createServer(); s.once("error", () =>
 is_couchwave() { curl -fs "http://localhost:$1/manifest.json" 2>/dev/null | node -e 'let s = ""; process.stdin.on("data", d => (s += d)).on("end", () => { try { process.exit(JSON.parse(s).name === "Couchwave" ? 0 : 1) } catch { process.exit(1) } })'; }
 
 command -v apt-get >/dev/null || die "This installer is for Debian, Ubuntu and Raspberry Pi OS. On other systems, follow docs/INSTALL.md."
+
+# ---------- One question, for a new install only (no answer, like with no terminal, means no) ----------
+COUNT_ME=false
+case "${COUCHWAVE_COUNT_ME:-}" in
+  [Yy]*) COUNT_ME=true ;;
+  [Nn]*) ;;
+  *)
+    if [ ! -f "$DIR/config.json" ] && ( : </dev/tty ) 2>/dev/null; then
+      step "One question before we start"
+      echo "  May Couchwave count this server? Once a day it would send Couchwave's maker its Couchwave version,"
+      echo "  operating system, CPU type and whether it's in Docker, so we know how many servers are out there."
+      echo "  Nothing about you, your room or your friends, and no IP address is kept. You can change your mind"
+      echo "  any time with \"countMe\" in config.json. More: https://github.com/Hoyle95/couchwave/blob/main/docs/INSTALL.md#counting-servers"
+      while :; do
+        printf '  Count this server? Type y or n: '
+        read -r ANSWER </dev/tty || break
+        case "$ANSWER" in [Yy]|[Yy][Ee][Ss]) COUNT_ME=true; break ;; [Nn]|[Nn][Oo]) break ;; esac
+      done
+    fi ;;
+esac
 
 step "Installing what Couchwave needs (Node.js, ffmpeg, and Python for yt-dlp)"
 as_root apt-get update -qq
@@ -71,7 +92,7 @@ if [ ! -f "$DIR/config.json" ]; then
     while ! free "$NEW_PORT" && [ "$NEW_PORT" -lt 3100 ]; do NEW_PORT=$((NEW_PORT + 1)); done
     [ "$NEW_PORT" != 3000 ] && echo "  port 3000 is already used by something else, so Couchwave gets port $NEW_PORT"
   fi
-  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ password: require("crypto").randomBytes(6).toString("base64url"), port: Number(process.argv[2]) }, null, 2) + "\n")' "$DIR/config.json" "$NEW_PORT"
+  node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ password: require("crypto").randomBytes(6).toString("base64url"), port: Number(process.argv[2]), countMe: process.argv[3] === "true" }, null, 2) + "\n")' "$DIR/config.json" "$NEW_PORT" "$COUNT_ME"
 fi
 
 if [ "$HAS_SYSTEMD" = 1 ]; then

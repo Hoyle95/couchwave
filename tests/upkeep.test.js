@@ -168,6 +168,31 @@ test('a newer Couchwave: Activity says so once (not after every restart); nothin
   } finally { releases.close(); }
 });
 
+test('countMe: true sends the version, system and Docker once soon after starting, then daily; nothing without it', async () => {
+  const version = /const VERSION = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8'))[1];
+  const got = [];
+  const counter = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', d => { body += d; }).on('end', () => { got.push({ method: req.method, type: req.headers['content-type'], body: JSON.parse(body) }); res.writeHead(204); res.end(); });
+  });
+  await new Promise(r => counter.listen(0, '127.0.0.1', r));
+  const env = { COUCHWAVE_TIME_SCALE: '0.01', COUCHWAVE_COUNT_URL: `http://127.0.0.1:${counter.address().port}/instance` };
+  try {
+    const off = await start({ env });
+    await sleep(2500);
+    assert.equal(got.length, 0, 'not without countMe');
+    await off.stop();
+    const also = await start({ env, config: { countMe: 'yes' } });
+    await sleep(2500);
+    assert.equal(got.length, 0, 'only countMe: true counts, nothing else');
+    await also.stop();
+    await start({ env, config: { countMe: true } });
+    await waitFor(() => got.length >= 1, 5000, 'the first count');
+    assert.deepEqual(got[0], { method: 'POST', type: 'application/json',
+      body: { app: 'couchwave', v: version, os: process.platform, arch: process.arch, docker: false } }, 'just these, nothing about the room');
+  } finally { counter.close(); }
+});
+
 test('youtubeCookies in config.json: handed to yt-dlp for downloads and for searches, playlists and the DJ (a cookies file, or a browser)', async () => {
   const s = await start({ config: { youtubeCookies: 'data/youtube-cookies.txt' }, initial: playing });
   await s.logHas(/youtubeCookies should be a cookies file that exists \(like "data\/youtube-cookies\.txt"\) or a browser .*; downloading without cookies/);

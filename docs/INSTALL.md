@@ -53,6 +53,8 @@ It does everything the step-by-step guides below do, with good defaults:
   Linux), after checking it against the checksum GitHub publishes for it,
 - makes it start with the computer (a scheduled task on Windows, a service on Linux), and lets friends on
   your home network in (a Windows Firewall rule for private networks, or ufw rules if ufw is on),
+- for a new install, asks one question: whether Couchwave may count this server, anonymously (type `y` or
+  `n`; see [Counting servers](#counting-servers)). It's off unless you say yes.
 - starts it, then shows its address, the address for friends on your network, and the room password. If
   port 3000 is already used by another program, a new install takes the next free one (3001, 3002…) and
   shows it.
@@ -66,7 +68,8 @@ Like any script you paste from the internet, you can read it first:
 [install.ps1](https://github.com/Hoyle95/couchwave/blob/main/install.ps1) and
 [install.sh](https://github.com/Hoyle95/couchwave/blob/main/install.sh). Options: set `COUCHWAVE_DIR` to
 install somewhere else, or `COUCHWAVE_PORT` to pick the port of a new install (in PowerShell,
-`$env:COUCHWAVE_PORT = 3001` before the line; on Linux, end the line with `| COUCHWAVE_PORT=3001 bash`).
+`$env:COUCHWAVE_PORT = 3001` before the line; on Linux, end the line with `| COUCHWAVE_PORT=3001 bash`),
+and `COUCHWAVE_COUNT_ME` to `yes` or `no` to answer its question ahead of time.
 
 **To uninstall**: on Windows, double-click `stop.cmd` in the Couchwave folder, then in an administrator
 PowerShell run `Unregister-ScheduledTask Couchwave` and `Remove-NetFirewallRule -DisplayName Couchwave`, and
@@ -171,6 +174,8 @@ number in `ports` (like `"8080:3000"`) rather than `port` in config.json.
 - **Updating**: `docker compose pull`, then `docker compose up -d`. "A newer Couchwave is out" in Activity
   says the same. (`--update` doesn't work in Docker: the image is the update.)
 - **Commands** like `--status` run inside it: `docker compose exec couchwave node server.js --status`.
+- **Being counted** is off unless you add `"countMe": true` to config.json: see
+  [Counting servers](#counting-servers).
 - **Health**: Docker checks [`/health`](#troubleshooting) by itself, so `docker ps` shows whether it's healthy.
 - **Friends at home** use this computer's address with the first port number, like `http://192.168.1.20:3000`.
   To let friends in from the internet, point Cloudflare Tunnel or Caddy at `localhost:3000` as in
@@ -202,6 +207,9 @@ itself when you save it; otherwise, restart it. A setting missing from an older 
   its address or range listed: `["203.0.113.5"]` or `["10.8.0.0/24"]`. `false` trusts no proxy: use it when
   nothing sits in front of Couchwave, and always if it's reachable straight from the internet without one
   (like Docker Desktop with a router port opened, where every visit seems to come from inside).
+- `countMe`: `true` lets Couchwave tell its maker once a day that this server is running, anonymously (the
+  version, operating system, CPU type and whether it's in Docker). Off (`false`) unless you turn it on: see
+  [Counting servers](#counting-servers).
 - `updateCheck`: once a day Couchwave asks GitHub for a newer release, and says so in Activity and the log if
   there is (it installs nothing, and sends nothing about you or your room). `false` turns this off.
 - `youtubeCookies`: only if YouTube keeps stopping downloads with its bot check, or a video only shows to
@@ -274,6 +282,36 @@ Couchwave also backs itself up once a day, into `data/backups/` (a folder for ea
 the accounts and logins, the queue, chat and history, and `config.json`. To go back to one, stop Couchwave,
 copy that day's files back into `data/` (and `config.json` back into the Couchwave folder), and start it
 again. For a copy somewhere safer, copy `data/backups/` to another drive now and then.
+
+## Counting servers
+
+Couchwave's maker would like to know roughly how many Couchwave servers are running, and on which versions
+and systems, to know what to keep working. **It's off unless you say yes**: the one-line install asks once
+(type `y` or `n`), and otherwise you can turn it on with `"countMe": true` in `config.json`. Change your mind
+any time: set it back to `false` and restart Couchwave.
+
+When it's on, Couchwave sends this to `https://ping.hoyle.cloud` a couple of minutes after it starts and then
+once a day, and nothing else:
+
+```json
+{ "app": "couchwave", "v": "0.6.0", "os": "linux", "arch": "arm64", "docker": true }
+```
+
+That's the Couchwave version, the operating system, the CPU type and whether it runs in Docker. Never anything
+about you, your room or your friends: no nicknames, songs, chat, settings, addresses or passwords.
+
+- **What's kept:** the day, those details, the country the message came from, and a code made from your
+  server's IP address and a random key that's replaced every day (the old key is deleted). Your IP address
+  itself is never stored, and the code can't be turned back into it or matched with another day's, so a server
+  can't be followed from one day to the next. The numbers are only seen by Couchwave's maker, as totals.
+- **Who:** Matt Hoyle, who makes Couchwave ([matthoyle.me](https://matthoyle.me/)). Questions: the
+  [Discord](https://discord.com/invite/pNtyzNkch6) or an [issue](https://github.com/Hoyle95/couchwave/issues).
+  It runs on Cloudflare, which carries the message like any web request; the data is kept in the EU.
+- **Why it's allowed:** you agreed to it (consent, under UK and EU data protection law), and you can take that
+  back any time as above. If you're unhappy with how it's handled, you can complain to your data protection
+  authority (in the UK, the ICO).
+- **Leave it off** and Couchwave never contacts ping.hoyle.cloud. Its other connections are in
+  [Settings](#settings) (`updateCheck`, `klipyKey`) and to YouTube for the songs.
 
 ## Keep it running
 

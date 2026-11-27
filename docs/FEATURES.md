@@ -163,7 +163,7 @@ The DJ:
 | `lib/addresses.js`, `lib/limits.js` | Visitors' addresses behind proxies, and the limits on guessing and going too fast. |
 | `lib/settings.js`, `lib/log.js` | `config.json`, and `data/server.log`. |
 | `lib/admin.js`, `lib/commands.js` | The commands above, and how the server answers them while it runs. |
-| `lib/upkeep.js` | Checking the tools, keeping yt-dlp up to date, the new-version check and daily backups. |
+| `lib/upkeep.js` | Checking the tools, keeping yt-dlp up to date, the new-version check, being counted (`countMe`, off unless the owner says yes) and daily backups. |
 | `lib/update.js` | `--update`: the download, its checksum, the trial run, putting files in place, and going back. |
 | `lib/common.js`, `lib/tools.js` | Shared basics (folders, saving files safely, times, YouTube links), and running yt-dlp, ffmpeg and ffprobe. |
 | `lib/dj.js` | The DJ. It only uses what `lib/start.js` hands it. |

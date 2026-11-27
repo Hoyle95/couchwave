@@ -14,6 +14,7 @@ permissions:
 
 env:
   GITHUB_TOKEN: ${{ github.token }}
+  COUCHWAVE_COUNT_ME: no
 
 jobs:
   linux:

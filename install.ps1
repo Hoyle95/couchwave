@@ -3,7 +3,8 @@
 # Installs Node.js, yt-dlp and ffmpeg if they're missing (with winget), downloads the newest Couchwave release
 # into your Couchwave folder, starts it with the PC, lets friends on your home network in, and starts it.
 # Run it again to update: config.json and data\ are kept. Optional: $env:COUCHWAVE_DIR (where to install),
-# $env:COUCHWAVE_PORT (the port for a new install; otherwise the first free one from 3000), $env:COUCHWAVE_NO_BROWSER (don't open a browser at the end).
+# $env:COUCHWAVE_PORT (the port for a new install; otherwise the first free one from 3000), $env:COUCHWAVE_NO_BROWSER (don't open a browser at the end),
+# $env:COUCHWAVE_COUNT_ME (yes or no: the answer to the one question a new install asks, see docs/INSTALL.md#counting-servers).
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -41,12 +42,27 @@ function IsCouchwave($port) {
   } catch { return $false }
 }
 
+# ---------- One question, for a new install only (no answer, like with no window to ask in, means no) ----------
+if (-not $env:COUCHWAVE_COUNT_ME -and -not (Test-Path (Join-Path $Dir 'config.json')) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+  Step 'One question before we start'
+  Write-Host "  May Couchwave count this server? Once a day it would send Couchwave's maker its Couchwave version,"
+  Write-Host "  operating system, CPU type and whether it's in Docker, so we know how many servers are out there."
+  Write-Host '  Nothing about you, your room or your friends, and no IP address is kept. You can change your mind'
+  Write-Host '  any time with "countMe" in config.json. More: https://github.com/Hoyle95/couchwave/blob/main/docs/INSTALL.md#counting-servers'
+  while (-not $env:COUCHWAVE_COUNT_ME) {
+    $answer = Read-Host '  Count this server? Type y or n'
+    if ($answer -match '^\s*(y|yes)\s*$') { $env:COUCHWAVE_COUNT_ME = 'yes' }
+    elseif ($answer -match '^\s*(n|no)\s*$') { $env:COUCHWAVE_COUNT_ME = 'no' }
+  }
+}
+$CountMe = $env:COUCHWAVE_COUNT_ME -match '^y'
+
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
   Write-Host 'Couchwave needs administrator rights once, to start with the PC and let friends on your network in.'
   Write-Host 'Windows will ask; the install carries on in a new window.'
   $quoted = { param($s) "'" + ("$s" -replace "'", "''") + "'" }
-  $again = "`$env:COUCHWAVE_DIR=$(& $quoted $Dir); `$env:COUCHWAVE_FOR=$(& $quoted $User); `$env:COUCHWAVE_PORT=$(& $quoted $env:COUCHWAVE_PORT); irm $(& $quoted $Url) | iex"
+  $again = "`$env:COUCHWAVE_DIR=$(& $quoted $Dir); `$env:COUCHWAVE_FOR=$(& $quoted $User); `$env:COUCHWAVE_PORT=$(& $quoted $env:COUCHWAVE_PORT); `$env:COUCHWAVE_COUNT_ME=$(& $quoted $env:COUCHWAVE_COUNT_ME); irm $(& $quoted $Url) | iex"
   Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-Command', $again
   return
 }
@@ -120,7 +136,7 @@ if (-not (Test-Path $config)) {
     if ($port -ne 3000) { Write-Host "  port 3000 is already used by something else, so Couchwave gets port $port" }
   }
   $password = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 12 | ForEach-Object { [char]$_ })
-  @{ password = $password; port = $port } | ConvertTo-Json | Set-Content $config -Encoding ascii
+  [ordered]@{ password = $password; port = $port; countMe = [bool]$CountMe } | ConvertTo-Json | Set-Content $config -Encoding ascii
 }
 
 Step 'Letting friends on your home network in'

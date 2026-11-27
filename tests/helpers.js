@@ -29,7 +29,7 @@ const freePort = () => new Promise(r => { const s = net.createServer().listen(0,
 const yt = id => `https://www.youtube.com/watch?v=${id}`;
 
 // ---------- A copy of Couchwave in a folder of its own (for tests that start it themselves) ----------
-const TOOL_ENV = { COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests' };
+const TOOL_ENV = { COUCHWAVE_FAKE_TOOLS: path.join(__dirname, 'fakes'), COUCHWAVE_CHECK_TOOLS: 'no', COUCHWAVE_RELEASES_URL: 'http://127.0.0.1:9/no-internet-in-tests', COUCHWAVE_COUNT_URL: 'http://127.0.0.1:9/no-internet-in-tests' };
 const testEnv = (...extra) => Object.assign(Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('COUCHWAVE_'))), TOOL_ENV, ...extra);
 function appCopy(extra = []) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'couchwave-copy-'));
